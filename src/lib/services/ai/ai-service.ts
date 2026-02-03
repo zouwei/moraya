@@ -12,6 +12,7 @@ import type {
   AI_COMMANDS,
 } from './types';
 import { AI_COMMANDS as COMMANDS } from './types';
+import { t } from '$lib/i18n';
 
 // ── AI State Store ──
 
@@ -93,13 +94,14 @@ export async function executeAICommand(
   }
 ): Promise<string> {
   const state = aiStore.getState();
+  const tr = get(t);
   if (!state.providerConfig || !state.isConfigured) {
-    throw new Error('AI is not configured. Please set your API key in Settings.');
+    throw new Error(tr('errors.aiNotConfigured'));
   }
 
   const commandDef = COMMANDS.find(c => c.command === command);
   if (!commandDef && command !== 'custom') {
-    throw new Error(`Unknown AI command: ${command}`);
+    throw new Error(tr('errors.unknownCommand', { command }));
   }
 
   aiStore.setLoading(true);
@@ -180,7 +182,7 @@ export async function executeAICommand(
     return fullContent;
 
   } catch (error: any) {
-    const errMsg = error?.message || 'AI request failed';
+    const errMsg = error?.message || get(t)('errors.aiRequestFailed');
     aiStore.setError(errMsg);
     throw error;
   }
@@ -192,7 +194,7 @@ export async function executeAICommand(
 export async function sendChatMessage(message: string, documentContext?: string): Promise<string> {
   const state = aiStore.getState();
   if (!state.providerConfig || !state.isConfigured) {
-    throw new Error('AI is not configured. Please set your API key in Settings.');
+    throw new Error(get(t)('errors.aiNotConfigured'));
   }
 
   aiStore.setLoading(true);
@@ -238,7 +240,7 @@ export async function sendChatMessage(message: string, documentContext?: string)
     return fullContent;
 
   } catch (error: any) {
-    const errMsg = error?.message || 'Chat request failed';
+    const errMsg = error?.message || get(t)('errors.chatRequestFailed');
     aiStore.setError(errMsg);
     throw error;
   }

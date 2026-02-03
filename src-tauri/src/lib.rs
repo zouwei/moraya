@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use tauri::{Emitter, Manager};
 
 mod commands;
@@ -6,6 +7,11 @@ mod menu;
 #[tauri::command]
 fn set_editor_mode_menu(app: tauri::AppHandle, mode: String) {
     menu::update_mode_checks(&app, &mode);
+}
+
+#[tauri::command]
+fn update_menu_labels(app: tauri::AppHandle, labels: HashMap<String, String>) {
+    menu::update_menu_labels(&app, &labels);
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -23,6 +29,7 @@ pub fn run() {
             commands::mcp::mcp_send_request,
             commands::mcp::mcp_disconnect,
             set_editor_mode_menu,
+            update_menu_labels,
         ])
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();

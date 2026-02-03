@@ -1,19 +1,19 @@
 # Moraya
 
-A minimal, open-source WYSIWYG Markdown editor built with Rust + Tauri v2. Inspired by Typora's seamless editing experience — small (~3MB DMG), elegant, and AI-ready.
+A minimal, open-source WYSIWYG Markdown editor built with Rust + Tauri v2. Inspired by Minimalist style seamless editing experience — small (~3MB DMG), elegant, and AI-ready.
 
 > **mora** (Latin, "a moment") + **ya** (Chinese, "elegance") = **Moraya** (墨雅)
 
 ## Features
 
-- **Typora-style WYSIWYG** — type `# ` and it renders as a heading instantly, powered by [Milkdown](https://milkdown.dev/) (ProseMirror-based)
+- **Minimalist-style WYSIWYG** — type `# ` and it renders as a heading instantly, powered by [Milkdown](https://milkdown.dev/) (ProseMirror-based)
 - **Three editor modes** — Visual, Source (raw Markdown), and Split (side-by-side with scroll sync). Toggle with `Cmd+/` and `Cmd+Shift+/`
 - **Math support** — inline and block LaTeX via KaTeX
 - **GFM** — tables (with floating toolbar), strikethrough, task lists, and more
 - **AI integration** — multi-provider LLM chat panel supporting Claude, OpenAI, Gemini, DeepSeek, Ollama, and custom OpenAI-compatible endpoints with streaming
 - **MCP protocol** — stdio, SSE, and HTTP transports for Model Context Protocol servers
 - **i18n** — English and Simplified Chinese, with system locale auto-detection
-- **Native menu & shortcuts** — Typora-style keyboard bindings with full native macOS/Windows/Linux menu (File, Edit, Paragraph, Format, View, Help)
+- **Native menu & shortcuts** — Minimalist-style keyboard bindings with full native macOS/Windows/Linux menu (File, Edit, Paragraph, Format, View, Help)
 - **Dark / Light themes** — auto-follows system preference or manual toggle via CSS custom properties
 - **Frameless window** — custom title bar with macOS traffic light integration
 - **Tiny footprint** — DMG ~2.8MB, binary ~4.6MB, app bundle ~4.7MB
@@ -143,7 +143,7 @@ moraya/
 │       │   ├── TableToolbar.svelte # Floating table operations toolbar
 │       │   ├── setup.ts          # Milkdown initialization
 │       │   └── plugins/
-│       │       └── keybindings.ts # Typora-style shortcuts
+│       │       └── keybindings.ts # Minimalist-style shortcuts
 │       ├── components/
 │       │   ├── TitleBar.svelte   # Custom frameless title bar
 │       │   ├── StatusBar.svelte  # Word/char count, mode indicator
@@ -161,6 +161,57 @@ moraya/
 │
 └── static/                       # Static assets (favicon, logos)
 ```
+
+## AI Assisted Writing
+
+Moraya has built-in AI-powered writing assistance with multi-provider support and streaming responses.
+
+### Configuration
+
+1. Open Settings (`Cmd+,` / `Ctrl+,`)
+2. Select the **AI** tab
+3. Choose a provider and fill in the required fields:
+
+| Provider | API Key Required | Notes |
+|----------|-----------------|-------|
+| Anthropic Claude | Yes | claude-opus-4.5, claude-sonnet-4, etc. |
+| OpenAI | Yes | gpt-4o, gpt-4o-mini, o1, etc. |
+| Google Gemini | Yes | gemini-2.0-flash, gemini-1.5-pro |
+| DeepSeek | Yes | deepseek-chat, deepseek-reasoner |
+| Ollama (Local) | No | Requires Ollama running locally |
+| Custom API | Optional | Any OpenAI-compatible endpoint |
+
+4. Click **Test Connection** to verify the configuration
+5. Adjust Max Tokens and Temperature as needed
+
+### Usage
+
+**Open the AI panel** with `Cmd+Shift+I` (`Ctrl+Shift+I` on Windows/Linux), or via the menu View → Toggle AI Panel. A 340px chat sidebar will appear on the right.
+
+**Free-form chat** — Type any question in the input box and press `Enter`. AI responds in real-time with streaming output.
+
+**Quick commands** — Type `/` in the input box to open the command palette:
+
+| Command | Description | Requires Selection |
+|---------|-------------|--------------------|
+| `/write` | Generate content from a prompt | No |
+| `/continue` | Continue writing from the current document | No |
+| `/outline` | Generate an article outline | No |
+| `/summarize` | Summarize selected text | Yes |
+| `/translate` | Translate between Chinese and English | Yes |
+| `/improve` | Improve writing quality | Yes |
+| `/fix-grammar` | Fix grammar and spelling errors | Yes |
+| `/simplify` | Simplify complex text | Yes |
+| `/expand` | Expand on a topic with more details | Yes |
+| `/explain` | Explain selected text | Yes |
+
+### Applying AI Results
+
+Each AI response has action buttons below it:
+
+- **Insert into editor** — Append the AI response to the end of the document
+- **Replace selection** — Replace the currently selected text with the AI response
+- **Copy** — Copy the response to the clipboard
 
 ## Development Roadmap
 

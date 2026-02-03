@@ -6,6 +6,7 @@ import { history } from '@milkdown/plugin-history';
 import { clipboard } from '@milkdown/plugin-clipboard';
 import { cursor } from '@milkdown/plugin-cursor';
 import { listener, listenerCtx } from '@milkdown/plugin-listener';
+import { highlightPlugin } from './plugins/highlight';
 
 import 'katex/dist/katex.min.css';
 
@@ -44,6 +45,7 @@ export async function createEditor(options: EditorOptions): Promise<Editor> {
     .use(clipboard)
     .use(cursor)
     .use(listener)
+    .use(highlightPlugin)
     .create();
 
   // Handle focus/blur events on the editor DOM

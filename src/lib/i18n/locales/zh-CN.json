@@ -19,7 +19,8 @@
       "editor": "编辑器",
       "appearance": "外观",
       "ai": "AI",
-      "mcp": "MCP"
+      "mcp": "MCP",
+      "image": "图片"
     },
     "language": {
       "label": "语言",
@@ -30,6 +31,14 @@
       "system": "跟随系统",
       "light": "浅色",
       "dark": "深色"
+    },
+    "appearance": {
+      "themeSection": "主题",
+      "darkModeSection": "深色模式",
+      "fontSection": "字体",
+      "separateDarkTheme": "在深色模式下使用独立的主题",
+      "darkTheme": "深色模式主题",
+      "darkModeLabel": "外观模式"
     },
     "fontSize": {
       "label": "字体大小"
@@ -174,6 +183,105 @@
       "hint": "配置知识库 MCP 服务器以启用文档同步。",
       "syncNow": "立即同步"
     }
+  },
+  "imageDialog": {
+    "title": "插入图片",
+    "urlTab": "URL 地址",
+    "fileTab": "本地文件",
+    "urlPlaceholder": "https://example.com/image.png",
+    "altPlaceholder": "图片描述（可选）",
+    "selectFile": "选择图片...",
+    "noFileSelected": "未选择文件",
+    "insert": "插入",
+    "cancel": "取消"
+  },
+  "imageHost": {
+    "title": "图床服务",
+    "provider": "服务商",
+    "smms": "SM.MS",
+    "imgur": "Imgur",
+    "custom": "自定义 API",
+    "apiToken": "API 密钥",
+    "apiTokenPlaceholder": "输入 API 密钥",
+    "customEndpoint": "上传接口",
+    "customEndpointPlaceholder": "https://your-api.com/upload",
+    "customHeaders": "自定义请求头（JSON）",
+    "autoUpload": "粘贴/拖入图片时自动上传",
+    "testUpload": "测试上传",
+    "testing": "测试中...",
+    "success": "上传成功！",
+    "failed": "上传失败"
+  },
+  "imageMenu": {
+    "resize": "调整大小",
+    "upload": "上传到图床",
+    "editAlt": "编辑描述",
+    "copyUrl": "复制图片地址",
+    "delete": "删除图片",
+    "originalSize": "原始大小"
+  },
+  "menu": {
+    "file": "文件",
+    "edit": "编辑",
+    "paragraph": "段落",
+    "format": "格式",
+    "view": "视图",
+    "help": "帮助",
+    "new": "新建",
+    "open": "打开...",
+    "save": "保存",
+    "saveAs": "另存为...",
+    "exportHtml": "导出为 HTML",
+    "heading1": "标题 1",
+    "heading2": "标题 2",
+    "heading3": "标题 3",
+    "heading4": "标题 4",
+    "heading5": "标题 5",
+    "heading6": "标题 6",
+    "table": "表格",
+    "codeBlock": "代码块",
+    "mathBlock": "公式块",
+    "quote": "引用",
+    "bulletList": "无序列表",
+    "orderedList": "有序列表",
+    "horizontalRule": "分隔线",
+    "bold": "粗体",
+    "italic": "斜体",
+    "strikethrough": "删除线",
+    "code": "代码",
+    "link": "链接",
+    "image": "图片",
+    "visualMode": "可视化模式          ⌘/",
+    "sourceMode": "源码模式         ⌘/",
+    "splitMode": "对比模式       ⇧⌘/",
+    "toggleSidebar": "切换侧边栏",
+    "toggleAIPanel": "切换 AI 面板",
+    "zoomIn": "放大",
+    "zoomOut": "缩小",
+    "actualSize": "实际大小",
+    "aboutMoraya": "关于 Moraya",
+    "settings": "设置..."
+  },
+  "export": {
+    "exportAs": "导出为 {format}",
+    "pdf": "PDF",
+    "html": "HTML（含样式）",
+    "htmlPlain": "HTML（无样式）",
+    "image": "图片 (PNG)",
+    "docx": "Word (.docx)",
+    "rtf": "RTF",
+    "epub": "Epub",
+    "latex": "LaTeX",
+    "mediawiki": "MediaWiki",
+    "rst": "reStructuredText",
+    "textile": "Textile",
+    "opml": "OPML"
+  },
+  "errors": {
+    "aiNotConfigured": "AI 未配置。请在设置中配置 API 密钥。",
+    "aiRequestFailed": "AI 请求失败",
+    "chatRequestFailed": "对话请求失败",
+    "unknownCommand": "未知 AI 命令：{command}"
   },
   "welcome": {
     "title": "欢迎使用 Moraya",

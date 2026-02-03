@@ -1,8 +1,10 @@
 <script lang="ts">
   import { settingsStore, type Theme } from '../stores/settings-store';
   import { t, SUPPORTED_LOCALES, type LocaleSelection } from '$lib/i18n';
+  import { builtinThemes, getLightThemes, getDarkThemes } from '$lib/styles/themes';
   import AISettings from './ai/AISettings.svelte';
   import MCPPanel from './ai/MCPPanel.svelte';
+  import ImageHostingSettings from './ImageHostingSettings.svelte';
 
   let {
     onClose,
@@ -10,10 +12,13 @@
     onClose: () => void;
   } = $props();
 
-  type Tab = 'general' | 'editor' | 'appearance' | 'ai' | 'mcp';
+  type Tab = 'general' | 'editor' | 'appearance' | 'ai' | 'mcp' | 'image';
   let activeTab = $state<Tab>('general');
 
   let theme = $state<Theme>('system');
+  let colorTheme = $state('default-light');
+  let darkColorTheme = $state('default-dark');
+  let useSeparateDarkTheme = $state(false);
   let fontSize = $state(16);
   let autoSave = $state(true);
   let autoSaveInterval = $state(30);
@@ -22,8 +27,14 @@
   let editorTabSize = $state(4);
   let showLineNumbers = $state(false);
 
+  const lightThemes = getLightThemes();
+  const darkThemes = getDarkThemes();
+
   settingsStore.subscribe(state => {
     theme = state.theme;
+    colorTheme = state.colorTheme;
+    darkColorTheme = state.darkColorTheme;
+    useSeparateDarkTheme = state.useSeparateDarkTheme;
     fontSize = state.fontSize;
     autoSave = state.autoSave;
     autoSaveInterval = state.autoSaveInterval / 1000;
@@ -41,6 +52,21 @@
   function handleThemeChange(event: Event) {
     const value = (event.target as HTMLSelectElement).value as Theme;
     settingsStore.setTheme(value);
+  }
+
+  function handleColorThemeChange(event: Event) {
+    const value = (event.target as HTMLSelectElement).value;
+    settingsStore.setColorTheme(value);
+  }
+
+  function handleDarkColorThemeChange(event: Event) {
+    const value = (event.target as HTMLSelectElement).value;
+    settingsStore.setDarkColorTheme(value);
+  }
+
+  function handleSeparateDarkThemeChange(event: Event) {
+    const checked = (event.target as HTMLInputElement).checked;
+    settingsStore.setUseSeparateDarkTheme(checked);
   }
 
   function handleFontSizeChange(event: Event) {
@@ -86,6 +112,7 @@
     { key: 'appearance', icon: '◐', labelKey: 'settings.tabs.appearance' },
     { key: 'ai', icon: '✦', labelKey: 'settings.tabs.ai' },
     { key: 'mcp', icon: '⇌', labelKey: 'settings.tabs.mcp' },
+    { key: 'image', icon: '▣', labelKey: 'settings.tabs.image' },
   ];
 </script>
 
@@ -206,27 +233,73 @@
           </div>
 
         {:else if activeTab === 'appearance'}
-          <div class="setting-group">
-            <label class="setting-label">{$t('settings.theme.label')}</label>
-            <select class="setting-input" value={theme} onchange={handleThemeChange}>
-              <option value="system">{$t('settings.theme.system')}</option>
-              <option value="light">{$t('settings.theme.light')}</option>
-              <option value="dark">{$t('settings.theme.dark')}</option>
-            </select>
+          <!-- Theme section -->
+          <div class="setting-section">
+            <div class="section-header">{$t('settings.appearance.themeSection')}</div>
+
+            <div class="setting-group">
+              <label class="setting-label">{$t('settings.theme.label')}</label>
+              <select class="setting-input" value={colorTheme} onchange={handleColorThemeChange}>
+                {#each builtinThemes as ct}
+                  <option value={ct.id}>{ct.name}</option>
+                {/each}
+              </select>
+            </div>
+
+            <div class="setting-group">
+              <label class="setting-label">
+                <input
+                  type="checkbox"
+                  checked={useSeparateDarkTheme}
+                  onchange={handleSeparateDarkThemeChange}
+                />
+                {$t('settings.appearance.separateDarkTheme')}
+              </label>
+            </div>
+
+            {#if useSeparateDarkTheme}
+              <div class="setting-group">
+                <label class="setting-label">{$t('settings.appearance.darkTheme')}</label>
+                <select class="setting-input" value={darkColorTheme} onchange={handleDarkColorThemeChange}>
+                  {#each darkThemes as ct}
+                    <option value={ct.id}>{ct.name}</option>
+                  {/each}
+                </select>
+              </div>
+            {/if}
           </div>
 
-          <div class="setting-group">
-            <label class="setting-label">{$t('settings.fontSize.label')}</label>
-            <div class="setting-row">
-              <input
-                type="range"
-                min="12"
-                max="24"
-                value={fontSize}
-                oninput={handleFontSizeChange}
-                class="setting-range"
-              />
-              <span class="setting-value">{fontSize}px</span>
+          <!-- Dark mode section -->
+          <div class="setting-section">
+            <div class="section-header">{$t('settings.appearance.darkModeSection')}</div>
+
+            <div class="setting-group">
+              <label class="setting-label">{$t('settings.appearance.darkModeLabel')}</label>
+              <select class="setting-input" value={theme} onchange={handleThemeChange}>
+                <option value="system">{$t('settings.theme.system')}</option>
+                <option value="light">{$t('settings.theme.light')}</option>
+                <option value="dark">{$t('settings.theme.dark')}</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Font section -->
+          <div class="setting-section">
+            <div class="section-header">{$t('settings.appearance.fontSection')}</div>
+
+            <div class="setting-group">
+              <label class="setting-label">{$t('settings.fontSize.label')}</label>
+              <div class="setting-row">
+                <input
+                  type="range"
+                  min="12"
+                  max="24"
+                  value={fontSize}
+                  oninput={handleFontSizeChange}
+                  class="setting-range"
+                />
+                <span class="setting-value">{fontSize}px</span>
+              </div>
             </div>
           </div>
 
@@ -235,6 +308,9 @@
 
         {:else if activeTab === 'mcp'}
           <MCPPanel />
+
+        {:else if activeTab === 'image'}
+          <ImageHostingSettings />
         {/if}
       </div>
     </div>
@@ -429,5 +505,23 @@
     color: var(--text-muted);
     min-width: 3.5rem;
     text-align: right;
+  }
+
+  .setting-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .setting-section + .setting-section {
+    margin-top: 0.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-light);
+  }
+
+  .section-header {
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    color: var(--text-primary);
   }
 </style>

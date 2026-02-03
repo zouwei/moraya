@@ -40,6 +40,27 @@
   /* Transitions */
   --transition-fast: 0.15s ease;
   --transition-normal: 0.25s ease;
+
+  /* Syntax highlighting - Light */
+  --hljs-keyword: #d73a49;
+  --hljs-string: #032f62;
+  --hljs-number: #005cc5;
+  --hljs-comment: #6a737d;
+  --hljs-function: #6f42c1;
+  --hljs-variable: #e36209;
+  --hljs-type: #005cc5;
+  --hljs-built-in: #005cc5;
+  --hljs-literal: #005cc5;
+  --hljs-title: #6f42c1;
+  --hljs-params: #24292e;
+  --hljs-meta: #6a737d;
+  --hljs-tag: #22863a;
+  --hljs-name: #22863a;
+  --hljs-attr: #6f42c1;
+  --hljs-attribute: #032f62;
+  --hljs-selector: #22863a;
+  --hljs-property: #005cc5;
+  --hljs-punctuation: #24292e;
 }
 
 /* Dark theme */
@@ -67,6 +88,27 @@
   --accent-hover: #6cb0e0;
 
   --scrollbar-thumb: #4a4a4a;
+
+  /* Syntax highlighting - Dark */
+  --hljs-keyword: #c586c0;
+  --hljs-string: #ce9178;
+  --hljs-number: #b5cea8;
+  --hljs-comment: #6a9955;
+  --hljs-function: #dcdcaa;
+  --hljs-variable: #9cdcfe;
+  --hljs-type: #4ec9b0;
+  --hljs-built-in: #4ec9b0;
+  --hljs-literal: #569cd6;
+  --hljs-title: #dcdcaa;
+  --hljs-params: #9cdcfe;
+  --hljs-meta: #569cd6;
+  --hljs-tag: #569cd6;
+  --hljs-name: #4ec9b0;
+  --hljs-attr: #9cdcfe;
+  --hljs-attribute: #ce9178;
+  --hljs-selector: #d7ba7d;
+  --hljs-property: #9cdcfe;
+  --hljs-punctuation: #d4d4d4;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -89,5 +131,26 @@
     --accent-hover: #6cb0e0;
 
     --scrollbar-thumb: #4a4a4a;
+
+    /* Syntax highlighting - Dark (system) */
+    --hljs-keyword: #c586c0;
+    --hljs-string: #ce9178;
+    --hljs-number: #b5cea8;
+    --hljs-comment: #6a9955;
+    --hljs-function: #dcdcaa;
+    --hljs-variable: #9cdcfe;
+    --hljs-type: #4ec9b0;
+    --hljs-built-in: #4ec9b0;
+    --hljs-literal: #569cd6;
+    --hljs-title: #dcdcaa;
+    --hljs-params: #9cdcfe;
+    --hljs-meta: #569cd6;
+    --hljs-tag: #569cd6;
+    --hljs-name: #4ec9b0;
+    --hljs-attr: #9cdcfe;
+    --hljs-attribute: #ce9178;
+    --hljs-selector: #d7ba7d;
+    --hljs-property: #9cdcfe;
+    --hljs-punctuation: #d4d4d4;
   }
 }

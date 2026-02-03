@@ -1,5 +1,7 @@
 import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
+import { get } from 'svelte/store';
+import { t } from '$lib/i18n';
 
 export type ExportFormat =
   | 'pdf'
@@ -17,24 +19,24 @@ export type ExportFormat =
 
 interface ExportOption {
   format: ExportFormat;
-  label: string;
+  labelKey: string;
   extension: string;
   mimeType: string;
 }
 
 export const exportOptions: ExportOption[] = [
-  { format: 'pdf', label: 'PDF', extension: 'pdf', mimeType: 'application/pdf' },
-  { format: 'html', label: 'HTML (with styles)', extension: 'html', mimeType: 'text/html' },
-  { format: 'html-plain', label: 'HTML (without styles)', extension: 'html', mimeType: 'text/html' },
-  { format: 'image', label: 'Image (PNG)', extension: 'png', mimeType: 'image/png' },
-  { format: 'docx', label: 'Word (.docx)', extension: 'docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
-  { format: 'rtf', label: 'RTF', extension: 'rtf', mimeType: 'application/rtf' },
-  { format: 'epub', label: 'Epub', extension: 'epub', mimeType: 'application/epub+zip' },
-  { format: 'latex', label: 'LaTeX', extension: 'tex', mimeType: 'application/x-latex' },
-  { format: 'mediawiki', label: 'MediaWiki', extension: 'wiki', mimeType: 'text/plain' },
-  { format: 'rst', label: 'reStructuredText', extension: 'rst', mimeType: 'text/plain' },
-  { format: 'textile', label: 'Textile', extension: 'textile', mimeType: 'text/plain' },
-  { format: 'opml', label: 'OPML', extension: 'opml', mimeType: 'text/xml' },
+  { format: 'pdf', labelKey: 'export.pdf', extension: 'pdf', mimeType: 'application/pdf' },
+  { format: 'html', labelKey: 'export.html', extension: 'html', mimeType: 'text/html' },
+  { format: 'html-plain', labelKey: 'export.htmlPlain', extension: 'html', mimeType: 'text/html' },
+  { format: 'image', labelKey: 'export.image', extension: 'png', mimeType: 'image/png' },
+  { format: 'docx', labelKey: 'export.docx', extension: 'docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+  { format: 'rtf', labelKey: 'export.rtf', extension: 'rtf', mimeType: 'application/rtf' },
+  { format: 'epub', labelKey: 'export.epub', extension: 'epub', mimeType: 'application/epub+zip' },
+  { format: 'latex', labelKey: 'export.latex', extension: 'tex', mimeType: 'application/x-latex' },
+  { format: 'mediawiki', labelKey: 'export.mediawiki', extension: 'wiki', mimeType: 'text/plain' },
+  { format: 'rst', labelKey: 'export.rst', extension: 'rst', mimeType: 'text/plain' },
+  { format: 'textile', labelKey: 'export.textile', extension: 'textile', mimeType: 'text/plain' },
+  { format: 'opml', labelKey: 'export.opml', extension: 'opml', mimeType: 'text/xml' },
 ];
 
 /**
@@ -143,10 +145,12 @@ export async function exportDocument(markdown: string, format: ExportFormat): Pr
   const option = exportOptions.find(o => o.format === format);
   if (!option) return false;
 
+  const tr = get(t);
+  const label = tr(option.labelKey);
   const path = await saveDialog({
-    title: `Export as ${option.label}`,
+    title: tr('export.exportAs', { format: label }),
     defaultPath: `document.${option.extension}`,
-    filters: [{ name: option.label, extensions: [option.extension] }],
+    filters: [{ name: label, extensions: [option.extension] }],
   });
 
   if (!path || typeof path !== 'string') return false;

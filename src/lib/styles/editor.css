@@ -91,7 +91,69 @@
   padding: 0;
   background: none;
   border-radius: 0;
+  color: inherit;
 }
+
+/* Syntax highlighting tokens */
+.moraya-editor pre .hljs-keyword,
+.moraya-editor pre .hljs-selector-tag { color: var(--hljs-keyword); }
+
+.moraya-editor pre .hljs-string,
+.moraya-editor pre .hljs-doctag,
+.moraya-editor pre .hljs-template-tag,
+.moraya-editor pre .hljs-template-variable { color: var(--hljs-string); }
+
+.moraya-editor pre .hljs-number { color: var(--hljs-number); }
+
+.moraya-editor pre .hljs-comment { color: var(--hljs-comment); font-style: italic; }
+
+.moraya-editor pre .hljs-title,
+.moraya-editor pre .hljs-title\.class_,
+.moraya-editor pre .hljs-title\.function_ { color: var(--hljs-title); }
+
+.moraya-editor pre .hljs-function { color: var(--hljs-function); }
+
+.moraya-editor pre .hljs-variable,
+.moraya-editor pre .hljs-variable\.language_ { color: var(--hljs-variable); }
+
+.moraya-editor pre .hljs-type,
+.moraya-editor pre .hljs-class { color: var(--hljs-type); }
+
+.moraya-editor pre .hljs-built_in { color: var(--hljs-built-in); }
+
+.moraya-editor pre .hljs-literal,
+.moraya-editor pre .hljs-symbol { color: var(--hljs-literal); }
+
+.moraya-editor pre .hljs-params { color: var(--hljs-params); }
+
+.moraya-editor pre .hljs-meta,
+.moraya-editor pre .hljs-meta .hljs-keyword { color: var(--hljs-meta); }
+
+.moraya-editor pre .hljs-tag { color: var(--hljs-tag); }
+.moraya-editor pre .hljs-name { color: var(--hljs-name); }
+
+.moraya-editor pre .hljs-attr { color: var(--hljs-attr); }
+.moraya-editor pre .hljs-attribute { color: var(--hljs-attribute); }
+
+.moraya-editor pre .hljs-selector-class,
+.moraya-editor pre .hljs-selector-id,
+.moraya-editor pre .hljs-selector-pseudo { color: var(--hljs-selector); }
+
+.moraya-editor pre .hljs-property { color: var(--hljs-property); }
+.moraya-editor pre .hljs-punctuation { color: var(--hljs-punctuation); }
+
+.moraya-editor pre .hljs-addition {
+  color: #22863a;
+  background: rgba(34, 134, 58, 0.1);
+}
+
+.moraya-editor pre .hljs-deletion {
+  color: #b31d28;
+  background: rgba(179, 29, 40, 0.1);
+}
+
+.moraya-editor pre .hljs-emphasis { font-style: italic; }
+.moraya-editor pre .hljs-strong { font-weight: 600; }
 
 /* Blockquote */
 .moraya-editor blockquote {
@@ -170,6 +232,27 @@
   height: auto;
   border-radius: 4px;
   margin: 0.5em 0;
+}
+
+/* Image resize via title attribute: title="width=50%" */
+.moraya-editor img[title^="width="] {
+  max-width: none;
+}
+
+.moraya-editor img[title="width=25%"] {
+  width: 25%;
+}
+
+.moraya-editor img[title="width=50%"] {
+  width: 50%;
+}
+
+.moraya-editor img[title="width=75%"] {
+  width: 75%;
+}
+
+.moraya-editor img[title="width=100%"] {
+  width: 100%;
 }
 
 /* Math blocks */

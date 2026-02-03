@@ -62,6 +62,9 @@ importers:
       '@tauri-apps/plugin-store':
         specifier: ^2.4.2
         version: 2.4.2
+      highlight.js:
+        specifier: ^11.11.1
+        version: 11.11.1
       katex:
         specifier: ^0.16.28
         version: 0.16.28
@@ -736,6 +739,10 @@ packages:
     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==}
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
+
+  highlight.js@11.11.1:
+    resolution: {integrity: sha512-Xwwo44whKBVCYoliBQwaPvtd/2tYFkRQtXDWj1nackaV2JPXx3L0+Jvd8/qCJ2p+ML0/XVkJ2q+Mr+UVdpJK5w==}
+    engines: {node: '>=12.0.0'}
 
   is-plain-obj@4.1.0:
     resolution: {integrity: sha512-+Pgi+vMuUNkJyExiMBt5IlFoMyKnr5zhJ4Uspz58WOhBF5QoIZkFyNHIbBAtHwzVAgk5RtndVNsDRN61/mmDqg==}
@@ -1710,6 +1717,8 @@ snapshots:
 
   fsevents@2.3.3:
     optional: true
+
+  highlight.js@11.11.1: {}
 
   is-plain-obj@4.1.0: {}
 

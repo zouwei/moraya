@@ -1,0 +1,183 @@
+/**
+ * Syntax highlighting plugin for Milkdown code blocks using highlight.js.
+ * Applies ProseMirror decorations with hljs CSS classes for language-aware coloring.
+ */
+
+import { $prose } from '@milkdown/utils';
+import { Plugin, PluginKey } from '@milkdown/prose/state';
+import { Decoration, DecorationSet } from '@milkdown/prose/view';
+import hljs from 'highlight.js/lib/core';
+
+// Import commonly used languages
+import javascript from 'highlight.js/lib/languages/javascript';
+import typescript from 'highlight.js/lib/languages/typescript';
+import python from 'highlight.js/lib/languages/python';
+import rust from 'highlight.js/lib/languages/rust';
+import css from 'highlight.js/lib/languages/css';
+import xml from 'highlight.js/lib/languages/xml';
+import json from 'highlight.js/lib/languages/json';
+import bash from 'highlight.js/lib/languages/bash';
+import sql from 'highlight.js/lib/languages/sql';
+import java from 'highlight.js/lib/languages/java';
+import cpp from 'highlight.js/lib/languages/cpp';
+import c from 'highlight.js/lib/languages/c';
+import go from 'highlight.js/lib/languages/go';
+import ruby from 'highlight.js/lib/languages/ruby';
+import php from 'highlight.js/lib/languages/php';
+import swift from 'highlight.js/lib/languages/swift';
+import kotlin from 'highlight.js/lib/languages/kotlin';
+import yaml from 'highlight.js/lib/languages/yaml';
+import markdown from 'highlight.js/lib/languages/markdown';
+import diff from 'highlight.js/lib/languages/diff';
+import lua from 'highlight.js/lib/languages/lua';
+import scss from 'highlight.js/lib/languages/scss';
+
+// Register languages
+hljs.registerLanguage('javascript', javascript);
+hljs.registerLanguage('js', javascript);
+hljs.registerLanguage('typescript', typescript);
+hljs.registerLanguage('ts', typescript);
+hljs.registerLanguage('python', python);
+hljs.registerLanguage('py', python);
+hljs.registerLanguage('rust', rust);
+hljs.registerLanguage('rs', rust);
+hljs.registerLanguage('css', css);
+hljs.registerLanguage('html', xml);
+hljs.registerLanguage('xml', xml);
+hljs.registerLanguage('json', json);
+hljs.registerLanguage('bash', bash);
+hljs.registerLanguage('sh', bash);
+hljs.registerLanguage('shell', bash);
+hljs.registerLanguage('sql', sql);
+hljs.registerLanguage('java', java);
+hljs.registerLanguage('cpp', cpp);
+hljs.registerLanguage('c', c);
+hljs.registerLanguage('go', go);
+hljs.registerLanguage('ruby', ruby);
+hljs.registerLanguage('rb', ruby);
+hljs.registerLanguage('php', php);
+hljs.registerLanguage('swift', swift);
+hljs.registerLanguage('kotlin', kotlin);
+hljs.registerLanguage('kt', kotlin);
+hljs.registerLanguage('yaml', yaml);
+hljs.registerLanguage('yml', yaml);
+hljs.registerLanguage('markdown', markdown);
+hljs.registerLanguage('md', markdown);
+hljs.registerLanguage('diff', diff);
+hljs.registerLanguage('lua', lua);
+hljs.registerLanguage('scss', scss);
+hljs.registerLanguage('svelte', xml);
+hljs.registerLanguage('jsx', javascript);
+hljs.registerLanguage('tsx', typescript);
+
+const highlightPluginKey = new PluginKey('syntax-highlight');
+
+interface HljsNode {
+  kind?: string;
+  children?: (HljsNode | string)[];
+  value?: string;
+}
+
+/**
+ * Flatten the hljs emitter tree into a list of { text, classes } spans.
+ */
+function flattenHljsTree(nodes: (HljsNode | string)[], parentClasses: string[] = []): { text: string; classes: string[] }[] {
+  const result: { text: string; classes: string[] }[] = [];
+
+  for (const node of nodes) {
+    if (typeof node === 'string') {
+      if (node.length > 0) {
+        result.push({ text: node, classes: parentClasses });
+      }
+    } else {
+      const classes = node.kind ? [...parentClasses, `hljs-${node.kind}`] : parentClasses;
+      if (node.children) {
+        result.push(...flattenHljsTree(node.children, classes));
+      } else if (node.value) {
+        if (node.value.length > 0) {
+          result.push({ text: node.value, classes });
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Build ProseMirror decorations for a highlighted code block.
+ */
+function getDecorations(doc: any): DecorationSet {
+  const decorations: Decoration[] = [];
+
+  doc.descendants((node: any, pos: number) => {
+    if (node.type.name !== 'code_block') return;
+
+    const language = node.attrs.language || '';
+    const code = node.textContent;
+
+    if (!code) return;
+
+    let result;
+    try {
+      if (language && hljs.getLanguage(language)) {
+        result = hljs.highlight(code, { language, ignoreIllegals: true });
+      } else {
+        result = hljs.highlightAuto(code);
+      }
+    } catch {
+      return; // Skip if highlighting fails
+    }
+
+    // Access the internal emitter tree
+    const emitter = result as any;
+    const rootNode = emitter._emitter?.rootNode ?? emitter._emitter?.root;
+    if (!rootNode?.children) return;
+
+    const spans = flattenHljsTree(rootNode.children);
+
+    // The code content starts at pos + 1 (after the opening of the code_block node)
+    let offset = pos + 1;
+
+    for (const span of spans) {
+      const from = offset;
+      const to = offset + span.text.length;
+      offset = to;
+
+      if (span.classes.length > 0 && from < to) {
+        decorations.push(
+          Decoration.inline(from, to, {
+            class: span.classes.join(' '),
+          })
+        );
+      }
+    }
+  });
+
+  return DecorationSet.create(doc, decorations);
+}
+
+/**
+ * Milkdown plugin that adds syntax highlighting to code blocks.
+ */
+export const highlightPlugin = $prose(() => {
+  return new Plugin({
+    key: highlightPluginKey,
+    state: {
+      init(_, state) {
+        return getDecorations(state.doc);
+      },
+      apply(tr, decorationSet, _oldState, newState) {
+        if (tr.docChanged) {
+          return getDecorations(newState.doc);
+        }
+        return decorationSet;
+      },
+    },
+    props: {
+      decorations(state) {
+        return this.getState(state);
+      },
+    },
+  });
+});

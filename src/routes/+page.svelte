@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import type { Editor as MilkdownEditor } from '@milkdown/core';
   import { editorViewCtx } from '@milkdown/core';
-  import { callCommand } from '@milkdown/utils';
+  import { callCommand, replaceAll } from '@milkdown/utils';
   import {
     wrapInHeadingCommand,
     wrapInBlockquoteCommand,
@@ -29,9 +29,10 @@
   import Sidebar from '$lib/components/Sidebar.svelte';
   import SettingsPanel from '$lib/components/SettingsPanel.svelte';
   import AIChatPanel from '$lib/components/ai/AIChatPanel.svelte';
+  import ImageInsertDialog from '$lib/components/ImageInsertDialog.svelte';
   import { editorStore } from '$lib/stores/editor-store';
   import { settingsStore } from '$lib/stores/settings-store';
-  import { openFile, saveFile, saveFileAs, loadFile, getFileNameFromPath } from '$lib/services/file-service';
+  import { openFile, saveFile, saveFileAs, loadFile, getFileNameFromPath, readImageAsBlobUrl } from '$lib/services/file-service';
   import { exportDocument, type ExportFormat } from '$lib/services/export-service';
   import { listen, type UnlistenFn } from '@tauri-apps/api/event';
   import { invoke } from '@tauri-apps/api/core';
@@ -145,10 +146,11 @@ ${tr('welcome.tip')}
 `;
   }
 
-  let content = $state(getDefaultContent());
+  let content = $state(import.meta.env.DEV ? getDefaultContent() : '');
   let showSidebar = $state(false);
   let showSettings = $state(false);
   let showAIPanel = $state(false);
+  let showImageDialog = $state(false);
   let currentFileName = $state($t('common.untitled'));
   let selectedText = $state('');
   let editorMode = $state<EditorMode>('visual');
@@ -212,6 +214,61 @@ ${tr('welcome.tip')}
     invoke('set_editor_mode_menu', { mode: editorMode });
   });
 
+  // Sync native menu labels when locale changes
+  $effect(() => {
+    const tr = $t;
+    const labels: Record<string, string> = {
+      // Submenu titles
+      menu_file: tr('menu.file'),
+      menu_edit: tr('menu.edit'),
+      menu_paragraph: tr('menu.paragraph'),
+      menu_format: tr('menu.format'),
+      menu_view: tr('menu.view'),
+      menu_help: tr('menu.help'),
+      // File menu
+      file_new: tr('menu.new'),
+      file_open: tr('menu.open'),
+      file_save: tr('menu.save'),
+      file_save_as: tr('menu.saveAs'),
+      file_export_html: tr('menu.exportHtml'),
+      // Paragraph menu
+      para_h1: tr('menu.heading1'),
+      para_h2: tr('menu.heading2'),
+      para_h3: tr('menu.heading3'),
+      para_h4: tr('menu.heading4'),
+      para_h5: tr('menu.heading5'),
+      para_h6: tr('menu.heading6'),
+      para_table: tr('menu.table'),
+      para_code_block: tr('menu.codeBlock'),
+      para_math_block: tr('menu.mathBlock'),
+      para_quote: tr('menu.quote'),
+      para_bullet_list: tr('menu.bulletList'),
+      para_ordered_list: tr('menu.orderedList'),
+      para_hr: tr('menu.horizontalRule'),
+      // Format menu
+      fmt_bold: tr('menu.bold'),
+      fmt_italic: tr('menu.italic'),
+      fmt_strikethrough: tr('menu.strikethrough'),
+      fmt_code: tr('menu.code'),
+      fmt_link: tr('menu.link'),
+      fmt_image: tr('menu.image'),
+      // View menu
+      view_mode_visual: tr('menu.visualMode'),
+      view_mode_source: tr('menu.sourceMode'),
+      view_mode_split: tr('menu.splitMode'),
+      view_sidebar: tr('menu.toggleSidebar'),
+      view_ai_panel: tr('menu.toggleAIPanel'),
+      view_zoom_in: tr('menu.zoomIn'),
+      view_zoom_out: tr('menu.zoomOut'),
+      view_actual_size: tr('menu.actualSize'),
+      // Help menu
+      help_about: tr('menu.aboutMoraya'),
+      // macOS app menu
+      preferences: tr('menu.settings'),
+    };
+    invoke('update_menu_labels', { labels });
+  });
+
   // Auto-save timer
   let autoSaveTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -228,7 +285,7 @@ ${tr('welcome.tip')}
     }
   }
 
-  // Typora-style keyboard shortcuts
+  // Minimalist-style keyboard shortcuts
   function handleKeydown(event: KeyboardEvent) {
     const mod = event.metaKey || event.ctrlKey;
 
@@ -297,6 +354,13 @@ ${tr('welcome.tip')}
       return;
     }
 
+    // Insert image: Cmd+Shift+G
+    if (mod && event.shiftKey && event.key === 'G') {
+      event.preventDefault();
+      showImageDialog = true;
+      return;
+    }
+
     // Zoom
     if (mod && event.key === '=') {
       event.preventDefault();
@@ -336,10 +400,58 @@ ${tr('welcome.tip')}
 
   function handleAIInsert(text: string) {
     content = content.trimEnd() + '\n\n' + text + '\n';
+    // In visual/split mode, sync the new content into Milkdown
+    if (milkdownEditor && editorStore.getState().editorMode !== 'source') {
+      try {
+        milkdownEditor.action(replaceAll(content));
+      } catch {
+        // Editor may not be ready
+      }
+    }
   }
 
   function handleAIReplace(text: string) {
-    content = content.trimEnd() + '\n\n' + text + '\n';
+    // If there's selected text in the editor, replace it; otherwise append
+    if (selectedText && milkdownEditor && editorStore.getState().editorMode !== 'source') {
+      try {
+        milkdownEditor.action((ctx) => {
+          const view = ctx.get(editorViewCtx);
+          const { from, to } = view.state.selection;
+          if (from !== to) {
+            const tr = view.state.tr.insertText(text, from, to);
+            view.dispatch(tr);
+          }
+        });
+      } catch {
+        // Fallback to append
+        content = content.trimEnd() + '\n\n' + text + '\n';
+      }
+    } else {
+      content = content.trimEnd() + '\n\n' + text + '\n';
+      if (milkdownEditor && editorStore.getState().editorMode !== 'source') {
+        try {
+          milkdownEditor.action(replaceAll(content));
+        } catch {
+          // Editor may not be ready
+        }
+      }
+    }
+  }
+
+  function isLocalPath(src: string): boolean {
+    return src.startsWith('/') || /^[A-Z]:\\/i.test(src);
+  }
+
+  async function handleInsertImage(data: { src: string; alt: string }) {
+    showImageDialog = false;
+    const src = isLocalPath(data.src) ? await readImageAsBlobUrl(data.src) : data.src;
+    const mode = editorStore.getState().editorMode;
+    if (mode === 'source') {
+      const imgMarkdown = `![${data.alt}](${src})`;
+      content = content.trimEnd() + '\n\n' + imgMarkdown + '\n';
+    } else {
+      runEditorCommand(insertImageCommand, { src, alt: data.alt });
+    }
   }
 
   // Split mode scroll sync — only sync from the pane the user is hovering
@@ -444,7 +556,7 @@ ${tr('welcome.tip')}
       'menu:fmt_strikethrough': () => runEditorCommand(toggleStrikethroughCommand),
       'menu:fmt_code': () => runEditorCommand(toggleInlineCodeCommand),
       'menu:fmt_link': () => runEditorCommand(toggleLinkCommand, { href: '' }),
-      'menu:fmt_image': () => runEditorCommand(insertImageCommand, { src: '' }),
+      'menu:fmt_image': () => { showImageDialog = true; },
       // View — editor modes
       'menu:view_mode_visual': () => editorStore.setEditorMode('visual'),
       'menu:view_mode_source': () => editorStore.setEditorMode('source'),
@@ -527,6 +639,13 @@ ${tr('welcome.tip')}
 
 {#if showSettings}
   <SettingsPanel onClose={() => showSettings = false} />
+{/if}
+
+{#if showImageDialog}
+  <ImageInsertDialog
+    onInsert={handleInsertImage}
+    onClose={() => showImageDialog = false}
+  />
 {/if}
 
 <style>

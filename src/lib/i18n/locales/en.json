@@ -19,7 +19,8 @@
       "editor": "Editor",
       "appearance": "Appearance",
       "ai": "AI",
-      "mcp": "MCP"
+      "mcp": "MCP",
+      "image": "Image"
     },
     "language": {
       "label": "Language",
@@ -27,9 +28,17 @@
     },
     "theme": {
       "label": "Theme",
-      "system": "System",
+      "system": "Follow System",
       "light": "Light",
       "dark": "Dark"
+    },
+    "appearance": {
+      "themeSection": "Theme",
+      "darkModeSection": "Dark Mode",
+      "fontSection": "Font",
+      "separateDarkTheme": "Use separate theme for dark mode",
+      "darkTheme": "Dark Mode Theme",
+      "darkModeLabel": "Appearance"
     },
     "fontSize": {
       "label": "Font Size"
@@ -174,6 +183,105 @@
       "hint": "Configure a knowledge base MCP server to enable document syncing.",
       "syncNow": "Sync Now"
     }
+  },
+  "imageDialog": {
+    "title": "Insert Image",
+    "urlTab": "URL",
+    "fileTab": "Local File",
+    "urlPlaceholder": "https://example.com/image.png",
+    "altPlaceholder": "Image description (optional)",
+    "selectFile": "Select Image...",
+    "noFileSelected": "No file selected",
+    "insert": "Insert",
+    "cancel": "Cancel"
+  },
+  "imageHost": {
+    "title": "Image Hosting",
+    "provider": "Provider",
+    "smms": "SM.MS",
+    "imgur": "Imgur",
+    "custom": "Custom API",
+    "apiToken": "API Token",
+    "apiTokenPlaceholder": "Enter API token",
+    "customEndpoint": "Upload Endpoint",
+    "customEndpointPlaceholder": "https://your-api.com/upload",
+    "customHeaders": "Custom Headers (JSON)",
+    "autoUpload": "Auto-upload images on paste/drop",
+    "testUpload": "Test Upload",
+    "testing": "Testing...",
+    "success": "Upload successful!",
+    "failed": "Upload failed"
+  },
+  "imageMenu": {
+    "resize": "Resize",
+    "upload": "Upload to Image Host",
+    "editAlt": "Edit Description",
+    "copyUrl": "Copy Image URL",
+    "delete": "Delete Image",
+    "originalSize": "Original Size"
+  },
+  "menu": {
+    "file": "File",
+    "edit": "Edit",
+    "paragraph": "Paragraph",
+    "format": "Format",
+    "view": "View",
+    "help": "Help",
+    "new": "New",
+    "open": "Open...",
+    "save": "Save",
+    "saveAs": "Save As...",
+    "exportHtml": "Export as HTML",
+    "heading1": "Heading 1",
+    "heading2": "Heading 2",
+    "heading3": "Heading 3",
+    "heading4": "Heading 4",
+    "heading5": "Heading 5",
+    "heading6": "Heading 6",
+    "table": "Table",
+    "codeBlock": "Code Block",
+    "mathBlock": "Math Block",
+    "quote": "Quote",
+    "bulletList": "Bullet List",
+    "orderedList": "Ordered List",
+    "horizontalRule": "Horizontal Rule",
+    "bold": "Bold",
+    "italic": "Italic",
+    "strikethrough": "Strikethrough",
+    "code": "Code",
+    "link": "Link",
+    "image": "Image",
+    "visualMode": "Visual Mode          ⌘/",
+    "sourceMode": "Source Mode         ⌘/",
+    "splitMode": "Split Mode       ⇧⌘/",
+    "toggleSidebar": "Toggle Sidebar",
+    "toggleAIPanel": "Toggle AI Panel",
+    "zoomIn": "Zoom In",
+    "zoomOut": "Zoom Out",
+    "actualSize": "Actual Size",
+    "aboutMoraya": "About Moraya",
+    "settings": "Settings..."
+  },
+  "export": {
+    "exportAs": "Export as {format}",
+    "pdf": "PDF",
+    "html": "HTML (with styles)",
+    "htmlPlain": "HTML (without styles)",
+    "image": "Image (PNG)",
+    "docx": "Word (.docx)",
+    "rtf": "RTF",
+    "epub": "Epub",
+    "latex": "LaTeX",
+    "mediawiki": "MediaWiki",
+    "rst": "reStructuredText",
+    "textile": "Textile",
+    "opml": "OPML"
+  },
+  "errors": {
+    "aiNotConfigured": "AI is not configured. Please set your API key in Settings.",
+    "aiRequestFailed": "AI request failed",
+    "chatRequestFailed": "Chat request failed",
+    "unknownCommand": "Unknown AI command: {command}"
   },
   "welcome": {
     "title": "Welcome to Moraya",

@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "version:bump": "node scripts/bump-version.mjs"
   },
   "license": "Apache-2.0",
   "pnpm": {
@@ -36,6 +37,7 @@
     "@tauri-apps/plugin-fs": "^2.4.5",
     "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-store": "^2.4.2",
+    "highlight.js": "^11.11.1",
     "katex": "^0.16.28"
   },
   "devDependencies": {

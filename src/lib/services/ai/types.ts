@@ -68,9 +68,9 @@ export type AICommand =
 
 export interface AICommandOption {
   command: AICommand;
-  label: string;
+  labelKey: string;
   icon: string;
-  description: string;
+  descriptionKey: string;
   requiresSelection?: boolean;
   systemPrompt: string;
 }
@@ -78,78 +78,78 @@ export interface AICommandOption {
 export const AI_COMMANDS: AICommandOption[] = [
   {
     command: 'write',
-    label: 'Write',
+    labelKey: 'ai.commands.write',
     icon: '✍',
-    description: 'Write content based on your prompt',
+    descriptionKey: 'ai.commands.writeDesc',
     systemPrompt: 'You are a helpful writing assistant. Write content based on the user\'s instructions. Output in Markdown format. Be concise and well-structured.',
   },
   {
     command: 'continue',
-    label: 'Continue Writing',
+    labelKey: 'ai.commands.continue',
     icon: '→',
-    description: 'Continue from where the text left off',
+    descriptionKey: 'ai.commands.continueDesc',
     systemPrompt: 'Continue writing from where the text left off. Maintain the same style, tone, and format. Output in Markdown.',
   },
   {
     command: 'summarize',
-    label: 'Summarize',
+    labelKey: 'ai.commands.summarize',
     icon: '📋',
-    description: 'Summarize the selected text',
+    descriptionKey: 'ai.commands.summarizeDesc',
     requiresSelection: true,
     systemPrompt: 'Summarize the following text concisely. Keep key points. Output in Markdown.',
   },
   {
     command: 'translate',
-    label: 'Translate',
+    labelKey: 'ai.commands.translate',
     icon: '🌐',
-    description: 'Translate text to another language',
+    descriptionKey: 'ai.commands.translateDesc',
     requiresSelection: true,
     systemPrompt: 'Translate the following text. If the text is in Chinese, translate to English. If in English, translate to Chinese. Maintain formatting. Output in Markdown.',
   },
   {
     command: 'improve',
-    label: 'Improve',
+    labelKey: 'ai.commands.improve',
     icon: '✨',
-    description: 'Improve writing quality',
+    descriptionKey: 'ai.commands.improveDesc',
     requiresSelection: true,
     systemPrompt: 'Improve the following text for clarity, coherence, and style. Keep the original meaning. Output in Markdown.',
   },
   {
     command: 'fix-grammar',
-    label: 'Fix Grammar',
+    labelKey: 'ai.commands.fixGrammar',
     icon: '🔧',
-    description: 'Fix grammar and spelling errors',
+    descriptionKey: 'ai.commands.fixGrammarDesc',
     requiresSelection: true,
     systemPrompt: 'Fix all grammar, spelling, and punctuation errors in the following text. Keep the original meaning and style. Output the corrected text only.',
   },
   {
     command: 'simplify',
-    label: 'Simplify',
+    labelKey: 'ai.commands.simplify',
     icon: '📝',
-    description: 'Simplify complex text',
+    descriptionKey: 'ai.commands.simplifyDesc',
     requiresSelection: true,
     systemPrompt: 'Simplify the following text to make it easier to understand. Use simpler words and shorter sentences. Output in Markdown.',
   },
   {
     command: 'expand',
-    label: 'Expand',
+    labelKey: 'ai.commands.expand',
     icon: '📖',
-    description: 'Expand on the topic',
+    descriptionKey: 'ai.commands.expandDesc',
     requiresSelection: true,
     systemPrompt: 'Expand on the following text with more details, examples, and explanations. Output in Markdown.',
   },
   {
     command: 'outline',
-    label: 'Generate Outline',
+    labelKey: 'ai.commands.outline',
     icon: '📑',
-    description: 'Generate an article outline',
+    descriptionKey: 'ai.commands.outlineDesc',
     systemPrompt: 'Generate a detailed article outline based on the topic. Use Markdown heading format (##, ###). Include main sections and subsections.',
   },
   {
     command: 'explain',
-    label: 'Explain',
+    labelKey: 'ai.commands.explain',
     icon: '💡',
-    description: 'Explain the selected text',
+    descriptionKey: 'ai.commands.explainDesc',
     requiresSelection: true,
     systemPrompt: 'Explain the following text in simple terms. If it contains technical concepts, provide clear explanations. Output in Markdown.',
   },

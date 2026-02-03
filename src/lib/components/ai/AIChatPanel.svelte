@@ -29,7 +29,10 @@
   let isConfigured = $state(false);
   let inputText = $state('');
   let showCommands = $state(false);
-  let messagesEl: HTMLDivElement;
+  let messagesEl = $state<HTMLDivElement | undefined>(undefined);
+
+  // Auto-scroll: track whether user is near bottom
+  let userAtBottom = $state(true);
 
   aiStore.subscribe(state => {
     chatMessages = state.chatHistory;
@@ -39,22 +42,40 @@
     isConfigured = state.isConfigured;
   });
 
+  // Auto-scroll during streaming when user is at bottom
+  $effect(() => {
+    // Access streamingContent and chatMessages to track changes
+    const _ = streamingContent;
+    const __ = chatMessages.length;
+    if (userAtBottom && messagesEl) {
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+  });
+
+  function handleMessagesScroll() {
+    if (!messagesEl) return;
+    const threshold = 60;
+    const { scrollTop, scrollHeight, clientHeight } = messagesEl;
+    userAtBottom = scrollHeight - scrollTop - clientHeight < threshold;
+  }
+
   async function handleSend() {
     if (!inputText.trim() || isLoading) return;
     const message = inputText.trim();
     inputText = '';
     showCommands = false;
+    userAtBottom = true;
 
     try {
       await sendChatMessage(message, documentContent);
     } catch {
       // Error is handled by store
     }
-    await scrollToBottom();
   }
 
   async function handleCommand(command: AICommand) {
     showCommands = false;
+    userAtBottom = true;
     try {
       await executeAICommand(command, {
         selectedText,
@@ -65,7 +86,6 @@
     } catch {
       // Error handled by store
     }
-    await scrollToBottom();
   }
 
   function handleKeydown(event: KeyboardEvent) {
@@ -87,13 +107,6 @@
 
   function handleReplace(content: string) {
     onReplace?.(content);
-  }
-
-  async function scrollToBottom() {
-    await tick();
-    if (messagesEl) {
-      messagesEl.scrollTop = messagesEl.scrollHeight;
-    }
   }
 
   function clearChat() {
@@ -121,7 +134,7 @@
       <p class="hint">{$t('ai.unconfiguredHint')}</p>
     </div>
   {:else}
-    <div class="ai-messages" bind:this={messagesEl}>
+    <div class="ai-messages" bind:this={messagesEl} onscroll={handleMessagesScroll}>
       {#if chatMessages.length === 0 && !isLoading}
         <div class="ai-welcome">
           <p class="welcome-title">{$t('ai.welcomeTitle')}</p>
@@ -130,7 +143,7 @@
             {#each AI_COMMANDS.slice(0, 4) as cmd}
               <button class="quick-cmd" onclick={() => handleCommand(cmd.command)}>
                 <span class="cmd-icon">{cmd.icon}</span>
-                <span>{cmd.label}</span>
+                <span>{$t(cmd.labelKey)}</span>
               </button>
             {/each}
           </div>
@@ -141,24 +154,24 @@
         <div class="message {msg.role}">
           <div class="message-header">
             <span class="message-role">{msg.role === 'user' ? $t('ai.you') : $t('ai.assistant')}</span>
-            <span class="message-time">{formatTime(msg.timestamp)}</span>
           </div>
           <div class="message-content">{msg.content}</div>
-          {#if msg.role === 'assistant'}
-            <div class="message-actions">
+          <span class="message-time">{formatTime(msg.timestamp)}</span>
+          <div class="message-actions">
+            {#if msg.role === 'assistant'}
               <button class="action-btn" onclick={() => handleInsert(msg.content)} title={$t('ai.insertToEditor')}>
-                {$t('common.insert')}
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M6 0v5H1v2h5v5h2V7h5V5H8V0H6z"/></svg>
               </button>
               {#if selectedText}
                 <button class="action-btn" onclick={() => handleReplace(msg.content)} title={$t('ai.replaceSelection')}>
-                  {$t('common.replace')}
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M0 0h5v2H2v3H0V0zm12 12H7v-2h3V7h2v5zM8.5 3.5L5 7 3.5 5.5 2 7l3 3 5-5-1.5-1.5z"/></svg>
                 </button>
               {/if}
-              <button class="action-btn" onclick={() => navigator.clipboard.writeText(msg.content)} title={$t('common.copy')}>
-                {$t('common.copy')}
-              </button>
-            </div>
-          {/if}
+            {/if}
+            <button class="action-btn" onclick={() => navigator.clipboard.writeText(msg.content)} title={$t('common.copy')}>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M4 0h8v8h-2V2H4V0zM0 4h8v8H0V4zm2 2v4h4V6H2z"/></svg>
+            </button>
+          </div>
         </div>
       {/each}
 
@@ -166,9 +179,9 @@
         <div class="message assistant streaming">
           <div class="message-header">
             <span class="message-role">{$t('ai.assistant')}</span>
-            <span class="typing-indicator">{$t('ai.typing')}</span>
           </div>
           <div class="message-content">{streamingContent}</div>
+          <span class="typing-indicator">{$t('ai.typing')}</span>
         </div>
       {:else if isLoading}
         <div class="message assistant">
@@ -198,8 +211,8 @@
             >
               <span class="cmd-icon">{cmd.icon}</span>
               <div class="cmd-info">
-                <span class="cmd-name">{cmd.label}</span>
-                <span class="cmd-desc">{cmd.description}</span>
+                <span class="cmd-name">{$t(cmd.labelKey)}</span>
+                <span class="cmd-desc">{$t(cmd.descriptionKey)}</span>
               </div>
             </button>
           {/each}
@@ -323,14 +336,6 @@
     color: var(--text-muted);
   }
 
-  .welcome-hint kbd {
-    background: var(--bg-hover);
-    padding: 0.1em 0.4em;
-    border-radius: 3px;
-    font-size: 0.9em;
-    border: 1px solid var(--border-color);
-  }
-
   .quick-commands {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -364,6 +369,7 @@
   }
 
   .message {
+    position: relative;
     padding: 0.5rem 0.75rem;
     border-radius: 8px;
     font-size: var(--font-size-sm);
@@ -414,31 +420,57 @@
   }
 
   .message-time {
+    position: absolute;
+    left: 0.5rem;
+    bottom: 0.3rem;
     font-size: 10px;
     color: var(--text-muted);
+  }
+
+  .message.user .message-time {
+    color: rgba(255, 255, 255, 0.5);
   }
 
   .message-content {
     white-space: pre-wrap;
     word-break: break-word;
+    padding-bottom: 1.25rem;
   }
 
+  /* Action buttons: hidden by default, shown on hover, inside message */
   .message-actions {
     display: flex;
-    gap: 0.5rem;
-    margin-top: 0.35rem;
-    padding-top: 0.35rem;
-    border-top: 1px solid var(--border-light);
+    gap: 0.25rem;
+    position: absolute;
+    right: 0.4rem;
+    bottom: 0.3rem;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--transition-fast);
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    padding: 0;
+    z-index: 2;
+  }
+
+  .message:hover .message-actions {
+    opacity: 1;
+    pointer-events: auto;
   }
 
   .action-btn {
-    font-size: 11px;
-    padding: 0.15rem 0.4rem;
-    border: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    border: none;
     background: transparent;
     color: var(--text-muted);
     border-radius: 3px;
     cursor: pointer;
+    padding: 0;
   }
 
   .action-btn:hover {
@@ -446,7 +478,19 @@
     color: var(--text-primary);
   }
 
+  .message.user .action-btn {
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .message.user .action-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+    color: white;
+  }
+
   .typing-indicator {
+    position: absolute;
+    left: 0.5rem;
+    bottom: 0.3rem;
     font-size: 10px;
     color: var(--accent-color);
     animation: pulse 1.5s infinite;

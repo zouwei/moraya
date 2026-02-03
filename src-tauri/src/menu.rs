@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu},
     AppHandle, Wry,
@@ -5,8 +6,9 @@ use tauri::{
 
 pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
     // File menu
-    let file_menu = Submenu::with_items(
+    let file_menu = Submenu::with_id_and_items(
         app,
+        "menu_file",
         "File",
         true,
         &[
@@ -22,25 +24,27 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
         ],
     )?;
 
-    // Edit menu
-    let edit_menu = Submenu::with_items(
+    // Edit menu — PredefinedMenuItems auto-localize on macOS
+    let edit_menu = Submenu::with_id_and_items(
         app,
+        "menu_edit",
         "Edit",
         true,
         &[
-            &PredefinedMenuItem::undo(app, Some("Undo"))?,
-            &PredefinedMenuItem::redo(app, Some("Redo"))?,
+            &PredefinedMenuItem::undo(app, None)?,
+            &PredefinedMenuItem::redo(app, None)?,
             &PredefinedMenuItem::separator(app)?,
-            &PredefinedMenuItem::cut(app, Some("Cut"))?,
-            &PredefinedMenuItem::copy(app, Some("Copy"))?,
-            &PredefinedMenuItem::paste(app, Some("Paste"))?,
-            &PredefinedMenuItem::select_all(app, Some("Select All"))?,
+            &PredefinedMenuItem::cut(app, None)?,
+            &PredefinedMenuItem::copy(app, None)?,
+            &PredefinedMenuItem::paste(app, None)?,
+            &PredefinedMenuItem::select_all(app, None)?,
         ],
     )?;
 
     // Paragraph menu
-    let paragraph_menu = Submenu::with_items(
+    let paragraph_menu = Submenu::with_id_and_items(
         app,
+        "menu_paragraph",
         "Paragraph",
         true,
         &[
@@ -63,8 +67,9 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
     )?;
 
     // Format menu
-    let format_menu = Submenu::with_items(
+    let format_menu = Submenu::with_id_and_items(
         app,
+        "menu_format",
         "Format",
         true,
         &[
@@ -74,13 +79,14 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, "fmt_code", "Code", true, Some("CmdOrCtrl+E"))?,
             &MenuItem::with_id(app, "fmt_link", "Link", true, Some("CmdOrCtrl+K"))?,
-            &MenuItem::with_id(app, "fmt_image", "Image", true, None::<&str>)?,
+            &MenuItem::with_id(app, "fmt_image", "Image", true, Some("CmdOrCtrl+Shift+G"))?,
         ],
     )?;
 
     // View menu — mode items use CheckMenuItem
-    let view_menu = Submenu::with_items(
+    let view_menu = Submenu::with_id_and_items(
         app,
+        "menu_view",
         "View",
         true,
         &[
@@ -98,8 +104,9 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
     )?;
 
     // Help menu
-    let help_menu = Submenu::with_items(
+    let help_menu = Submenu::with_id_and_items(
         app,
+        "menu_help",
         "Help",
         true,
         &[
@@ -118,13 +125,13 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
                 &PredefinedMenuItem::separator(app)?,
                 &MenuItem::with_id(app, "preferences", "Settings...", true, Some("CmdOrCtrl+,"))?,
                 &PredefinedMenuItem::separator(app)?,
-                &PredefinedMenuItem::services(app, Some("Services"))?,
+                &PredefinedMenuItem::services(app, None)?,
                 &PredefinedMenuItem::separator(app)?,
-                &PredefinedMenuItem::hide(app, Some("Hide Moraya"))?,
-                &PredefinedMenuItem::hide_others(app, Some("Hide Others"))?,
-                &PredefinedMenuItem::show_all(app, Some("Show All"))?,
+                &PredefinedMenuItem::hide(app, None)?,
+                &PredefinedMenuItem::hide_others(app, None)?,
+                &PredefinedMenuItem::show_all(app, None)?,
                 &PredefinedMenuItem::separator(app)?,
-                &PredefinedMenuItem::quit(app, Some("Quit Moraya"))?,
+                &PredefinedMenuItem::quit(app, None)?,
             ],
         )?;
 
@@ -183,6 +190,42 @@ pub fn update_mode_checks(app: &AppHandle, active_mode: &str) {
                     }
                 }
             }
+        }
+    }
+}
+
+/// Update menu item labels for i18n.
+/// `labels` maps menu item IDs (e.g., "file_new", "menu_file") to translated text.
+pub fn update_menu_labels(app: &AppHandle, labels: &HashMap<String, String>) {
+    if let Some(menu) = app.menu() {
+        if let Ok(items) = menu.items() {
+            update_labels_recursive(&items, labels);
+        }
+    }
+}
+
+fn update_labels_recursive(items: &[MenuItemKind<Wry>], labels: &HashMap<String, String>) {
+    for item in items {
+        match item {
+            MenuItemKind::MenuItem(mi) => {
+                if let Some(label) = labels.get(mi.id().0.as_str()) {
+                    let _ = mi.set_text(label);
+                }
+            }
+            MenuItemKind::Check(ci) => {
+                if let Some(label) = labels.get(ci.id().0.as_str()) {
+                    let _ = ci.set_text(label);
+                }
+            }
+            MenuItemKind::Submenu(sub) => {
+                if let Some(label) = labels.get(sub.id().0.as_str()) {
+                    let _ = sub.set_text(label);
+                }
+                if let Ok(sub_items) = sub.items() {
+                    update_labels_recursive(&sub_items, labels);
+                }
+            }
+            _ => {}
         }
     }
 }

@@ -1,6 +1,5 @@
 /**
- * Typora-style keyboard shortcuts for Moraya
- * Reference: https://support.typora.io/Shortcut-Keys/
+ * Minimalist-style keyboard shortcuts for Moraya
  */
 
 export interface KeyBinding {
@@ -31,7 +30,7 @@ export const editShortcuts: KeyBinding[] = [
   { key: 'a', mod: true, action: 'select-all', description: 'Select All' },
 ];
 
-// Paragraph/block formatting (Typora-style)
+// Paragraph/block formatting (Minimalist-style)
 export const paragraphShortcuts: KeyBinding[] = [
   { key: '1', mod: true, action: 'heading-1', description: 'Heading 1' },
   { key: '2', mod: true, action: 'heading-2', description: 'Heading 2' },
@@ -53,7 +52,7 @@ export const paragraphShortcuts: KeyBinding[] = [
   { key: 'x', mod: true, shift: true, action: 'task-list', description: 'Task List' },
 ];
 
-// Inline formatting (Typora-style)
+// Inline formatting (Minimalist-style)
 export const formatShortcuts: KeyBinding[] = [
   { key: 'b', mod: true, action: 'bold', description: 'Bold' },
   { key: 'i', mod: true, action: 'italic', description: 'Italic' },
