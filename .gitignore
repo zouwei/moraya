@@ -55,18 +55,13 @@ src-tauri/gen/schemas/
 *.AppImage
 *.rpm
 
-# 
-.claude
-.vscode
-
 # =========================
 # IDE
 # =========================
+.claude/
+.vscode/
 .idea/
 *.iml
-.vscode/*
-!.vscode/extensions.json
-!.vscode/settings.json
 
 # =========================
 # Logs

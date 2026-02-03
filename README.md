@@ -1,4 +1,4 @@
-# Moraya 墨雅
+# Moraya
 
 A minimal, open-source WYSIWYG Markdown editor built with Rust + Tauri v2. Inspired by Typora's seamless editing experience — small (~3MB DMG), elegant, and AI-ready.
 
