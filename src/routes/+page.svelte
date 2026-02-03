@@ -589,9 +589,28 @@ ${tr('welcome.tip')}
       listen(event, handler).then(unlisten => menuUnlisteners.push(unlisten));
     });
 
+    // Listen for file open events from OS file association (while app is running)
+    let openFileUnlisten: UnlistenFn | undefined;
+    listen<string>('open-file', async (event) => {
+      const filePath = event.payload;
+      if (filePath) {
+        const fileContent = await loadFile(filePath);
+        content = fileContent;
+      }
+    }).then(unlisten => { openFileUnlisten = unlisten; });
+
+    // Check if a file was passed via OS file association on startup
+    invoke<string | null>('get_opened_file').then(async (filePath) => {
+      if (filePath) {
+        const fileContent = await loadFile(filePath);
+        content = fileContent;
+      }
+    });
+
     return () => {
       if (autoSaveTimer) clearInterval(autoSaveTimer);
       menuUnlisteners.forEach(unlisten => unlisten());
+      openFileUnlisten?.();
     };
   });
 </script>
