@@ -589,21 +589,33 @@ ${tr('welcome.tip')}
       listen(event, handler).then(unlisten => menuUnlisteners.push(unlisten));
     });
 
+    // Helper: load a file by path and sync to all editor modes
+    async function openFileByPath(filePath: string) {
+      const fileContent = await loadFile(filePath);
+      content = fileContent;
+      // Sync into Milkdown if it's already mounted (visual/split mode)
+      if (milkdownEditor && editorStore.getState().editorMode !== 'source') {
+        try {
+          milkdownEditor.action(replaceAll(content));
+        } catch {
+          // Editor may not be fully ready yet
+        }
+      }
+    }
+
     // Listen for file open events from OS file association (while app is running)
     let openFileUnlisten: UnlistenFn | undefined;
     listen<string>('open-file', async (event) => {
       const filePath = event.payload;
       if (filePath) {
-        const fileContent = await loadFile(filePath);
-        content = fileContent;
+        await openFileByPath(filePath);
       }
     }).then(unlisten => { openFileUnlisten = unlisten; });
 
     // Check if a file was passed via OS file association on startup
     invoke<string | null>('get_opened_file').then(async (filePath) => {
       if (filePath) {
-        const fileContent = await loadFile(filePath);
-        content = fileContent;
+        await openFileByPath(filePath);
       }
     });
 
