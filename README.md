@@ -4,6 +4,8 @@ A minimal, open-source WYSIWYG Markdown editor built with Rust + Tauri v2. Inspi
 
 > **mora** (Latin, "a moment") + **ya** (Chinese, "elegance") = **Moraya** (墨雅)
 
+![moraya-view-edit](https://github.com/zouwei/resource/blob/master/images/moraya/moraya-view-edit.png "Moraya")
+
 ## Features
 
 - **Minimalist-style WYSIWYG** — type `# ` and it renders as a heading instantly, powered by [Milkdown](https://milkdown.dev/) (ProseMirror-based)
