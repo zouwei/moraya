@@ -1,5 +1,8 @@
 <script lang="ts">
   import { settingsStore, type Theme } from '../stores/settings-store';
+  import { t, SUPPORTED_LOCALES, type LocaleSelection } from '$lib/i18n';
+  import AISettings from './ai/AISettings.svelte';
+  import MCPPanel from './ai/MCPPanel.svelte';
 
   let {
     onClose,
@@ -7,17 +10,33 @@
     onClose: () => void;
   } = $props();
 
+  type Tab = 'general' | 'editor' | 'appearance' | 'ai' | 'mcp';
+  let activeTab = $state<Tab>('general');
+
   let theme = $state<Theme>('system');
   let fontSize = $state(16);
   let autoSave = $state(true);
   let autoSaveInterval = $state(30);
+  let currentLocale = $state<LocaleSelection>('system');
+  let editorLineWidth = $state(800);
+  let editorTabSize = $state(4);
+  let showLineNumbers = $state(false);
 
   settingsStore.subscribe(state => {
     theme = state.theme;
     fontSize = state.fontSize;
     autoSave = state.autoSave;
     autoSaveInterval = state.autoSaveInterval / 1000;
+    currentLocale = state.localeSelection;
+    editorLineWidth = state.editorLineWidth;
+    editorTabSize = state.editorTabSize;
+    showLineNumbers = state.showLineNumbers;
   });
+
+  function handleLocaleChange(event: Event) {
+    const value = (event.target as HTMLSelectElement).value as LocaleSelection;
+    settingsStore.setLocaleSelection(value);
+  }
 
   function handleThemeChange(event: Event) {
     const value = (event.target as HTMLSelectElement).value as Theme;
@@ -40,11 +59,34 @@
     settingsStore.update({ autoSaveInterval: value * 1000 });
   }
 
+  function handleLineWidthChange(event: Event) {
+    const value = parseInt((event.target as HTMLInputElement).value);
+    settingsStore.update({ editorLineWidth: value });
+  }
+
+  function handleTabSizeChange(event: Event) {
+    const value = parseInt((event.target as HTMLSelectElement).value);
+    settingsStore.update({ editorTabSize: value });
+  }
+
+  function handleLineNumbersChange(event: Event) {
+    const checked = (event.target as HTMLInputElement).checked;
+    settingsStore.update({ showLineNumbers: checked });
+  }
+
   function handleKeydown(event: KeyboardEvent) {
     if (event.key === 'Escape') {
       onClose();
     }
   }
+
+  const tabs: { key: Tab; icon: string; labelKey: string }[] = [
+    { key: 'general', icon: '⚙', labelKey: 'settings.tabs.general' },
+    { key: 'editor', icon: '✎', labelKey: 'settings.tabs.editor' },
+    { key: 'appearance', icon: '◐', labelKey: 'settings.tabs.appearance' },
+    { key: 'ai', icon: '✦', labelKey: 'settings.tabs.ai' },
+    { key: 'mcp', icon: '⇌', labelKey: 'settings.tabs.mcp' },
+  ];
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -53,72 +95,148 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="settings-overlay" onclick={onClose}>
   <div class="settings-panel" onclick={(e) => e.stopPropagation()}>
-    <div class="settings-header">
-      <h2>Settings</h2>
-      <button class="close-btn" onclick={onClose}>
-        <svg width="14" height="14" viewBox="0 0 10 10">
-          <path fill="currentColor" d="M1 0L0 1l4 4-4 4 1 1 4-4 4 4 1-1-4-4 4-4-1-1-4 4z"/>
-        </svg>
-      </button>
+    <!-- Left sidebar -->
+    <div class="settings-sidebar">
+      <div class="sidebar-header">
+        <h2>{$t('settings.title')}</h2>
+      </div>
+      <nav class="sidebar-nav">
+        {#each tabs as tab}
+          <button
+            class="nav-item"
+            class:active={activeTab === tab.key}
+            onclick={() => activeTab = tab.key}
+          >
+            <span class="nav-icon">{tab.icon}</span>
+            <span class="nav-label">{$t(tab.labelKey)}</span>
+          </button>
+        {/each}
+      </nav>
+      <div class="sidebar-footer">
+        <span class="version">{$t('settings.version', { version: '0.1.0' })}</span>
+      </div>
     </div>
 
-    <div class="settings-body">
-      <div class="setting-group">
-        <label class="setting-label">Theme</label>
-        <select class="setting-input" value={theme} onchange={handleThemeChange}>
-          <option value="system">System</option>
-          <option value="light">Light</option>
-          <option value="dark">Dark</option>
-        </select>
+    <!-- Right content -->
+    <div class="settings-content">
+      <div class="content-header">
+        <h3>{$t(tabs.find(t => t.key === activeTab)?.labelKey ?? '')}</h3>
+        <button class="close-btn" onclick={onClose} title={$t('common.close')}>
+          <svg width="14" height="14" viewBox="0 0 10 10">
+            <path fill="currentColor" d="M1 0L0 1l4 4-4 4 1 1 4-4 4 4 1-1-4-4 4-4-1-1-4 4z"/>
+          </svg>
+        </button>
       </div>
 
-      <div class="setting-group">
-        <label class="setting-label">Font Size</label>
-        <div class="setting-row">
-          <input
-            type="range"
-            min="12"
-            max="24"
-            value={fontSize}
-            oninput={handleFontSizeChange}
-            class="setting-range"
-          />
-          <span class="setting-value">{fontSize}px</span>
-        </div>
-      </div>
-
-      <div class="setting-group">
-        <label class="setting-label">
-          <input
-            type="checkbox"
-            checked={autoSave}
-            onchange={handleAutoSaveChange}
-          />
-          Auto Save
-        </label>
-      </div>
-
-      {#if autoSave}
-        <div class="setting-group">
-          <label class="setting-label">Auto Save Interval</label>
-          <div class="setting-row">
-            <input
-              type="range"
-              min="5"
-              max="120"
-              step="5"
-              value={autoSaveInterval}
-              oninput={handleIntervalChange}
-              class="setting-range"
-            />
-            <span class="setting-value">{autoSaveInterval}s</span>
+      <div class="content-body">
+        {#if activeTab === 'general'}
+          <div class="setting-group">
+            <label class="setting-label">{$t('settings.language.label')}</label>
+            <select class="setting-input" value={currentLocale} onchange={handleLocaleChange}>
+              {#each SUPPORTED_LOCALES as loc}
+                <option value={loc.code}>{loc.code === 'system' ? $t('settings.language.system') : loc.label}</option>
+              {/each}
+            </select>
           </div>
-        </div>
-      {/if}
-    </div>
 
-    <div class="settings-footer">
-      <span class="version">Inkra v0.1.0</span>
+          <div class="setting-group">
+            <label class="setting-label">
+              <input
+                type="checkbox"
+                checked={autoSave}
+                onchange={handleAutoSaveChange}
+              />
+              {$t('settings.autoSave.label')}
+            </label>
+          </div>
+
+          {#if autoSave}
+            <div class="setting-group">
+              <label class="setting-label">{$t('settings.autoSave.interval')}</label>
+              <div class="setting-row">
+                <input
+                  type="range"
+                  min="5"
+                  max="120"
+                  step="5"
+                  value={autoSaveInterval}
+                  oninput={handleIntervalChange}
+                  class="setting-range"
+                />
+                <span class="setting-value">{autoSaveInterval}s</span>
+              </div>
+            </div>
+          {/if}
+
+        {:else if activeTab === 'editor'}
+          <div class="setting-group">
+            <label class="setting-label">{$t('settings.editor.lineWidth')}</label>
+            <div class="setting-row">
+              <input
+                type="range"
+                min="600"
+                max="1200"
+                step="50"
+                value={editorLineWidth}
+                oninput={handleLineWidthChange}
+                class="setting-range"
+              />
+              <span class="setting-value">{editorLineWidth}px</span>
+            </div>
+          </div>
+
+          <div class="setting-group">
+            <label class="setting-label">{$t('settings.editor.tabSize')}</label>
+            <select class="setting-input" value={editorTabSize} onchange={handleTabSizeChange}>
+              <option value={2}>2</option>
+              <option value={4}>4</option>
+              <option value={8}>8</option>
+            </select>
+          </div>
+
+          <div class="setting-group">
+            <label class="setting-label">
+              <input
+                type="checkbox"
+                checked={showLineNumbers}
+                onchange={handleLineNumbersChange}
+              />
+              {$t('settings.editor.showLineNumbers')}
+            </label>
+          </div>
+
+        {:else if activeTab === 'appearance'}
+          <div class="setting-group">
+            <label class="setting-label">{$t('settings.theme.label')}</label>
+            <select class="setting-input" value={theme} onchange={handleThemeChange}>
+              <option value="system">{$t('settings.theme.system')}</option>
+              <option value="light">{$t('settings.theme.light')}</option>
+              <option value="dark">{$t('settings.theme.dark')}</option>
+            </select>
+          </div>
+
+          <div class="setting-group">
+            <label class="setting-label">{$t('settings.fontSize.label')}</label>
+            <div class="setting-row">
+              <input
+                type="range"
+                min="12"
+                max="24"
+                value={fontSize}
+                oninput={handleFontSizeChange}
+                class="setting-range"
+              />
+              <span class="setting-value">{fontSize}px</span>
+            </div>
+          </div>
+
+        {:else if activeTab === 'ai'}
+          <AISettings />
+
+        {:else if activeTab === 'mcp'}
+          <MCPPanel />
+        {/if}
+      </div>
     </div>
   </div>
 </div>
@@ -137,15 +255,98 @@
   .settings-panel {
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
-    width: 420px;
-    max-height: 80vh;
+    border-radius: 10px;
+    width: 720px;
+    height: 520px;
     display: flex;
-    flex-direction: column;
+    overflow: hidden;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
   }
 
-  .settings-header {
+  /* Left sidebar */
+  .settings-sidebar {
+    width: 180px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border-light);
+  }
+
+  .sidebar-header {
+    padding: 1.25rem 1rem 0.75rem;
+  }
+
+  .sidebar-header h2 {
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+  }
+
+  .sidebar-nav {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 0.25rem 0.5rem;
+    gap: 0.125rem;
+  }
+
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.45rem 0.6rem;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    border-radius: 6px;
+    text-align: left;
+    transition: background var(--transition-fast), color var(--transition-fast);
+  }
+
+  .nav-item:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .nav-item.active {
+    background: var(--accent-color);
+    color: white;
+  }
+
+  .nav-icon {
+    font-size: 0.85rem;
+    width: 1.2rem;
+    text-align: center;
+    flex-shrink: 0;
+  }
+
+  .nav-label {
+    white-space: nowrap;
+  }
+
+  .sidebar-footer {
+    padding: 0.75rem 1rem;
+    border-top: 1px solid var(--border-light);
+  }
+
+  .version {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+  }
+
+  /* Right content */
+  .settings-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .content-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -153,10 +354,11 @@
     border-bottom: 1px solid var(--border-light);
   }
 
-  .settings-header h2 {
+  .content-header h3 {
     font-size: 1rem;
     font-weight: 600;
     color: var(--text-primary);
+    margin: 0;
   }
 
   .close-btn {
@@ -177,12 +379,13 @@
     color: var(--text-primary);
   }
 
-  .settings-body {
-    padding: 1rem 1.25rem;
+  .content-body {
+    flex: 1;
+    padding: 1.25rem;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 1.25rem;
   }
 
   .setting-group {
@@ -200,18 +403,20 @@
   }
 
   .setting-input {
-    padding: 0.35rem 0.5rem;
+    padding: 0.4rem 0.5rem;
     border: 1px solid var(--border-color);
     border-radius: 4px;
     background: var(--bg-primary);
     color: var(--text-primary);
     font-size: var(--font-size-sm);
+    max-width: 280px;
   }
 
   .setting-row {
     display: flex;
     align-items: center;
     gap: 0.75rem;
+    max-width: 320px;
   }
 
   .setting-range {
@@ -222,18 +427,7 @@
   .setting-value {
     font-size: var(--font-size-xs);
     color: var(--text-muted);
-    min-width: 3rem;
+    min-width: 3.5rem;
     text-align: right;
-  }
-
-  .settings-footer {
-    padding: 0.75rem 1.25rem;
-    border-top: 1px solid var(--border-light);
-    text-align: center;
-  }
-
-  .version {
-    font-size: var(--font-size-xs);
-    color: var(--text-muted);
   }
 </style>

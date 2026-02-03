@@ -1,0 +1,156 @@
+/**
+ * AI Service type definitions for Moraya
+ * Supports multiple LLM providers: Claude, OpenAI, Gemini, DeepSeek, local models
+ */
+
+export type AIProvider = 'claude' | 'openai' | 'gemini' | 'deepseek' | 'ollama' | 'custom';
+
+export interface AIProviderConfig {
+  provider: AIProvider;
+  apiKey: string;
+  baseUrl?: string;    // For custom/local endpoints
+  model: string;
+  maxTokens?: number;
+  temperature?: number;
+}
+
+export const DEFAULT_MODELS: Record<AIProvider, string[]> = {
+  claude: ['claude-opus-4-5-20251101', 'claude-sonnet-4-20250514', 'claude-3-5-haiku-20241022'],
+  openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o1', 'o1-mini'],
+  gemini: ['gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
+  deepseek: ['deepseek-chat', 'deepseek-reasoner'],
+  ollama: ['llama3', 'mistral', 'codellama', 'qwen2'],
+  custom: [],
+};
+
+export const PROVIDER_BASE_URLS: Record<AIProvider, string> = {
+  claude: 'https://api.anthropic.com',
+  openai: 'https://api.openai.com',
+  gemini: 'https://generativelanguage.googleapis.com',
+  deepseek: 'https://api.deepseek.com',
+  ollama: 'http://localhost:11434',
+  custom: '',
+};
+
+export interface ChatMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp: number;
+}
+
+export interface AIRequest {
+  messages: ChatMessage[];
+  stream?: boolean;
+}
+
+export interface AIResponse {
+  content: string;
+  model: string;
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+  };
+}
+
+export type AICommand =
+  | 'write'       // Write content based on prompt
+  | 'continue'    // Continue writing from current position
+  | 'summarize'   // Summarize selected text
+  | 'translate'   // Translate selected text
+  | 'improve'     // Improve writing quality
+  | 'fix-grammar' // Fix grammar and spelling
+  | 'simplify'    // Simplify complex text
+  | 'expand'      // Expand on a topic
+  | 'tone'        // Change tone (formal, casual, etc.)
+  | 'explain'     // Explain selected text
+  | 'outline'     // Generate article outline
+  | 'custom';     // Custom prompt
+
+export interface AICommandOption {
+  command: AICommand;
+  label: string;
+  icon: string;
+  description: string;
+  requiresSelection?: boolean;
+  systemPrompt: string;
+}
+
+export const AI_COMMANDS: AICommandOption[] = [
+  {
+    command: 'write',
+    label: 'Write',
+    icon: '✍',
+    description: 'Write content based on your prompt',
+    systemPrompt: 'You are a helpful writing assistant. Write content based on the user\'s instructions. Output in Markdown format. Be concise and well-structured.',
+  },
+  {
+    command: 'continue',
+    label: 'Continue Writing',
+    icon: '→',
+    description: 'Continue from where the text left off',
+    systemPrompt: 'Continue writing from where the text left off. Maintain the same style, tone, and format. Output in Markdown.',
+  },
+  {
+    command: 'summarize',
+    label: 'Summarize',
+    icon: '📋',
+    description: 'Summarize the selected text',
+    requiresSelection: true,
+    systemPrompt: 'Summarize the following text concisely. Keep key points. Output in Markdown.',
+  },
+  {
+    command: 'translate',
+    label: 'Translate',
+    icon: '🌐',
+    description: 'Translate text to another language',
+    requiresSelection: true,
+    systemPrompt: 'Translate the following text. If the text is in Chinese, translate to English. If in English, translate to Chinese. Maintain formatting. Output in Markdown.',
+  },
+  {
+    command: 'improve',
+    label: 'Improve',
+    icon: '✨',
+    description: 'Improve writing quality',
+    requiresSelection: true,
+    systemPrompt: 'Improve the following text for clarity, coherence, and style. Keep the original meaning. Output in Markdown.',
+  },
+  {
+    command: 'fix-grammar',
+    label: 'Fix Grammar',
+    icon: '🔧',
+    description: 'Fix grammar and spelling errors',
+    requiresSelection: true,
+    systemPrompt: 'Fix all grammar, spelling, and punctuation errors in the following text. Keep the original meaning and style. Output the corrected text only.',
+  },
+  {
+    command: 'simplify',
+    label: 'Simplify',
+    icon: '📝',
+    description: 'Simplify complex text',
+    requiresSelection: true,
+    systemPrompt: 'Simplify the following text to make it easier to understand. Use simpler words and shorter sentences. Output in Markdown.',
+  },
+  {
+    command: 'expand',
+    label: 'Expand',
+    icon: '📖',
+    description: 'Expand on the topic',
+    requiresSelection: true,
+    systemPrompt: 'Expand on the following text with more details, examples, and explanations. Output in Markdown.',
+  },
+  {
+    command: 'outline',
+    label: 'Generate Outline',
+    icon: '📑',
+    description: 'Generate an article outline',
+    systemPrompt: 'Generate a detailed article outline based on the topic. Use Markdown heading format (##, ###). Include main sections and subsections.',
+  },
+  {
+    command: 'explain',
+    label: 'Explain',
+    icon: '💡',
+    description: 'Explain the selected text',
+    requiresSelection: true,
+    systemPrompt: 'Explain the following text in simple terms. If it contains technical concepts, provide clear explanations. Output in Markdown.',
+  },
+];

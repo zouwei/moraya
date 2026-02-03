@@ -1,9 +1,10 @@
 <script lang="ts">
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { editorStore } from '../stores/editor-store';
+  import { t } from '$lib/i18n';
 
   let {
-    title = 'Inkra',
+    title = 'Moraya',
   }: {
     title?: string;
   } = $props();
@@ -35,13 +36,13 @@
     isDirty = state.isDirty;
   });
 
-  let displayTitle = $derived(isDirty ? `${title} - Unsaved` : title);
+  let displayTitle = $derived(isDirty ? `${title} - ${$t('titlebar.unsaved')}` : title);
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="titlebar no-select" data-tauri-drag-region>
   <div class="titlebar-left">
-    <span class="app-name">Inkra</span>
+    <span class="app-name">Moraya</span>
   </div>
 
   <div class="titlebar-center" data-tauri-drag-region>
@@ -49,12 +50,12 @@
   </div>
 
   <div class="titlebar-right">
-    <button class="titlebar-btn" onclick={handleMinimize} title="Minimize">
+    <button class="titlebar-btn" onclick={handleMinimize} title={$t('titlebar.minimize')}>
       <svg width="10" height="1" viewBox="0 0 10 1">
         <rect fill="currentColor" width="10" height="1"/>
       </svg>
     </button>
-    <button class="titlebar-btn" onclick={handleMaximize} title="Maximize">
+    <button class="titlebar-btn" onclick={handleMaximize} title={$t('titlebar.maximize')}>
       {#if isMaximized}
         <svg width="10" height="10" viewBox="0 0 10 10">
           <path fill="currentColor" d="M2 0h6v2H2zM0 2h8v8H0zM1 3h6v6H1z" fill-rule="evenodd"/>
@@ -65,7 +66,7 @@
         </svg>
       {/if}
     </button>
-    <button class="titlebar-btn close" onclick={handleClose} title="Close">
+    <button class="titlebar-btn close" onclick={handleClose} title={$t('titlebar.close')}>
       <svg width="10" height="10" viewBox="0 0 10 10">
         <path fill="currentColor" d="M1 0L0 1l4 4-4 4 1 1 4-4 4 4 1-1-4-4 4-4-1-1-4 4z"/>
       </svg>
@@ -140,13 +141,11 @@
   }
 
   /* macOS: hide custom buttons, use native traffic lights */
-  @supports (-webkit-app-region: drag) {
-    :global(.platform-macos) .titlebar-right {
-      display: none;
-    }
+  :global(.platform-macos) .titlebar-right {
+    display: none;
+  }
 
-    :global(.platform-macos) .titlebar-left {
-      padding-left: 5rem; /* space for traffic lights */
-    }
+  :global(.platform-macos) .titlebar-left {
+    padding-left: 5rem; /* space for traffic lights */
   }
 </style>

@@ -1,0 +1,229 @@
+{
+  "common": {
+    "save": "保存",
+    "cancel": "取消",
+    "close": "关闭",
+    "add": "添加",
+    "remove": "移除",
+    "connect": "连接",
+    "disconnect": "断开",
+    "insert": "插入",
+    "replace": "替换",
+    "copy": "复制",
+    "untitled": "未命名"
+  },
+  "settings": {
+    "title": "设置",
+    "tabs": {
+      "general": "通用",
+      "editor": "编辑器",
+      "appearance": "外观",
+      "ai": "AI",
+      "mcp": "MCP"
+    },
+    "language": {
+      "label": "语言",
+      "system": "跟随系统"
+    },
+    "theme": {
+      "label": "主题",
+      "system": "跟随系统",
+      "light": "浅色",
+      "dark": "深色"
+    },
+    "fontSize": {
+      "label": "字体大小"
+    },
+    "autoSave": {
+      "label": "自动保存",
+      "interval": "自动保存间隔"
+    },
+    "editor": {
+      "lineWidth": "编辑器行宽",
+      "tabSize": "制表符大小",
+      "showLineNumbers": "源码模式显示行号"
+    },
+    "version": "Moraya v{version}"
+  },
+  "titlebar": {
+    "unsaved": "未保存",
+    "minimize": "最小化",
+    "maximize": "最大化",
+    "close": "关闭"
+  },
+  "sidebar": {
+    "title": "资源管理器",
+    "openFolder": "打开文件夹",
+    "noFolder": "未打开文件夹"
+  },
+  "statusbar": {
+    "words": "字数",
+    "characters": "字符数",
+    "format": "Markdown",
+    "sourceMode": "源码",
+    "visualMode": "可视化",
+    "splitMode": "对比"
+  },
+  "editor": {
+    "sourceMode": "源码模式",
+    "visualMode": "可视化模式",
+    "splitMode": "对比模式"
+  },
+  "table": {
+    "insertRowAbove": "在上方插入行",
+    "insertRowBelow": "在下方插入行",
+    "deleteRow": "删除行",
+    "insertColLeft": "在左侧插入列",
+    "insertColRight": "在右侧插入列",
+    "deleteCol": "删除列",
+    "alignLeft": "左对齐",
+    "alignCenter": "居中对齐",
+    "alignRight": "右对齐"
+  },
+  "ai": {
+    "title": "Moraya AI",
+    "clearChat": "清空对话",
+    "unconfigured": "AI 未配置。",
+    "unconfiguredHint": "打开设置（Cmd+,）并配置 API 密钥以启用 AI 功能。",
+    "welcomeTitle": "有什么可以帮您？",
+    "welcomeHint": "输入消息或使用 {kbd} 查看命令",
+    "you": "你",
+    "assistant": "AI",
+    "typing": "输入中...",
+    "placeholder": "向 AI 提问...（/ 查看命令）",
+    "placeholderSelection": "询问选中内容...（/ 查看命令）",
+    "send": "发送（Enter）",
+    "insertToEditor": "插入到编辑器",
+    "replaceSelection": "替换选中内容",
+    "config": {
+      "title": "AI 配置",
+      "provider": "服务商",
+      "apiKey": "API 密钥",
+      "apiKeyPlaceholder": "输入 {provider} API 密钥",
+      "apiKeyNotRequired": "Ollama 无需密钥",
+      "baseUrl": "基础 URL",
+      "model": "模型",
+      "modelPlaceholder": "输入模型名称",
+      "maxTokens": "最大 Token 数",
+      "temperature": "温度",
+      "testConnection": "测试连接",
+      "testing": "测试中...",
+      "connected": "已连接！",
+      "failed": "失败"
+    },
+    "providers": {
+      "claude": "Anthropic Claude",
+      "openai": "OpenAI",
+      "gemini": "Google Gemini",
+      "deepseek": "DeepSeek",
+      "ollama": "Ollama（本地）",
+      "custom": "自定义 API"
+    },
+    "commands": {
+      "write": "撰写",
+      "writeDesc": "根据提示撰写内容",
+      "continue": "续写",
+      "continueDesc": "从当前位置继续写作",
+      "summarize": "总结",
+      "summarizeDesc": "总结选中的文本",
+      "translate": "翻译",
+      "translateDesc": "将文本翻译为其他语言",
+      "improve": "优化",
+      "improveDesc": "提升写作质量",
+      "fixGrammar": "修正语法",
+      "fixGrammarDesc": "修正语法和拼写错误",
+      "simplify": "简化",
+      "simplifyDesc": "简化复杂文本",
+      "expand": "扩展",
+      "expandDesc": "扩展相关主题",
+      "outline": "生成大纲",
+      "outlineDesc": "生成文章大纲",
+      "explain": "解释",
+      "explainDesc": "解释选中的文本"
+    }
+  },
+  "mcp": {
+    "title": "MCP 服务器",
+    "tabs": {
+      "servers": "服务器",
+      "publish": "发布",
+      "sync": "同步"
+    },
+    "servers": {
+      "empty": "未配置 MCP 服务器",
+      "addServer": "添加服务器",
+      "addServerPlus": "+ 添加服务器",
+      "connected": "已连接",
+      "disconnected": "已断开",
+      "serverName": "服务器名称",
+      "serverUrl": "服务器 URL（例如：http://localhost:3000/mcp）",
+      "http": "HTTP",
+      "sse": "SSE（服务器发送事件）"
+    },
+    "publish": {
+      "empty": "未配置发布目标",
+      "hint": "请先连接具有发布功能的 MCP 服务器。",
+      "button": "发布",
+      "publishing": "发布中...",
+      "published": "已发布！{info}",
+      "failed": "失败：{message}",
+      "error": "错误：{message}"
+    },
+    "sync": {
+      "empty": "未配置同步",
+      "hint": "配置知识库 MCP 服务器以启用文档同步。",
+      "syncNow": "立即同步"
+    }
+  },
+  "welcome": {
+    "title": "欢迎使用 Moraya",
+    "subtitle": "极简的、支持 AI 的 Markdown 编辑器。",
+    "featuresTitle": "功能特性",
+    "featureWysiwyg": "**所见即所得** Markdown 编辑",
+    "featureMath": "数学公式支持：$E = mc^2$",
+    "featureThemes": "深色和浅色主题",
+    "featureAI": "AI 驱动的写作助手",
+    "featureMCP": "MCP 协议发布与同步",
+    "featureLightweight": "轻量级（约 3MB 安装包）",
+    "mathTitle": "数学示例",
+    "codeTitle": "代码示例",
+    "tableTitle": "表格示例",
+    "tableFeature": "功能",
+    "tableStatus": "状态",
+    "tableDone": "完成",
+    "startWriting": "在这里开始写下你的想法...",
+    "tip": "**提示：** 按 `Cmd+I` 切换 AI 助手面板。",
+    "shortcutsTitle": "键盘快捷键",
+    "shortcutSave": "`Cmd+S` — 保存文档",
+    "shortcutOpen": "`Cmd+O` — 打开文件",
+    "shortcutNew": "`Cmd+N` — 新建文档",
+    "shortcutToggleMode": "`Cmd+/` — 切换可视化/源码模式",
+    "shortcutSplitMode": "`Cmd+Shift+/` — 切换对比模式",
+    "shortcutSidebar": "`Cmd+\\` — 切换侧边栏",
+    "shortcutSettings": "`Cmd+,` — 打开设置",
+    "shortcutAI": "`Cmd+Shift+I` — 切换 AI 面板",
+    "shortcutExport": "`Cmd+Shift+E` — 导出为 HTML",
+    "blockquoteTitle": "引用示例",
+    "blockquoteContent": "写作的艺术就是发现你所相信的东西的艺术。—— 居斯塔夫·福楼拜",
+    "advancedMathTitle": "进阶数学公式",
+    "listTitle": "嵌套列表示例",
+    "listItem1": "快速上手",
+    "listItem1a": "安装应用程序",
+    "listItem1b": "配置偏好设置",
+    "listItem1c": "开始写作",
+    "listItem2": "高级功能",
+    "listItem2a": "AI 驱动的写作辅助",
+    "listItem2b": "MCP 协议集成",
+    "listItem2c": "多种导出格式",
+    "listItem3": "个性化定制",
+    "listItem3a": "主题与外观",
+    "listItem3b": "编辑器设置",
+    "listItem3c": "键盘快捷键",
+    "paragraphTitle": "关于 Moraya",
+    "paragraph1": "Moraya 是一款使用 Rust 和 Tauri 构建的现代轻量级 Markdown 编辑器。它将文本编辑器的简洁与所见即所得界面的强大功能相结合，为你提供两全其美的体验。",
+    "paragraph2": "\"Moraya\" 这个名字来源于拉丁语 \"mora\"（片刻）与中文 \"雅\"（优雅）的组合，寓意\"墨雅\"——优雅的书写片刻。",
+    "paragraph3": "无论你是在编写技术文档、博客文章、学术论文还是个人笔记，Moraya 都能提供一个无干扰的环境，让你专注于最重要的事情——你的内容。",
+    "hrTitle": "分隔线",
+    "hrDescription": "你可以使用分隔线来分隔文档的不同部分："
+  }
+}

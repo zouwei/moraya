@@ -38,7 +38,7 @@ export const exportOptions: ExportOption[] = [
 ];
 
 /**
- * Convert Markdown to HTML with Inkra styling
+ * Convert Markdown to HTML with Moraya styling
  */
 export function markdownToHtml(markdown: string, includeStyles: boolean = true): string {
   // For Phase 1, we use a simple markdown-to-html approach
@@ -48,7 +48,7 @@ export function markdownToHtml(markdown: string, includeStyles: boolean = true):
   if (!includeStyles) {
     return `<!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"><title>Exported from Inkra</title></head>
+<head><meta charset="utf-8"><title>Exported from Moraya</title></head>
 <body>${bodyHtml}</body>
 </html>`;
   }
@@ -57,7 +57,7 @@ export function markdownToHtml(markdown: string, includeStyles: boolean = true):
 <html>
 <head>
 <meta charset="utf-8">
-<title>Exported from Inkra</title>
+<title>Exported from Moraya</title>
 <style>
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;

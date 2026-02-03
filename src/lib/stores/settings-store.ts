@@ -1,4 +1,5 @@
 import { writable, get } from 'svelte/store';
+import { setLocale, detectSystemLocale, type SupportedLocale, type LocaleSelection } from '$lib/i18n';
 
 export type Theme = 'light' | 'dark' | 'system';
 
@@ -11,6 +12,10 @@ interface Settings {
   autoSaveInterval: number; // milliseconds
   showSidebar: boolean;
   showStatusBar: boolean;
+  localeSelection: LocaleSelection;
+  editorLineWidth: number;
+  editorTabSize: number;
+  showLineNumbers: boolean;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -22,10 +27,21 @@ const DEFAULT_SETTINGS: Settings = {
   autoSaveInterval: 30000,
   showSidebar: false,
   showStatusBar: true,
+  localeSelection: 'system',
+  editorLineWidth: 800,
+  editorTabSize: 4,
+  showLineNumbers: false,
 };
+
+function resolveLocale(selection: LocaleSelection): SupportedLocale {
+  return selection === 'system' ? detectSystemLocale() : selection;
+}
 
 function createSettingsStore() {
   const { subscribe, set, update } = writable<Settings>(DEFAULT_SETTINGS);
+
+  // Apply initial locale
+  setLocale(resolveLocale(DEFAULT_SETTINGS.localeSelection));
 
   return {
     subscribe,
@@ -35,6 +51,11 @@ function createSettingsStore() {
     setTheme(theme: Theme) {
       update(state => ({ ...state, theme }));
       applyTheme(theme);
+    },
+    setLocaleSelection(selection: LocaleSelection) {
+      const resolved = resolveLocale(selection);
+      setLocale(resolved);
+      update(state => ({ ...state, localeSelection: selection }));
     },
     toggleSidebar() {
       update(state => ({ ...state, showSidebar: !state.showSidebar }));

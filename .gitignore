@@ -1,10 +1,92 @@
+# =========================
+# OS
+# =========================
 .DS_Store
-node_modules
-/build
-/.svelte-kit
-/package
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+
+# =========================
+# Node / pnpm
+# =========================
+node_modules/
+.pnpm-store/
+.pnpm-debug.log
+
+# =========================
+# SvelteKit
+# =========================
+/.svelte-kit/
+/build/
+/package/
+
+# =========================
+# Vite
+# =========================
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# =========================
+# Environment & Secrets
+# =========================
 .env
 .env.*
 !.env.example
-vite.config.js.timestamp-*
-vite.config.ts.timestamp-*
+*.pem
+*.key
+*.cert
+
+# =========================
+# Rust / Cargo (src-tauri)
+# =========================
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# =========================
+# Build Artifacts
+# =========================
+*.dmg
+*.app
+*.exe
+*.msi
+*.deb
+*.AppImage
+*.rpm
+
+# 
+.claude
+.vscode
+
+# =========================
+# IDE
+# =========================
+.idea/
+*.iml
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# =========================
+# Logs
+# =========================
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# =========================
+# Test & Coverage
+# =========================
+coverage/
+.nyc_output/
+*.lcov
+
+# =========================
+# Misc
+# =========================
+*.tgz
+*.bak
+*.tmp

@@ -1,19 +1,19 @@
 [package]
-name = "inkra"
+name = "moraya"
 version = "0.1.0"
 description = "A minimal, AI-ready Markdown editor"
-authors = ["Inkra Contributors"]
+authors = ["Moraya Contributors"]
 edition = "2021"
 
 [lib]
-name = "inkra_lib"
+name = "moraya_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = ">=2.9,<2.10", features = [] }
 tauri-plugin-fs = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-store = "2"

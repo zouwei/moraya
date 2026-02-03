@@ -1,0 +1,229 @@
+{
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "close": "Close",
+    "add": "Add",
+    "remove": "Remove",
+    "connect": "Connect",
+    "disconnect": "Disconnect",
+    "insert": "Insert",
+    "replace": "Replace",
+    "copy": "Copy",
+    "untitled": "Untitled"
+  },
+  "settings": {
+    "title": "Settings",
+    "tabs": {
+      "general": "General",
+      "editor": "Editor",
+      "appearance": "Appearance",
+      "ai": "AI",
+      "mcp": "MCP"
+    },
+    "language": {
+      "label": "Language",
+      "system": "Follow System"
+    },
+    "theme": {
+      "label": "Theme",
+      "system": "System",
+      "light": "Light",
+      "dark": "Dark"
+    },
+    "fontSize": {
+      "label": "Font Size"
+    },
+    "autoSave": {
+      "label": "Auto Save",
+      "interval": "Auto Save Interval"
+    },
+    "editor": {
+      "lineWidth": "Editor Line Width",
+      "tabSize": "Tab Size",
+      "showLineNumbers": "Show Line Numbers in Source Mode"
+    },
+    "version": "Moraya v{version}"
+  },
+  "titlebar": {
+    "unsaved": "Unsaved",
+    "minimize": "Minimize",
+    "maximize": "Maximize",
+    "close": "Close"
+  },
+  "sidebar": {
+    "title": "Explorer",
+    "openFolder": "Open Folder",
+    "noFolder": "No folder open"
+  },
+  "statusbar": {
+    "words": "Words",
+    "characters": "Characters",
+    "format": "Markdown",
+    "sourceMode": "Source",
+    "visualMode": "Visual",
+    "splitMode": "Split"
+  },
+  "editor": {
+    "sourceMode": "Source Mode",
+    "visualMode": "Visual Mode",
+    "splitMode": "Split Mode"
+  },
+  "table": {
+    "insertRowAbove": "Insert Row Above",
+    "insertRowBelow": "Insert Row Below",
+    "deleteRow": "Delete Row",
+    "insertColLeft": "Insert Column Left",
+    "insertColRight": "Insert Column Right",
+    "deleteCol": "Delete Column",
+    "alignLeft": "Align Left",
+    "alignCenter": "Align Center",
+    "alignRight": "Align Right"
+  },
+  "ai": {
+    "title": "Moraya AI",
+    "clearChat": "Clear chat",
+    "unconfigured": "AI is not configured.",
+    "unconfiguredHint": "Open Settings (Cmd+,) and configure your API key to enable AI features.",
+    "welcomeTitle": "How can I help?",
+    "welcomeHint": "Type a message or use {kbd} for commands",
+    "you": "You",
+    "assistant": "AI",
+    "typing": "typing...",
+    "placeholder": "Ask AI anything... (/ for commands)",
+    "placeholderSelection": "Ask about selection... (/ for commands)",
+    "send": "Send (Enter)",
+    "insertToEditor": "Insert into editor",
+    "replaceSelection": "Replace selection",
+    "config": {
+      "title": "AI Configuration",
+      "provider": "Provider",
+      "apiKey": "API Key",
+      "apiKeyPlaceholder": "Enter {provider} API key",
+      "apiKeyNotRequired": "Not required for Ollama",
+      "baseUrl": "Base URL",
+      "model": "Model",
+      "modelPlaceholder": "Enter model name",
+      "maxTokens": "Max Tokens",
+      "temperature": "Temperature",
+      "testConnection": "Test Connection",
+      "testing": "Testing...",
+      "connected": "Connected!",
+      "failed": "Failed"
+    },
+    "providers": {
+      "claude": "Anthropic Claude",
+      "openai": "OpenAI",
+      "gemini": "Google Gemini",
+      "deepseek": "DeepSeek",
+      "ollama": "Ollama (Local)",
+      "custom": "Custom API"
+    },
+    "commands": {
+      "write": "Write",
+      "writeDesc": "Write content based on your prompt",
+      "continue": "Continue Writing",
+      "continueDesc": "Continue from where the text left off",
+      "summarize": "Summarize",
+      "summarizeDesc": "Summarize the selected text",
+      "translate": "Translate",
+      "translateDesc": "Translate text to another language",
+      "improve": "Improve",
+      "improveDesc": "Improve writing quality",
+      "fixGrammar": "Fix Grammar",
+      "fixGrammarDesc": "Fix grammar and spelling errors",
+      "simplify": "Simplify",
+      "simplifyDesc": "Simplify complex text",
+      "expand": "Expand",
+      "expandDesc": "Expand on the topic",
+      "outline": "Generate Outline",
+      "outlineDesc": "Generate an article outline",
+      "explain": "Explain",
+      "explainDesc": "Explain the selected text"
+    }
+  },
+  "mcp": {
+    "title": "MCP Servers",
+    "tabs": {
+      "servers": "Servers",
+      "publish": "Publish",
+      "sync": "Sync"
+    },
+    "servers": {
+      "empty": "No MCP servers configured",
+      "addServer": "Add Server",
+      "addServerPlus": "+ Add Server",
+      "connected": "Connected",
+      "disconnected": "Disconnected",
+      "serverName": "Server name",
+      "serverUrl": "Server URL (e.g., http://localhost:3000/mcp)",
+      "http": "HTTP",
+      "sse": "SSE (Server-Sent Events)"
+    },
+    "publish": {
+      "empty": "No publish targets configured",
+      "hint": "Connect an MCP server with publishing capabilities first.",
+      "button": "Publish",
+      "publishing": "Publishing...",
+      "published": "Published! {info}",
+      "failed": "Failed: {message}",
+      "error": "Error: {message}"
+    },
+    "sync": {
+      "empty": "No sync configurations",
+      "hint": "Configure a knowledge base MCP server to enable document syncing.",
+      "syncNow": "Sync Now"
+    }
+  },
+  "welcome": {
+    "title": "Welcome to Moraya",
+    "subtitle": "A minimal, AI-ready Markdown editor.",
+    "featuresTitle": "Features",
+    "featureWysiwyg": "**WYSIWYG** Markdown editing",
+    "featureMath": "Math formula support: $E = mc^2$",
+    "featureThemes": "Dark & Light themes",
+    "featureAI": "AI-powered writing assistant",
+    "featureMCP": "MCP protocol for publishing & sync",
+    "featureLightweight": "Lightweight (~3MB installer)",
+    "mathTitle": "Math Example",
+    "codeTitle": "Code Example",
+    "tableTitle": "Table Example",
+    "tableFeature": "Feature",
+    "tableStatus": "Status",
+    "tableDone": "Done",
+    "startWriting": "Start writing your ideas here...",
+    "tip": "**Tip:** Press `Cmd+I` to toggle the AI assistant panel.",
+    "shortcutsTitle": "Keyboard Shortcuts",
+    "shortcutSave": "`Cmd+S` — Save document",
+    "shortcutOpen": "`Cmd+O` — Open file",
+    "shortcutNew": "`Cmd+N` — New document",
+    "shortcutToggleMode": "`Cmd+/` — Toggle Visual/Source mode",
+    "shortcutSplitMode": "`Cmd+Shift+/` — Toggle Split mode",
+    "shortcutSidebar": "`Cmd+\\` — Toggle sidebar",
+    "shortcutSettings": "`Cmd+,` — Open settings",
+    "shortcutAI": "`Cmd+Shift+I` — Toggle AI panel",
+    "shortcutExport": "`Cmd+Shift+E` — Export as HTML",
+    "blockquoteTitle": "Blockquote Example",
+    "blockquoteContent": "The art of writing is the art of discovering what you believe. — Gustave Flaubert",
+    "advancedMathTitle": "Advanced Math",
+    "listTitle": "Nested List Example",
+    "listItem1": "Getting Started",
+    "listItem1a": "Install the application",
+    "listItem1b": "Configure your preferences",
+    "listItem1c": "Start writing",
+    "listItem2": "Advanced Features",
+    "listItem2a": "AI-powered writing assistance",
+    "listItem2b": "MCP protocol integration",
+    "listItem2c": "Multiple export formats",
+    "listItem3": "Customization",
+    "listItem3a": "Themes and appearance",
+    "listItem3b": "Editor settings",
+    "listItem3c": "Keyboard shortcuts",
+    "paragraphTitle": "About Moraya",
+    "paragraph1": "Moraya is a modern, lightweight Markdown editor built with Rust and Tauri. It combines the simplicity of a text editor with the power of a WYSIWYG interface, giving you the best of both worlds.",
+    "paragraph2": "The name \"Moraya\" comes from combining \"mora\" (Latin for \"a moment\") with \"ya\" (Chinese for \"elegance\"), symbolizing elegant moments of writing.",
+    "paragraph3": "Whether you're writing technical documentation, blog posts, academic papers, or personal notes, Moraya provides a distraction-free environment that lets you focus on what matters most — your content.",
+    "hrTitle": "Horizontal Rules",
+    "hrDescription": "You can use horizontal rules to separate different sections of your document:"
+  }
+}

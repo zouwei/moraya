@@ -1,6 +1,6 @@
 /* Milkdown / ProseMirror editor styles */
 
-.inkra-editor {
+.moraya-editor {
   outline: none;
   font-family: var(--font-sans);
   font-size: var(--font-size-base);
@@ -10,7 +10,7 @@
 }
 
 /* Headings */
-.inkra-editor h1 {
+.moraya-editor h1 {
   font-size: 2em;
   font-weight: 700;
   margin: 1.5em 0 0.5em;
@@ -19,54 +19,54 @@
   padding-bottom: 0.3em;
 }
 
-.inkra-editor h2 {
+.moraya-editor h2 {
   font-size: 1.5em;
   font-weight: 600;
   margin: 1.3em 0 0.4em;
   line-height: 1.35;
 }
 
-.inkra-editor h3 {
+.moraya-editor h3 {
   font-size: 1.25em;
   font-weight: 600;
   margin: 1.2em 0 0.3em;
   line-height: 1.4;
 }
 
-.inkra-editor h4,
-.inkra-editor h5,
-.inkra-editor h6 {
+.moraya-editor h4,
+.moraya-editor h5,
+.moraya-editor h6 {
   font-size: 1em;
   font-weight: 600;
   margin: 1em 0 0.3em;
 }
 
 /* Paragraphs */
-.inkra-editor p {
+.moraya-editor p {
   margin: 0.5em 0;
 }
 
 /* Strong & Emphasis */
-.inkra-editor strong {
+.moraya-editor strong {
   font-weight: 600;
 }
 
-.inkra-editor em {
+.moraya-editor em {
   font-style: italic;
 }
 
 /* Links */
-.inkra-editor a {
+.moraya-editor a {
   color: var(--accent-color);
   text-decoration: none;
 }
 
-.inkra-editor a:hover {
+.moraya-editor a:hover {
   text-decoration: underline;
 }
 
 /* Inline code */
-.inkra-editor code {
+.moraya-editor code {
   font-family: var(--font-mono);
   font-size: 0.9em;
   padding: 0.15em 0.4em;
@@ -76,7 +76,7 @@
 }
 
 /* Code blocks */
-.inkra-editor pre {
+.moraya-editor pre {
   font-family: var(--font-mono);
   font-size: 0.9em;
   line-height: 1.6;
@@ -87,14 +87,14 @@
   overflow-x: auto;
 }
 
-.inkra-editor pre code {
+.moraya-editor pre code {
   padding: 0;
   background: none;
   border-radius: 0;
 }
 
 /* Blockquote */
-.inkra-editor blockquote {
+.moraya-editor blockquote {
   border-left: 3px solid var(--accent-color);
   padding-left: 1em;
   margin: 1em 0;
@@ -102,27 +102,27 @@
 }
 
 /* Lists */
-.inkra-editor ul,
-.inkra-editor ol {
+.moraya-editor ul,
+.moraya-editor ol {
   padding-left: 1.5em;
   margin: 0.5em 0;
 }
 
-.inkra-editor li {
+.moraya-editor li {
   margin: 0.2em 0;
 }
 
-.inkra-editor li > p {
+.moraya-editor li > p {
   margin: 0.2em 0;
 }
 
 /* Task lists */
-.inkra-editor li[data-checked] {
+.moraya-editor li[data-checked] {
   list-style: none;
   position: relative;
 }
 
-.inkra-editor li[data-checked]::before {
+.moraya-editor li[data-checked]::before {
   content: '';
   position: absolute;
   left: -1.5em;
@@ -133,39 +133,39 @@
   border-radius: 3px;
 }
 
-.inkra-editor li[data-checked="true"]::before {
+.moraya-editor li[data-checked="true"]::before {
   background: var(--accent-color);
   border-color: var(--accent-color);
 }
 
 /* Horizontal rule */
-.inkra-editor hr {
+.moraya-editor hr {
   border: none;
   border-top: 1px solid var(--border-color);
   margin: 1.5em 0;
 }
 
 /* Tables */
-.inkra-editor table {
+.moraya-editor table {
   border-collapse: collapse;
   width: 100%;
   margin: 1em 0;
 }
 
-.inkra-editor th,
-.inkra-editor td {
+.moraya-editor th,
+.moraya-editor td {
   border: 1px solid var(--border-color);
   padding: 0.5em 0.8em;
   text-align: left;
 }
 
-.inkra-editor th {
+.moraya-editor th {
   background: var(--bg-secondary);
   font-weight: 600;
 }
 
 /* Images */
-.inkra-editor img {
+.moraya-editor img {
   max-width: 100%;
   height: auto;
   border-radius: 4px;
@@ -173,13 +173,13 @@
 }
 
 /* Math blocks */
-.inkra-editor .math-block {
+.moraya-editor .math-block {
   margin: 1em 0;
   text-align: center;
   overflow-x: auto;
 }
 
-.inkra-editor .math-inline {
+.moraya-editor .math-inline {
   display: inline;
 }
 

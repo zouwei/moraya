@@ -26,7 +26,7 @@ export async function createEditor(options: EditorOptions): Promise<Editor> {
       ctx.set(defaultValueCtx, defaultValue);
       ctx.set(editorViewOptionsCtx, {
         attributes: {
-          class: 'inkra-editor',
+          class: 'moraya-editor',
           spellcheck: 'true',
         },
       });
@@ -61,8 +61,8 @@ export async function createEditor(options: EditorOptions): Promise<Editor> {
 export function getMarkdown(editor: Editor): string {
   // Access the editor's action to get markdown content
   return editor.action((ctx) => {
-    const serializer = ctx.get('serializerCtx' as any);
-    const view = ctx.get('editorViewCtx' as any);
+    const serializer = ctx.get('serializerCtx' as any) as unknown as (node: any) => string;
+    const view = ctx.get('editorViewCtx' as any) as unknown as { state: { doc: any } };
     if (serializer && view) {
       return serializer(view.state.doc);
     }

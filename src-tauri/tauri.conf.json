@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Inkra",
+  "productName": "Moraya",
   "version": "0.1.0",
-  "identifier": "com.inkra.app",
+  "identifier": "com.moraya.app",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Inkra",
+        "title": "Moraya",
         "width": 1200,
         "height": 800,
         "minWidth": 600,

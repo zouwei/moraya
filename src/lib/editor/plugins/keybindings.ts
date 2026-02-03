@@ -1,5 +1,5 @@
 /**
- * Typora-style keyboard shortcuts for Inkra
+ * Typora-style keyboard shortcuts for Moraya
  * Reference: https://support.typora.io/Shortcut-Keys/
  */
 

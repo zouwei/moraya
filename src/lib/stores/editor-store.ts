@@ -1,5 +1,7 @@
 import { writable, derived, get } from 'svelte/store';
 
+export type EditorMode = 'visual' | 'source' | 'split';
+
 interface EditorState {
   currentFilePath: string | null;
   isDirty: boolean;
@@ -7,6 +9,7 @@ interface EditorState {
   content: string;
   wordCount: number;
   charCount: number;
+  editorMode: EditorMode;
 }
 
 function createEditorStore() {
@@ -17,6 +20,7 @@ function createEditorStore() {
     content: '',
     wordCount: 0,
     charCount: 0,
+    editorMode: 'visual',
   });
 
   function countWords(text: string): number {
@@ -49,6 +53,15 @@ function createEditorStore() {
     setCurrentFile(path: string | null) {
       update(state => ({ ...state, currentFilePath: path, isDirty: false }));
     },
+    toggleEditorMode() {
+      update(state => ({
+        ...state,
+        editorMode: state.editorMode === 'visual' ? 'source' : 'visual',
+      }));
+    },
+    setEditorMode(mode: EditorMode) {
+      update(state => ({ ...state, editorMode: mode }));
+    },
     reset() {
       set({
         currentFilePath: null,
@@ -57,6 +70,7 @@ function createEditorStore() {
         content: '',
         wordCount: 0,
         charCount: 0,
+        editorMode: 'visual',
       });
     },
     getState() {
