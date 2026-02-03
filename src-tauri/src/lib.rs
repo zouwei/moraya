@@ -98,30 +98,27 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app, event| {
+        .run(|_app, _event| {
             // Handle macOS "Open With" / file association events
-            if let tauri::RunEvent::Opened { urls } = event {
-                // Extract file paths from URLs
-                let paths: Vec<String> = urls
-                    .iter()
-                    .filter_map(|url| {
-                        if url.scheme() == "file" {
-                            url.to_file_path().ok().map(|p| p.to_string_lossy().into_owned())
-                        } else {
-                            None
+            #[cfg(target_os = "macos")]
+            {
+                if let tauri::RunEvent::Opened { urls } = &_event {
+                    let mut paths = Vec::new();
+                    for u in urls {
+                        if u.scheme() == "file" {
+                            if let Ok(p) = u.to_file_path() {
+                                paths.push(p.to_string_lossy().into_owned());
+                            }
                         }
-                    })
-                    .collect();
-
-                if let Some(path) = paths.first() {
-                    // Store in state
-                    if let Some(state) = app.try_state::<OpenedFiles>() {
-                        let mut files = state.0.lock().unwrap();
-                        files.clear();
-                        files.push(path.clone());
                     }
-                    // Emit to frontend (if already loaded)
-                    let _ = app.emit("open-file", path.clone());
+                    if let Some(path) = paths.first() {
+                        if let Some(state) = _app.try_state::<OpenedFiles>() {
+                            let mut files = state.0.lock().unwrap();
+                            files.clear();
+                            files.push(path.clone());
+                        }
+                        let _ = _app.emit("open-file", path.clone());
+                    }
                 }
             }
         });
