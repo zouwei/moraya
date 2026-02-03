@@ -57,7 +57,18 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Moraya ${{ github.ref_name }}'
-          releaseBody: 'See the assets below to download and install.'
+          releaseBody: |
+            See the assets below to download and install.
+
+            ### macOS users
+
+            The app is not code-signed with an Apple Developer certificate. After installing, if you see "Moraya is damaged and can't be opened", run the following command in Terminal:
+
+            ```
+            xattr -cr /Applications/Moraya.app
+            ```
+
+            Then open the app again.
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}

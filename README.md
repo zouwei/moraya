@@ -62,6 +62,18 @@ A minimal, open-source WYSIWYG Markdown editor built with Rust + Tauri v2. Inspi
 | Package Manager | pnpm | 10.x |
 | Language | TypeScript (strict mode) | ~5.6.2 |
 
+## Install
+
+Download the latest release from [GitHub Releases](https://github.com/nicepkg/moraya/releases).
+
+> **macOS note**: The app is not code-signed. If you see *"Moraya is damaged and can't be opened"*, run this in Terminal:
+>
+> ```bash
+> xattr -cr /Applications/Moraya.app
+> ```
+>
+> Then open the app again.
+
 ## Getting Started
 
 ### Prerequisites
