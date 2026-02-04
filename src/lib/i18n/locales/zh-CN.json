@@ -265,7 +265,11 @@
     "actualSize": "实际大小",
     "find": "查找",
     "replace": "替换",
+    "changelog": "更新日志",
+    "privacyPolicy": "隐私条款",
+    "officialWebsite": "官方网站",
     "aboutMoraya": "关于 Moraya",
+    "feedback": "反馈",
     "settings": "设置..."
   },
   "search": {

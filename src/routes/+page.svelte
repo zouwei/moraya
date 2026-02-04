@@ -37,6 +37,7 @@
   import { exportDocument, type ExportFormat } from '$lib/services/export-service';
   import { listen, type UnlistenFn } from '@tauri-apps/api/event';
   import { invoke } from '@tauri-apps/api/core';
+  import { openUrl } from '@tauri-apps/plugin-opener';
   import { t } from '$lib/i18n';
 
   import '$lib/styles/global.css';
@@ -74,6 +75,8 @@ $$
 $$
 
 ## ${tr('welcome.codeTitle')}
+
+Inline code: \`console.log\`, \`println!\`, \`标记文本\`
 
 \`\`\`javascript
 const greeting = "Hello, Moraya!";
@@ -344,7 +347,11 @@ ${tr('welcome.tip')}
       view_zoom_out: tr('menu.zoomOut'),
       view_actual_size: tr('menu.actualSize'),
       // Help menu
+      help_changelog: tr('menu.changelog'),
+      help_privacy: tr('menu.privacyPolicy'),
+      help_website: tr('menu.officialWebsite'),
       help_about: tr('menu.aboutMoraya'),
+      help_feedback: tr('menu.feedback'),
       // Edit — search
       edit_find: tr('menu.find'),
       edit_replace: tr('menu.replace'),
@@ -694,6 +701,23 @@ ${tr('welcome.tip')}
         settingsStore.update({ fontSize: 16 });
         document.documentElement.style.setProperty('--font-size-base', '16px');
       },
+      // Help
+      'menu:help_changelog': () => { openUrl('https://github.com/zouwei/moraya/releases'); },
+      'menu:help_privacy': async () => {
+        try {
+          const privacyContent = await invoke<string>('read_resource_file', { name: 'privacy-policy.md' });
+          content = privacyContent;
+          editorStore.setContent(privacyContent);
+          if (milkdownEditor && editorStore.getState().editorMode !== 'source') {
+            try { milkdownEditor.action(replaceAll(content)); } catch { /* ignore */ }
+          }
+        } catch {
+          // Resource not found
+        }
+      },
+      'menu:help_website': () => { openUrl('https://moraya.app'); },
+      'menu:help_about': () => { openUrl('https://moraya.app/en/about/'); },
+      'menu:help_feedback': () => { openUrl('https://github.com/zouwei/moraya/issues'); },
       // App
       'menu:preferences': () => { showSettings = !showSettings; },
     };

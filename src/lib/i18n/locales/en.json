@@ -265,7 +265,11 @@
     "actualSize": "Actual Size",
     "find": "Find",
     "replace": "Replace",
+    "changelog": "Changelog",
+    "privacyPolicy": "Privacy Policy",
+    "officialWebsite": "Official Website",
     "aboutMoraya": "About Moraya",
+    "feedback": "Feedback",
     "settings": "Settings..."
   },
   "search": {

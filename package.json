@@ -1,6 +1,6 @@
 {
   "name": "moraya",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "",
   "type": "module",
   "scripts": {
@@ -40,7 +40,9 @@
     "highlight.js": "^11.11.1",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.1.0",
-    "katex": "^0.16.28"
+    "katex": "^0.16.28",
+    "node-emoji": "^2.2.0",
+    "remark-definition-list": "^2.0.0"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "^3.0.6",

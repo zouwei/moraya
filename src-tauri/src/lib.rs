@@ -52,10 +52,12 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::new().build())
+        .plugin(tauri_plugin_opener::init())
         .manage(commands::mcp::MCPProcessManager::new())
         .manage(OpenedFiles(Mutex::new(initial_files)))
         .invoke_handler(tauri::generate_handler![
             commands::file::read_file,
+            commands::file::read_resource_file,
             commands::file::write_file,
             commands::file::write_file_binary,
             commands::file::read_dir_recursive,

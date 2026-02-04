@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Moraya Logo: Diagonal stroke + two dots, 45° centered (square corners) -->
+
+  <!-- Background: square (no border-radius) -->
+  <rect x="32" y="32" width="448" height="448" rx="0" ry="0" fill="#1a1a2e"/>
+
+  <!-- Diagonal capsule stroke (exactly 45°, centered on 256,256) -->
+  <rect x="228" y="116" width="56" height="280" rx="28" ry="28"
+        transform="rotate(-45, 256, 256)"
+        fill="#f0efe8"/>
+
+  <!-- Upper-right dot (symmetric about center diagonal) -->
+  <circle cx="355" cy="157" r="36" fill="#f0efe8"/>
+
+  <!-- Lower-left dot (symmetric about center diagonal) -->
+  <circle cx="157" cy="355" r="36" fill="#f0efe8"/>
+</svg>

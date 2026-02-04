@@ -15,6 +15,16 @@ pub fn read_file(path: String) -> Result<String, String> {
     fs::read_to_string(&path).map_err(|e| format!("Failed to read file: {}", e))
 }
 
+/// Return the embedded privacy policy content.
+/// The file is included at compile time so no runtime path resolution is needed.
+#[tauri::command]
+pub fn read_resource_file(name: String) -> Result<String, String> {
+    match name.as_str() {
+        "privacy-policy.md" => Ok(include_str!("../../resources/privacy-policy.md").to_string()),
+        _ => Err(format!("Unknown resource: {}", name)),
+    }
+}
+
 #[tauri::command]
 pub fn write_file(path: String, content: String) -> Result<(), String> {
     // Ensure parent directory exists

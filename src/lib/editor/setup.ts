@@ -8,6 +8,14 @@ import { cursor } from '@milkdown/plugin-cursor';
 import { listener, listenerCtx } from '@milkdown/plugin-listener';
 import { highlightPlugin } from './plugins/highlight';
 import { enterHandlerPlugin } from './plugins/enter-handler';
+import { emojiPlugin } from './plugins/emoji';
+import {
+  defListRemarkPlugin,
+  defListSchema,
+  defListTermSchema,
+  defListDescriptionSchema,
+  defListInputRule,
+} from './plugins/definition-list';
 
 import 'katex/dist/katex.min.css';
 
@@ -48,6 +56,12 @@ export async function createEditor(options: EditorOptions): Promise<Editor> {
     .use(listener)
     .use(highlightPlugin)
     .use(enterHandlerPlugin)
+    .use(emojiPlugin)
+    .use(defListRemarkPlugin)
+    .use(defListSchema)
+    .use(defListTermSchema)
+    .use(defListDescriptionSchema)
+    .use(defListInputRule)
     .create();
 
   // Handle focus/blur events on the editor DOM
