@@ -24,6 +24,66 @@ pub fn write_file(path: String, content: String) -> Result<(), String> {
     fs::write(&path, content).map_err(|e| format!("Failed to write file: {}", e))
 }
 
+/// Write binary data (base64-encoded) to a file.
+/// Used for exporting PDF, PNG, and other binary formats.
+#[tauri::command]
+pub fn write_file_binary(path: String, base64_data: String) -> Result<(), String> {
+    use std::io::Write;
+
+    // Ensure parent directory exists
+    if let Some(parent) = Path::new(&path).parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
+    }
+
+    // Strip optional data URL prefix (e.g. "data:image/png;base64,")
+    let raw = if let Some(pos) = base64_data.find(",") {
+        &base64_data[pos + 1..]
+    } else {
+        &base64_data
+    };
+
+    // Decode base64
+    let bytes = base64_decode(raw).map_err(|e| format!("Failed to decode base64: {}", e))?;
+
+    let mut file =
+        fs::File::create(&path).map_err(|e| format!("Failed to create file: {}", e))?;
+    file.write_all(&bytes)
+        .map_err(|e| format!("Failed to write file: {}", e))
+}
+
+/// Simple base64 decoder (no external dependency needed).
+fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    let input = input.as_bytes();
+    let mut buf: Vec<u8> = Vec::with_capacity(input.len() * 3 / 4);
+    let mut acc: u32 = 0;
+    let mut bits: u32 = 0;
+
+    for &b in input {
+        if b == b'\n' || b == b'\r' || b == b' ' {
+            continue;
+        }
+        if b == b'=' {
+            break;
+        }
+        let val = TABLE
+            .iter()
+            .position(|&c| c == b)
+            .ok_or_else(|| format!("Invalid base64 character: {}", b as char))?
+            as u32;
+        acc = (acc << 6) | val;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            buf.push((acc >> bits) as u8);
+            acc &= (1 << bits) - 1;
+        }
+    }
+
+    Ok(buf)
+}
+
 #[tauri::command]
 pub fn read_dir_recursive(path: String, depth: Option<u32>) -> Result<Vec<FileEntry>, String> {
     let max_depth = depth.unwrap_or(3);

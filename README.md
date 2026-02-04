@@ -242,3 +242,6 @@ Each AI response has action buttons below it:
 ## License
 
 [Apache License 2.0](LICENSE)
+
+<mark>
+

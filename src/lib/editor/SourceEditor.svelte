@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import { settingsStore } from '../stores/settings-store';
   import { editorStore } from '../stores/editor-store';
 
@@ -60,7 +60,105 @@
 
   onMount(() => {
     autoResize();
+    if (textareaEl) {
+      const offset = editorStore.getState().cursorOffset;
+      const clamped = Math.min(offset, content.length);
+      textareaEl.selectionStart = clamped;
+      textareaEl.selectionEnd = clamped;
+      textareaEl.focus();
+    }
   });
+
+  onDestroy(() => {
+    if (textareaEl) {
+      editorStore.setCursorOffset(textareaEl.selectionStart);
+    }
+  });
+
+  // ── Search / Replace ──────────────────────────────────
+
+  interface MatchPos { from: number; to: number }
+  let searchMatches: MatchPos[] = [];
+  let searchIndex = -1;
+
+  export function searchText(text: string, cs: boolean): number {
+    searchMatches = [];
+    searchIndex = -1;
+    if (!text) return 0;
+    const haystack = cs ? content : content.toLowerCase();
+    const needle = cs ? text : text.toLowerCase();
+    let idx = 0;
+    while ((idx = haystack.indexOf(needle, idx)) !== -1) {
+      searchMatches.push({ from: idx, to: idx + needle.length });
+      idx += needle.length;
+    }
+    if (searchMatches.length > 0) {
+      searchIndex = 0;
+      selectMatch(0);
+    }
+    return searchMatches.length;
+  }
+
+  export function searchFindNext(): { current: number; total: number } {
+    if (searchMatches.length === 0) return { current: 0, total: 0 };
+    searchIndex = (searchIndex + 1) % searchMatches.length;
+    selectMatch(searchIndex);
+    return { current: searchIndex + 1, total: searchMatches.length };
+  }
+
+  export function searchFindPrev(): { current: number; total: number } {
+    if (searchMatches.length === 0) return { current: 0, total: 0 };
+    searchIndex = (searchIndex - 1 + searchMatches.length) % searchMatches.length;
+    selectMatch(searchIndex);
+    return { current: searchIndex + 1, total: searchMatches.length };
+  }
+
+  export function searchReplaceCurrent(replaceWith: string) {
+    if (searchIndex < 0 || searchIndex >= searchMatches.length) return;
+    const match = searchMatches[searchIndex];
+    content = content.substring(0, match.from) + replaceWith + content.substring(match.to);
+    editorStore.setDirty(true);
+    editorStore.setContent(content);
+  }
+
+  export function searchReplaceAll(searchStr: string, replaceWith: string, cs: boolean): number {
+    if (!searchStr) return 0;
+    const matches = searchMatches.length > 0 ? searchMatches : (() => {
+      // Rebuild matches if needed
+      searchText(searchStr, cs);
+      return searchMatches;
+    })();
+    if (matches.length === 0) return 0;
+    const count = matches.length;
+    // Replace from end to start to preserve positions
+    for (let i = matches.length - 1; i >= 0; i--) {
+      content = content.substring(0, matches[i].from) + replaceWith + content.substring(matches[i].to);
+    }
+    editorStore.setDirty(true);
+    editorStore.setContent(content);
+    clearSearch();
+    return count;
+  }
+
+  export function clearSearch() {
+    searchMatches = [];
+    searchIndex = -1;
+  }
+
+  function selectMatch(idx: number) {
+    if (!textareaEl || idx < 0 || idx >= searchMatches.length) return;
+    const match = searchMatches[idx];
+    textareaEl.focus();
+    textareaEl.setSelectionRange(match.from, match.to);
+    // Scroll textarea to show selection
+    const linesBefore = content.substring(0, match.from).split('\n').length;
+    const lineHeight = parseFloat(getComputedStyle(textareaEl).lineHeight) || 24;
+    const scrollTarget = (linesBefore - 3) * lineHeight;
+    const outer = textareaEl.closest('.source-editor-outer') as HTMLElement | null;
+    if (outer) {
+      outer.scrollTop = Math.max(0, scrollTarget);
+    }
+  }
 </script>
 
 <div class="source-editor-outer" class:hide-scrollbar={hideScrollbar}>

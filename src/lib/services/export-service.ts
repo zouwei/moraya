@@ -2,19 +2,16 @@ import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { get } from 'svelte/store';
 import { t } from '$lib/i18n';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
+import katex from 'katex';
 
 export type ExportFormat =
   | 'pdf'
   | 'html'
   | 'html-plain'
-  | 'docx'
-  | 'rtf'
-  | 'epub'
+  | 'doc'
   | 'latex'
-  | 'mediawiki'
-  | 'rst'
-  | 'textile'
-  | 'opml'
   | 'image';
 
 interface ExportOption {
@@ -29,23 +26,16 @@ export const exportOptions: ExportOption[] = [
   { format: 'html', labelKey: 'export.html', extension: 'html', mimeType: 'text/html' },
   { format: 'html-plain', labelKey: 'export.htmlPlain', extension: 'html', mimeType: 'text/html' },
   { format: 'image', labelKey: 'export.image', extension: 'png', mimeType: 'image/png' },
-  { format: 'docx', labelKey: 'export.docx', extension: 'docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
-  { format: 'rtf', labelKey: 'export.rtf', extension: 'rtf', mimeType: 'application/rtf' },
-  { format: 'epub', labelKey: 'export.epub', extension: 'epub', mimeType: 'application/epub+zip' },
+  { format: 'doc', labelKey: 'export.doc', extension: 'doc', mimeType: 'application/msword' },
   { format: 'latex', labelKey: 'export.latex', extension: 'tex', mimeType: 'application/x-latex' },
-  { format: 'mediawiki', labelKey: 'export.mediawiki', extension: 'wiki', mimeType: 'text/plain' },
-  { format: 'rst', labelKey: 'export.rst', extension: 'rst', mimeType: 'text/plain' },
-  { format: 'textile', labelKey: 'export.textile', extension: 'textile', mimeType: 'text/plain' },
-  { format: 'opml', labelKey: 'export.opml', extension: 'opml', mimeType: 'text/xml' },
 ];
 
 /**
- * Convert Markdown to HTML with Moraya styling
+ * Convert Markdown to HTML with Moraya styling.
+ * Uses KaTeX for math rendering and proper code block handling.
  */
 export function markdownToHtml(markdown: string, includeStyles: boolean = true): string {
-  // For Phase 1, we use a simple markdown-to-html approach
-  // In future phases, this will use remark/unified pipeline
-  const bodyHtml = simpleMarkdownToHtml(markdown);
+  const bodyHtml = markdownToHtmlBody(markdown);
 
   if (!includeStyles) {
     return `<!DOCTYPE html>
@@ -60,6 +50,7 @@ export function markdownToHtml(markdown: string, includeStyles: boolean = true):
 <head>
 <meta charset="utf-8">
 <title>Exported from Moraya</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.28/dist/katex.min.css">
 <style>
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -75,13 +66,16 @@ export function markdownToHtml(markdown: string, includeStyles: boolean = true):
   code { background: #f4f4f4; padding: 0.15em 0.4em; border-radius: 3px; font-size: 0.9em; }
   pre { background: #f4f4f4; padding: 1em; border-radius: 6px; overflow-x: auto; }
   pre code { background: none; padding: 0; }
-  blockquote { border-left: 3px solid #4a90d9; padding-left: 1em; color: #666; }
+  blockquote { border-left: 3px solid #4a90d9; padding-left: 1em; color: #666; margin: 1em 0; }
   table { border-collapse: collapse; width: 100%; }
   th, td { border: 1px solid #ddd; padding: 0.5em 0.8em; }
   th { background: #f4f4f4; }
   img { max-width: 100%; }
   hr { border: none; border-top: 1px solid #eee; margin: 1.5em 0; }
   a { color: #4a90d9; }
+  ul, ol { padding-left: 2em; }
+  li { margin: 0.25em 0; }
+  .math-block { text-align: center; margin: 1em 0; overflow-x: auto; }
 </style>
 </head>
 <body>${bodyHtml}</body>
@@ -89,13 +83,58 @@ export function markdownToHtml(markdown: string, includeStyles: boolean = true):
 }
 
 /**
- * Simple markdown to HTML converter for export
- * Note: This is a basic implementation. Full conversion will use remark/unified.
+ * Convert markdown to HTML body content with KaTeX math and proper code blocks.
  */
-function simpleMarkdownToHtml(md: string): string {
+function markdownToHtmlBody(md: string): string {
+  // Use a placeholder system to protect already-processed content
+  const placeholders: string[] = [];
+  function ph(content: string): string {
+    const idx = placeholders.length;
+    placeholders.push(content);
+    return `\x00PH${idx}\x00`;
+  }
+
   let html = md;
 
-  // Headers
+  // 1. Code blocks (``` ... ```) — protect from further processing
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_m, lang, code) => {
+    const escaped = escapeHtml(code.trimEnd());
+    const langAttr = lang ? ` class="language-${lang}"` : '';
+    return ph(`<pre><code${langAttr}>${escaped}</code></pre>`);
+  });
+
+  // 2. Math blocks ($$...$$) — render with KaTeX
+  html = html.replace(/\$\$([\s\S]*?)\$\$/g, (_m, tex) => {
+    try {
+      const rendered = katex.renderToString(tex.trim(), {
+        displayMode: true,
+        throwOnError: false,
+      });
+      return ph(`<div class="math-block">${rendered}</div>`);
+    } catch {
+      return ph(`<div class="math-block"><code>${escapeHtml(tex.trim())}</code></div>`);
+    }
+  });
+
+  // 3. Inline math ($...$) — render with KaTeX
+  html = html.replace(/\$([^\$\n]+?)\$/g, (_m, tex) => {
+    try {
+      const rendered = katex.renderToString(tex.trim(), {
+        displayMode: false,
+        throwOnError: false,
+      });
+      return ph(rendered);
+    } catch {
+      return ph(`<code>${escapeHtml(tex.trim())}</code>`);
+    }
+  });
+
+  // 4. Inline code
+  html = html.replace(/`([^`]+)`/g, (_m, code) => {
+    return ph(`<code>${escapeHtml(code)}</code>`);
+  });
+
+  // 5. Headers
   html = html.replace(/^######\s+(.+)$/gm, '<h6>$1</h6>');
   html = html.replace(/^#####\s+(.+)$/gm, '<h5>$1</h5>');
   html = html.replace(/^####\s+(.+)$/gm, '<h4>$1</h4>');
@@ -103,39 +142,200 @@ function simpleMarkdownToHtml(md: string): string {
   html = html.replace(/^##\s+(.+)$/gm, '<h2>$1</h2>');
   html = html.replace(/^#\s+(.+)$/gm, '<h1>$1</h1>');
 
-  // Bold & Italic
+  // 6. Bold & Italic
   html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
 
-  // Inline code
-  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // 7. Strikethrough
+  html = html.replace(/~~(.+?)~~/g, '<del>$1</del>');
 
-  // Code blocks
-  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code class="language-$1">$2</code></pre>');
-
-  // Links
+  // 8. Links
   html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
 
-  // Images
+  // 9. Images
   html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1">');
 
-  // Horizontal rules
+  // 10. Horizontal rules
   html = html.replace(/^---$/gm, '<hr>');
+  html = html.replace(/^\*\*\*$/gm, '<hr>');
 
-  // Blockquotes
+  // 11. Blockquotes
   html = html.replace(/^>\s+(.+)$/gm, '<blockquote><p>$1</p></blockquote>');
 
-  // Paragraphs (remaining text)
-  html = html.replace(/^(?!<[a-z])((?:(?!<[a-z]).)+)$/gm, (match) => {
+  // 12. Unordered lists
+  html = html.replace(/^(\s*)-\s+(.+)$/gm, '<li>$2</li>');
+  html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
+
+  // 13. Paragraphs — wrap remaining plain text lines
+  html = html.replace(/^(?!<[a-zA-Z/]|\x00)(.+)$/gm, (match) => {
     const trimmed = match.trim();
-    if (trimmed && !trimmed.startsWith('<')) {
+    if (trimmed) {
       return `<p>${trimmed}</p>`;
     }
     return match;
   });
 
+  // Restore placeholders
+  for (let i = 0; i < placeholders.length; i++) {
+    html = html.split(`\x00PH${i}\x00`).join(placeholders[i]);
+  }
+
+  // Clean up excessive empty lines
+  html = html.replace(/\n{3,}/g, '\n\n');
+
   return html;
+}
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * Capture the live Milkdown editor DOM as a canvas.
+ * This preserves KaTeX-rendered math, styled code blocks, tables, etc.
+ */
+async function captureEditorToCanvas(): Promise<HTMLCanvasElement> {
+  const editorEl = document.querySelector('.moraya-editor') as HTMLElement | null;
+  if (!editorEl) {
+    throw new Error('no-editor');
+  }
+
+  // Clone the editor into a hidden container with white background
+  const container = document.createElement('div');
+  container.style.cssText =
+    'position:fixed;left:-9999px;top:0;width:800px;background:#fff;padding:2rem 1rem;';
+
+  const clone = editorEl.cloneNode(true) as HTMLElement;
+  clone.removeAttribute('contenteditable');
+  clone.style.outline = 'none';
+  clone.style.caretColor = 'transparent';
+  // Remove ProseMirror selection artifacts
+  clone.querySelectorAll('.ProseMirror-selectednode, .ProseMirror-gapcursor').forEach((el) => el.remove());
+
+  container.appendChild(clone);
+  document.body.appendChild(container);
+
+  try {
+    return await html2canvas(container, {
+      backgroundColor: '#ffffff',
+      scale: 2,
+      useCORS: true,
+      logging: false,
+    });
+  } finally {
+    document.body.removeChild(container);
+  }
+}
+
+/**
+ * Render markdown HTML in a hidden container and capture as canvas.
+ * Fallback when live editor is not available (e.g. source mode).
+ */
+async function renderHtmlToCanvas(htmlContent: string): Promise<HTMLCanvasElement> {
+  const container = document.createElement('div');
+  container.style.cssText =
+    'position:fixed;left:-9999px;top:0;width:800px;background:#fff;padding:2rem 1rem;';
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(htmlContent, 'text/html');
+
+  // Apply styles from the parsed document
+  doc.querySelectorAll('style').forEach((style) => {
+    container.appendChild(style.cloneNode(true));
+  });
+
+  const contentDiv = document.createElement('div');
+  contentDiv.innerHTML = doc.body.innerHTML;
+  container.appendChild(contentDiv);
+
+  document.body.appendChild(container);
+
+  try {
+    return await html2canvas(container, {
+      backgroundColor: '#ffffff',
+      scale: 2,
+      useCORS: true,
+      logging: false,
+    });
+  } finally {
+    document.body.removeChild(container);
+  }
+}
+
+/**
+ * Get a canvas of the current document content.
+ * Tries the live editor first (best quality), falls back to HTML conversion.
+ */
+async function getDocumentCanvas(markdown: string): Promise<HTMLCanvasElement> {
+  try {
+    return await captureEditorToCanvas();
+  } catch {
+    const htmlContent = markdownToHtml(markdown, true);
+    return await renderHtmlToCanvas(htmlContent);
+  }
+}
+
+/**
+ * Export as PNG image
+ */
+async function exportAsImage(markdown: string, path: string): Promise<void> {
+  const canvas = await getDocumentCanvas(markdown);
+  const dataUrl = canvas.toDataURL('image/png');
+  await invoke('write_file_binary', { path, base64Data: dataUrl });
+}
+
+/**
+ * Export as PDF
+ */
+async function exportAsPdf(markdown: string, path: string): Promise<void> {
+  const canvas = await getDocumentCanvas(markdown);
+
+  const imgWidth = canvas.width;
+  const imgHeight = canvas.height;
+
+  // A4: 210 x 297 mm
+  const pdfWidth = 210;
+  const pdfContentWidth = pdfWidth - 20; // 10mm margins
+  const scale = pdfContentWidth / imgWidth;
+  const pdfContentHeight = imgHeight * scale;
+
+  const pageHeight = 297 - 20; // 10mm margins
+  const totalPages = Math.ceil(pdfContentHeight / pageHeight);
+
+  const pdf = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+  });
+
+  for (let page = 0; page < totalPages; page++) {
+    if (page > 0) {
+      pdf.addPage();
+    }
+
+    const sourceY = (page * pageHeight) / scale;
+    const sourceHeight = Math.min(pageHeight / scale, imgHeight - sourceY);
+
+    const pageCanvas = document.createElement('canvas');
+    pageCanvas.width = imgWidth;
+    pageCanvas.height = sourceHeight;
+    const ctx = pageCanvas.getContext('2d')!;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, imgWidth, sourceHeight);
+    ctx.drawImage(canvas, 0, sourceY, imgWidth, sourceHeight, 0, 0, imgWidth, sourceHeight);
+
+    const pageDataUrl = pageCanvas.toDataURL('image/png');
+    const drawHeight = sourceHeight * scale;
+    pdf.addImage(pageDataUrl, 'PNG', 10, 10, pdfContentWidth, drawHeight);
+  }
+
+  const pdfBase64 = pdf.output('datauristring');
+  await invoke('write_file_binary', { path, base64Data: pdfBase64 });
 }
 
 /**
@@ -155,37 +355,29 @@ export async function exportDocument(markdown: string, format: ExportFormat): Pr
 
   if (!path || typeof path !== 'string') return false;
 
-  let content: string;
-
   switch (format) {
     case 'html':
-      content = markdownToHtml(markdown, true);
+      await invoke('write_file', { path, content: markdownToHtml(markdown, true) });
       break;
     case 'html-plain':
-      content = markdownToHtml(markdown, false);
+      await invoke('write_file', { path, content: markdownToHtml(markdown, false) });
       break;
     case 'latex':
-      content = markdownToLatex(markdown);
+      await invoke('write_file', { path, content: markdownToLatex(markdown) });
       break;
     case 'pdf':
-    case 'docx':
-    case 'rtf':
-    case 'epub':
+      await exportAsPdf(markdown, path);
+      break;
     case 'image':
-    case 'mediawiki':
-    case 'rst':
-    case 'textile':
-    case 'opml':
-      // These formats require pandoc or specialized conversion
-      // For Phase 1, export as HTML with a note
-      content = markdownToHtml(markdown, true);
-      // TODO: Implement proper conversion using pandoc or Rust-side libraries
+      await exportAsImage(markdown, path);
+      break;
+    case 'doc':
+      await invoke('write_file', { path, content: markdownToHtml(markdown, true) });
       break;
     default:
-      content = markdown;
+      await invoke('write_file', { path, content: markdown });
   }
 
-  await invoke('write_file', { path, content });
   return true;
 }
 

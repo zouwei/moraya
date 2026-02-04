@@ -23,6 +23,7 @@
   import { mathBlockSchema } from '@milkdown/plugin-math';
   import Editor from '$lib/editor/Editor.svelte';
   import SourceEditor from '$lib/editor/SourceEditor.svelte';
+  import SearchBar from '$lib/editor/SearchBar.svelte';
   import type { EditorMode } from '$lib/stores/editor-store';
   import TitleBar from '$lib/components/TitleBar.svelte';
   import StatusBar from '$lib/components/StatusBar.svelte';
@@ -151,12 +152,22 @@ ${tr('welcome.tip')}
   let showSettings = $state(false);
   let showAIPanel = $state(false);
   let showImageDialog = $state(false);
+  let showSearch = $state(false);
+  let showReplace = $state(false);
+  let searchMatchCount = $state(0);
+  let searchCurrentMatch = $state(0);
   let currentFileName = $state($t('common.untitled'));
   let selectedText = $state('');
   let editorMode = $state<EditorMode>('visual');
 
   // Milkdown editor reference for menu commands
   let milkdownEditor: MilkdownEditor | null = null;
+
+  // Editor component references for search
+  let visualEditorRef: Editor | undefined = $state();
+  let sourceEditorRef: SourceEditor | undefined = $state();
+  let splitSourceRef: SourceEditor | undefined = $state();
+  let splitVisualRef: Editor | undefined = $state();
 
   function handleEditorReady(editor: MilkdownEditor) {
     milkdownEditor = editor;
@@ -187,6 +198,64 @@ ${tr('welcome.tip')}
     }
   }
 
+  // ── Search / Replace callbacks ─────────────────────────
+
+  function getActiveSearchTarget(): Editor | SourceEditor | undefined {
+    if (editorMode === 'visual') return visualEditorRef;
+    if (editorMode === 'source') return sourceEditorRef;
+    if (editorMode === 'split') return splitVisualRef ?? splitSourceRef;
+    return undefined;
+  }
+
+  function handleSearch(text: string, caseSensitive: boolean) {
+    const target = getActiveSearchTarget();
+    if (!target) { searchMatchCount = 0; searchCurrentMatch = 0; return; }
+    const count = target.searchText(text, caseSensitive);
+    searchMatchCount = count;
+    searchCurrentMatch = count > 0 ? 1 : 0;
+  }
+
+  function handleFindNext() {
+    const target = getActiveSearchTarget();
+    if (!target) return;
+    const result = target.searchFindNext();
+    searchCurrentMatch = result.current;
+    searchMatchCount = result.total;
+  }
+
+  function handleFindPrev() {
+    const target = getActiveSearchTarget();
+    if (!target) return;
+    const result = target.searchFindPrev();
+    searchCurrentMatch = result.current;
+    searchMatchCount = result.total;
+  }
+
+  function handleReplace(replaceText: string) {
+    const target = getActiveSearchTarget();
+    if (!target) return;
+    target.searchReplaceCurrent(replaceText);
+    // Re-search to update highlights and counts
+    handleFindNext();
+  }
+
+  function handleReplaceAll(searchText: string, replaceText: string, caseSensitive: boolean) {
+    const target = getActiveSearchTarget();
+    if (!target) return;
+    target.searchReplaceAll(searchText, replaceText, caseSensitive);
+    searchMatchCount = 0;
+    searchCurrentMatch = 0;
+  }
+
+  function handleSearchClose() {
+    showSearch = false;
+    showReplace = false;
+    searchMatchCount = 0;
+    searchCurrentMatch = 0;
+    const target = getActiveSearchTarget();
+    target?.clearSearch();
+  }
+
   // Split mode scroll sync
   let splitSourceEl: HTMLDivElement | undefined = $state();
   let splitVisualEl: HTMLDivElement | undefined = $state();
@@ -214,6 +283,15 @@ ${tr('welcome.tip')}
     invoke('set_editor_mode_menu', { mode: editorMode });
   });
 
+  // Sync sidebar and AI panel check state to native menu
+  $effect(() => {
+    invoke('set_menu_check', { id: 'view_sidebar', checked: showSidebar });
+  });
+
+  $effect(() => {
+    invoke('set_menu_check', { id: 'view_ai_panel', checked: showAIPanel });
+  });
+
   // Sync native menu labels when locale changes
   $effect(() => {
     const tr = $t;
@@ -230,7 +308,11 @@ ${tr('welcome.tip')}
       file_open: tr('menu.open'),
       file_save: tr('menu.save'),
       file_save_as: tr('menu.saveAs'),
+      menu_export: tr('menu.export'),
       file_export_html: tr('menu.exportHtml'),
+      file_export_pdf: tr('menu.exportPdf'),
+      file_export_image: tr('menu.exportImage'),
+      file_export_doc: tr('menu.exportDoc'),
       // Paragraph menu
       para_h1: tr('menu.heading1'),
       para_h2: tr('menu.heading2'),
@@ -263,6 +345,9 @@ ${tr('welcome.tip')}
       view_actual_size: tr('menu.actualSize'),
       // Help menu
       help_about: tr('menu.aboutMoraya'),
+      // Edit — search
+      edit_find: tr('menu.find'),
+      edit_replace: tr('menu.replace'),
       // macOS app menu
       preferences: tr('menu.settings'),
     };
@@ -351,6 +436,28 @@ ${tr('welcome.tip')}
     if (mod && event.shiftKey && event.key === 'E') {
       event.preventDefault();
       exportDocument(content, 'html');
+      return;
+    }
+
+    // Cmd+F → open search
+    if (mod && event.key === 'f' && !event.shiftKey) {
+      event.preventDefault();
+      showSearch = true;
+      return;
+    }
+
+    // Cmd+H → open search + replace
+    if (mod && event.key === 'h') {
+      event.preventDefault();
+      showSearch = true;
+      showReplace = true;
+      return;
+    }
+
+    // Escape → close search
+    if (event.key === 'Escape' && showSearch) {
+      event.preventDefault();
+      handleSearchClose();
       return;
     }
 
@@ -536,6 +643,12 @@ ${tr('welcome.tip')}
       'menu:file_save': () => saveFile(content),
       'menu:file_save_as': () => saveFileAs(content),
       'menu:file_export_html': () => exportDocument(content, 'html'),
+      'menu:file_export_pdf': () => exportDocument(content, 'pdf'),
+      'menu:file_export_image': () => exportDocument(content, 'image'),
+      'menu:file_export_doc': () => exportDocument(content, 'doc'),
+      // Edit — search
+      'menu:edit_find': () => { showSearch = true; },
+      'menu:edit_replace': () => { showSearch = true; showReplace = true; },
       // Paragraph
       'menu:para_h1': () => runEditorCommand(wrapInHeadingCommand, 1),
       'menu:para_h2': () => runEditorCommand(wrapInHeadingCommand, 2),
@@ -639,19 +752,34 @@ ${tr('welcome.tip')}
 
     <main class="editor-area">
       {#if editorMode === 'visual'}
-        <Editor bind:content onEditorReady={handleEditorReady} />
+        <Editor bind:this={visualEditorRef} bind:content onEditorReady={handleEditorReady} />
       {:else if editorMode === 'source'}
-        <SourceEditor bind:content />
+        <SourceEditor bind:this={sourceEditorRef} bind:content />
       {:else if editorMode === 'split'}
         <div class="split-container">
           <div class="split-source" bind:this={splitSourceEl}>
-            <SourceEditor bind:content hideScrollbar />
+            <SourceEditor bind:this={splitSourceRef} bind:content hideScrollbar />
           </div>
           <div class="split-divider"></div>
           <div class="split-visual" bind:this={splitVisualEl}>
-            <Editor bind:content onEditorReady={handleEditorReady} />
+            <Editor bind:this={splitVisualRef} bind:content onEditorReady={handleEditorReady} />
           </div>
         </div>
+      {/if}
+
+      {#if showSearch}
+        <SearchBar
+          {showReplace}
+          matchCount={searchMatchCount}
+          currentMatch={searchCurrentMatch}
+          onSearch={handleSearch}
+          onFindNext={handleFindNext}
+          onFindPrev={handleFindPrev}
+          onReplace={handleReplace}
+          onReplaceAll={handleReplaceAll}
+          onToggleReplace={() => showReplace = !showReplace}
+          onClose={handleSearchClose}
+        />
       {/if}
     </main>
 

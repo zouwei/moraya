@@ -10,6 +10,8 @@ interface EditorState {
   wordCount: number;
   charCount: number;
   editorMode: EditorMode;
+  /** Cursor position as character offset in the markdown string (for cross-mode restore) */
+  cursorOffset: number;
 }
 
 function createEditorStore() {
@@ -21,6 +23,7 @@ function createEditorStore() {
     wordCount: 0,
     charCount: 0,
     editorMode: 'visual',
+    cursorOffset: 0,
   });
 
   function countWords(text: string): number {
@@ -62,6 +65,9 @@ function createEditorStore() {
     setEditorMode(mode: EditorMode) {
       update(state => ({ ...state, editorMode: mode }));
     },
+    setCursorOffset(offset: number) {
+      update(state => ({ ...state, cursorOffset: offset }));
+    },
     reset() {
       set({
         currentFilePath: null,
@@ -71,6 +77,7 @@ function createEditorStore() {
         wordCount: 0,
         charCount: 0,
         editorMode: 'visual',
+        cursorOffset: 0,
       });
     },
     getState() {

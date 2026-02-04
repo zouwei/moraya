@@ -270,11 +270,76 @@
 .ProseMirror {
   outline: none;
   min-height: calc(100vh - var(--titlebar-height) - var(--statusbar-height) - 6rem);
+  caret-color: var(--text-primary);
+  cursor: text;
+}
+
+.ProseMirror:focus {
+  caret-color: var(--text-primary);
+}
+
+/* Ensure empty paragraphs have height for cursor visibility.
+   ProseMirror empty paragraphs contain a <br>, so :empty won't match.
+   Use :has(> br:only-child) to target paragraphs with only a <br> child. */
+.ProseMirror p:empty,
+.ProseMirror p:has(> br:only-child) {
+  min-height: 1em;
+  line-height: var(--line-height);
+}
+
+/* WebKit caret fix: WKWebView does not paint the native caret inside a <p>
+   that only contains a <br> (i.e. an empty paragraph). The element IS focused
+   and keystrokes DO register, but the blinking cursor is not rendered.
+   Fix: show a CSS-animated fake caret via ::before when the editor is focused
+   and contains only a single empty paragraph. The fake caret disappears as soon
+   as the user types, because the <br> is replaced by a text node. */
+@keyframes moraya-blink-caret {
+  from, to { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.ProseMirror:focus > p:only-child:empty::before,
+.ProseMirror:focus > p:only-child:has(> br:only-child)::before {
+  content: '';
+  display: inline-block;
+  width: 1.5px;
+  height: 1.2em;
+  background-color: var(--text-primary);
+  animation: moraya-blink-caret 1s step-end infinite;
+  vertical-align: text-bottom;
+  pointer-events: none;
+}
+
+.ProseMirror > *:first-child {
+  margin-top: 0;
 }
 
 .ProseMirror .ProseMirror-selectednode {
   outline: 2px solid var(--accent-color);
   border-radius: 4px;
+}
+
+/* Inline HTML tags — display in gray */
+.moraya-editor span[data-type="html"] {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+/* When editor is not focused, hide paired HTML tags (opening/closing) */
+.moraya-editor:not(:focus) span[data-type="html"] {
+  display: none;
+}
+
+/* Search highlights */
+.search-highlight {
+  background-color: rgba(255, 200, 0, 0.35);
+  border-radius: 2px;
+}
+
+.search-highlight-current {
+  background-color: rgba(255, 150, 0, 0.6);
+  border-radius: 2px;
 }
 
 /* Placeholder for empty editor */

@@ -38,6 +38,8 @@
     "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-store": "^2.4.2",
     "highlight.js": "^11.11.1",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.1.0",
     "katex": "^0.16.28"
   },
   "devDependencies": {

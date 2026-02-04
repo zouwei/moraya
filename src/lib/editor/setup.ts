@@ -1,4 +1,4 @@
-import { Editor, rootCtx, defaultValueCtx, editorViewOptionsCtx } from '@milkdown/core';
+import { Editor, rootCtx, defaultValueCtx, editorViewOptionsCtx, editorViewCtx } from '@milkdown/core';
 import { commonmark } from '@milkdown/preset-commonmark';
 import { gfm } from '@milkdown/preset-gfm';
 import { math } from '@milkdown/plugin-math';
@@ -7,6 +7,7 @@ import { clipboard } from '@milkdown/plugin-clipboard';
 import { cursor } from '@milkdown/plugin-cursor';
 import { listener, listenerCtx } from '@milkdown/plugin-listener';
 import { highlightPlugin } from './plugins/highlight';
+import { enterHandlerPlugin } from './plugins/enter-handler';
 
 import 'katex/dist/katex.min.css';
 
@@ -46,6 +47,7 @@ export async function createEditor(options: EditorOptions): Promise<Editor> {
     .use(cursor)
     .use(listener)
     .use(highlightPlugin)
+    .use(enterHandlerPlugin)
     .create();
 
   // Handle focus/blur events on the editor DOM

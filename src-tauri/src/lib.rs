@@ -18,6 +18,11 @@ fn update_menu_labels(app: tauri::AppHandle, labels: HashMap<String, String>) {
     menu::update_menu_labels(&app, &labels);
 }
 
+#[tauri::command]
+fn set_menu_check(app: tauri::AppHandle, id: String, checked: bool) {
+    menu::set_check_item(&app, &id, checked);
+}
+
 /// Called by the frontend once it's ready; returns the first file path to open (if any).
 #[tauri::command]
 fn get_opened_file(state: tauri::State<'_, OpenedFiles>) -> Option<String> {
@@ -52,12 +57,14 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::file::read_file,
             commands::file::write_file,
+            commands::file::write_file_binary,
             commands::file::read_dir_recursive,
             commands::mcp::mcp_connect_stdio,
             commands::mcp::mcp_send_request,
             commands::mcp::mcp_disconnect,
             set_editor_mode_menu,
             update_menu_labels,
+            set_menu_check,
             get_opened_file,
         ])
         .setup(|app| {

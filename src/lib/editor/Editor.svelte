@@ -2,6 +2,8 @@
   import { onMount, onDestroy } from 'svelte';
   import type { Editor as MilkdownEditor } from '@milkdown/core';
   import { editorViewCtx } from '@milkdown/core';
+  import { TextSelection, AllSelection } from '@milkdown/prose/state';
+  import { Decoration, DecorationSet } from '@milkdown/prose/view';
   import { callCommand } from '@milkdown/utils';
   import { imageSchema } from '@milkdown/preset-commonmark';
   import {
@@ -353,8 +355,63 @@
     isReady = true;
     onEditorReady?.(editor);
 
+    // Restore cursor position from store and focus
+    const proseMirrorEl = editorEl.querySelector('.ProseMirror') as HTMLElement | null;
+    try {
+      editor.action((ctx) => {
+        const view = ctx.get(editorViewCtx);
+        const docSize = view.state.doc.content.size;
+        const savedOffset = editorStore.getState().cursorOffset;
+        // Map markdown offset to ProseMirror position using fraction
+        const fraction = content.length > 0 ? savedOffset / content.length : 0;
+        let pmPos = Math.round(fraction * docSize);
+        // Clamp to valid range (1 .. docSize-1)
+        pmPos = Math.max(1, Math.min(pmPos, Math.max(1, docSize - 1)));
+        // Resolve to nearest valid text position
+        const resolved = view.state.doc.resolve(pmPos);
+        const sel = TextSelection.near(resolved);
+        const tr = view.state.tr.setSelection(sel);
+        view.dispatch(tr);
+        view.focus();
+      });
+    } catch {
+      // Fallback: just focus
+      if (proseMirrorEl) proseMirrorEl.focus();
+    }
+
+    // ── Fast AllSelection deletion ──────────────────────────────────
+    // Capture-phase keydown: when all content is selected, bypass ProseMirror's
+    // slow AllSelection deletion path by replacing the entire document content
+    // with a single empty paragraph in one fast transaction.
+    // The visual caret for the empty paragraph is handled by CSS (editor.css).
+    editorEl.addEventListener('keydown', (e) => {
+      if ((e.key === 'Backspace' || e.key === 'Delete') && editor) {
+        try {
+          editor.action((ctx) => {
+            const view = ctx.get(editorViewCtx);
+            const sel = view.state.selection;
+            const docSize = view.state.doc.content.size;
+            const isAllSelected =
+              sel instanceof AllSelection ||
+              (docSize > 0 && sel.from <= 1 && sel.to >= docSize - 1);
+
+            if (isAllSelected) {
+              e.preventDefault();
+              e.stopPropagation();
+              const { schema } = view.state;
+              const emptyParagraph = schema.nodes.paragraph.create();
+              const tr = view.state.tr.replaceWith(0, docSize, emptyParagraph);
+              tr.setSelection(TextSelection.create(tr.doc, 1));
+              view.dispatch(tr);
+            }
+          });
+        } catch {
+          // Ignore errors
+        }
+      }
+    }, true);
+
     // Listen for selection changes to show/hide table toolbar
-    const proseMirrorEl = editorEl.querySelector('.ProseMirror');
     if (proseMirrorEl) {
       proseMirrorEl.addEventListener('click', updateTableToolbar);
       proseMirrorEl.addEventListener('keyup', updateTableToolbar);
@@ -410,7 +467,152 @@
     });
   });
 
+  // ── Search / Replace ──────────────────────────────────
+
+  interface MatchPos { from: number; to: number }
+  let searchMatches: MatchPos[] = [];
+  let searchIndex = -1;
+
+  function findTextMatches(text: string, cs: boolean): MatchPos[] {
+    if (!editor || !text) return [];
+    const matches: MatchPos[] = [];
+    editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      view.state.doc.descendants((node, pos) => {
+        if (node.isText && node.text) {
+          const haystack = cs ? node.text : node.text.toLowerCase();
+          const needle = cs ? text : text.toLowerCase();
+          let idx = 0;
+          while ((idx = haystack.indexOf(needle, idx)) !== -1) {
+            matches.push({ from: pos + idx, to: pos + idx + needle.length });
+            idx += needle.length;
+          }
+        }
+      });
+    });
+    return matches;
+  }
+
+  function applySearchDecorations(matches: MatchPos[], activeIdx: number) {
+    if (!editor) return;
+    editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      if (matches.length === 0) {
+        (view as any).setProps({ decorations: () => DecorationSet.empty });
+        return;
+      }
+      const decos = matches.map((m, i) =>
+        Decoration.inline(m.from, m.to, {
+          class: i === activeIdx ? 'search-highlight-current' : 'search-highlight',
+        })
+      );
+      const decoSet = DecorationSet.create(view.state.doc, decos);
+      (view as any).setProps({ decorations: () => decoSet });
+    });
+  }
+
+  export function searchText(text: string, cs: boolean): number {
+    searchMatches = findTextMatches(text, cs);
+    searchIndex = searchMatches.length > 0 ? 0 : -1;
+    applySearchDecorations(searchMatches, searchIndex);
+    if (searchIndex >= 0) scrollToMatch(searchIndex);
+    return searchMatches.length;
+  }
+
+  export function searchFindNext(): { current: number; total: number } {
+    if (searchMatches.length === 0) return { current: 0, total: 0 };
+    searchIndex = (searchIndex + 1) % searchMatches.length;
+    applySearchDecorations(searchMatches, searchIndex);
+    scrollToMatch(searchIndex);
+    return { current: searchIndex + 1, total: searchMatches.length };
+  }
+
+  export function searchFindPrev(): { current: number; total: number } {
+    if (searchMatches.length === 0) return { current: 0, total: 0 };
+    searchIndex = (searchIndex - 1 + searchMatches.length) % searchMatches.length;
+    applySearchDecorations(searchMatches, searchIndex);
+    scrollToMatch(searchIndex);
+    return { current: searchIndex + 1, total: searchMatches.length };
+  }
+
+  export function searchReplaceCurrent(replaceWith: string) {
+    if (!editor || searchIndex < 0 || searchIndex >= searchMatches.length) return;
+    editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      const match = searchMatches[searchIndex];
+      const tr = view.state.tr.replaceWith(
+        match.from,
+        match.to,
+        view.state.schema.text(replaceWith)
+      );
+      view.dispatch(tr);
+    });
+  }
+
+  export function searchReplaceAll(searchStr: string, replaceWith: string, cs: boolean): number {
+    if (!editor || !searchStr) return 0;
+    const matches = findTextMatches(searchStr, cs);
+    if (matches.length === 0) return 0;
+    editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      let tr = view.state.tr;
+      for (let i = matches.length - 1; i >= 0; i--) {
+        tr = tr.replaceWith(
+          matches[i].from,
+          matches[i].to,
+          view.state.schema.text(replaceWith)
+        );
+      }
+      view.dispatch(tr);
+    });
+    const count = matches.length;
+    clearSearch();
+    return count;
+  }
+
+  export function clearSearch() {
+    searchMatches = [];
+    searchIndex = -1;
+    if (!editor) return;
+    try {
+      editor.action((ctx) => {
+        const view = ctx.get(editorViewCtx);
+        (view as any).setProps({ decorations: () => DecorationSet.empty });
+      });
+    } catch {
+      // Editor may be destroyed
+    }
+  }
+
+  function scrollToMatch(idx: number) {
+    if (!editor || idx < 0 || idx >= searchMatches.length) return;
+    editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      const match = searchMatches[idx];
+      // Use ProseMirror's built-in scrollIntoView via selection
+      const tr = view.state.tr.setSelection(TextSelection.create(view.state.doc, match.from, match.to));
+      tr.scrollIntoView();
+      view.dispatch(tr);
+    });
+  }
+
   onDestroy(() => {
+    // Save cursor position before destroying the editor
+    if (editor) {
+      try {
+        editor.action((ctx) => {
+          const view = ctx.get(editorViewCtx);
+          const { from } = view.state.selection;
+          const docSize = view.state.doc.content.size;
+          // Map ProseMirror position to markdown offset using fraction
+          const fraction = docSize > 0 ? from / docSize : 0;
+          const markdownOffset = Math.round(fraction * content.length);
+          editorStore.setCursorOffset(markdownOffset);
+        });
+      } catch {
+        // Ignore errors during position save
+      }
+    }
     dragDropUnlisten?.();
     if (editor) {
       editor.destroy();
@@ -418,7 +620,15 @@
   });
 </script>
 
-<div class="editor-wrapper" class:ready={isReady}>
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="editor-wrapper" class:ready={isReady} onclick={(e) => {
+  // Click on empty area → focus editor and place cursor at end
+  if (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains('editor-root')) {
+    const pm = editorEl?.querySelector('.ProseMirror') as HTMLElement | null;
+    if (pm) pm.focus();
+  }
+}}>
   <div bind:this={editorEl} class="editor-root"></div>
 </div>
 
@@ -458,6 +668,7 @@
     padding: 2rem 3rem;
     opacity: 0;
     transition: opacity 0.2s ease;
+    cursor: text;
   }
 
   .editor-wrapper.ready {

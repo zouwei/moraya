@@ -20,11 +20,19 @@ jobs:
             args: '--target x86_64-apple-darwin'
           - platform: windows-latest
             args: ''
+          - platform: ubuntu-22.04
+            args: ''
 
     runs-on: ${{ matrix.platform }}
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -60,7 +68,7 @@ jobs:
           releaseBody: |
             See the assets below to download and install.
 
-            ### macOS users
+            ### macOS
 
             The app is not code-signed with an Apple Developer certificate. After installing, if you see "Moraya is damaged and can't be opened", run the following command in Terminal:
 
@@ -69,6 +77,15 @@ jobs:
             ```
 
             Then open the app again.
-          releaseDraft: true
+
+            ### Linux
+
+            - **.deb** — For Debian / Ubuntu: `sudo dpkg -i moraya_*.deb`
+            - **.AppImage** — Universal: `chmod +x Moraya_*.AppImage && ./Moraya_*.AppImage`
+
+            ### Windows
+
+            Run the `.msi` installer.
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}

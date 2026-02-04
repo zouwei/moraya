@@ -6,23 +6,66 @@ use tauri::{
 
 pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
     // File menu
+    let file_new = MenuItem::with_id(app, "file_new", "New", true, Some("CmdOrCtrl+N"))?;
+    let file_open = MenuItem::with_id(app, "file_open", "Open...", true, Some("CmdOrCtrl+O"))?;
+    let file_save = MenuItem::with_id(app, "file_save", "Save", true, Some("CmdOrCtrl+S"))?;
+    let file_save_as = MenuItem::with_id(app, "file_save_as", "Save As...", true, Some("CmdOrCtrl+Shift+S"))?;
+    let export_submenu = Submenu::with_id_and_items(
+        app,
+        "menu_export",
+        "Export",
+        true,
+        &[
+            &MenuItem::with_id(app, "file_export_html", "HTML", true, Some("CmdOrCtrl+Shift+E"))?,
+            &MenuItem::with_id(app, "file_export_pdf", "PDF", true, None::<&str>)?,
+            &MenuItem::with_id(app, "file_export_image", "Image (PNG)", true, None::<&str>)?,
+            &MenuItem::with_id(app, "file_export_doc", "Word (.doc)", true, None::<&str>)?,
+        ],
+    )?;
+    let close_window = PredefinedMenuItem::close_window(app, Some("Close Window"))?;
+
+    #[cfg(target_os = "macos")]
     let file_menu = Submenu::with_id_and_items(
         app,
         "menu_file",
         "File",
         true,
         &[
-            &MenuItem::with_id(app, "file_new", "New", true, Some("CmdOrCtrl+N"))?,
-            &MenuItem::with_id(app, "file_open", "Open...", true, Some("CmdOrCtrl+O"))?,
+            &file_new,
+            &file_open,
             &PredefinedMenuItem::separator(app)?,
-            &MenuItem::with_id(app, "file_save", "Save", true, Some("CmdOrCtrl+S"))?,
-            &MenuItem::with_id(app, "file_save_as", "Save As...", true, Some("CmdOrCtrl+Shift+S"))?,
+            &file_save,
+            &file_save_as,
             &PredefinedMenuItem::separator(app)?,
-            &MenuItem::with_id(app, "file_export_html", "Export as HTML", true, Some("CmdOrCtrl+Shift+E"))?,
+            &export_submenu,
             &PredefinedMenuItem::separator(app)?,
-            &PredefinedMenuItem::close_window(app, Some("Close Window"))?,
+            &close_window,
         ],
     )?;
+
+    #[cfg(not(target_os = "macos"))]
+    let file_menu = {
+        let preferences = MenuItem::with_id(app, "preferences", "Settings...", true, Some("CmdOrCtrl+,"))?;
+        Submenu::with_id_and_items(
+            app,
+            "menu_file",
+            "File",
+            true,
+            &[
+                &file_new,
+                &file_open,
+                &PredefinedMenuItem::separator(app)?,
+                &file_save,
+                &file_save_as,
+                &PredefinedMenuItem::separator(app)?,
+                &export_submenu,
+                &PredefinedMenuItem::separator(app)?,
+                &preferences,
+                &PredefinedMenuItem::separator(app)?,
+                &close_window,
+            ],
+        )?
+    };
 
     // Edit menu — PredefinedMenuItems auto-localize on macOS
     let edit_menu = Submenu::with_id_and_items(
@@ -38,6 +81,9 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
             &PredefinedMenuItem::copy(app, None)?,
             &PredefinedMenuItem::paste(app, None)?,
             &PredefinedMenuItem::select_all(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &MenuItem::with_id(app, "edit_find", "Find", true, Some("CmdOrCtrl+F"))?,
+            &MenuItem::with_id(app, "edit_replace", "Replace", true, Some("CmdOrCtrl+H"))?,
         ],
     )?;
 
@@ -94,8 +140,8 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
             &CheckMenuItem::with_id(app, "view_mode_source", "Source Mode         ⌘/", true, false, None::<&str>)?,
             &CheckMenuItem::with_id(app, "view_mode_split", "Split Mode       ⇧⌘/", true, false, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
-            &MenuItem::with_id(app, "view_sidebar", "Toggle Sidebar", true, Some("CmdOrCtrl+\\"))?,
-            &MenuItem::with_id(app, "view_ai_panel", "Toggle AI Panel", true, Some("CmdOrCtrl+Shift+I"))?,
+            &CheckMenuItem::with_id(app, "view_sidebar", "Toggle Sidebar", true, false, Some("CmdOrCtrl+\\"))?,
+            &CheckMenuItem::with_id(app, "view_ai_panel", "Toggle AI Panel", true, false, Some("CmdOrCtrl+Shift+I"))?,
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, "view_zoom_in", "Zoom In", true, Some("CmdOrCtrl+="))?,
             &MenuItem::with_id(app, "view_zoom_out", "Zoom Out", true, Some("CmdOrCtrl+-"))?,
@@ -184,6 +230,28 @@ pub fn update_mode_checks(app: &AppHandle, active_mode: &str) {
                                 let item_id = check_item.id().0.as_str();
                                 if mode_ids.contains(&item_id) {
                                     let _ = check_item.set_checked(item_id == active_id.as_str());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Set the checked state of a single CheckMenuItem by its ID.
+pub fn set_check_item(app: &AppHandle, item_id: &str, checked: bool) {
+    if let Some(menu) = app.menu() {
+        if let Ok(items) = menu.items() {
+            for item in &items {
+                if let MenuItemKind::Submenu(submenu) = item {
+                    if let Ok(sub_items) = submenu.items() {
+                        for sub_item in &sub_items {
+                            if let MenuItemKind::Check(check_item) = sub_item {
+                                if check_item.id().0.as_str() == item_id {
+                                    let _ = check_item.set_checked(checked);
+                                    return;
                                 }
                             }
                         }
