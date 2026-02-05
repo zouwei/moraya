@@ -152,16 +152,23 @@ export async function generateImage(
 export async function testImageConnection(config: ImageProviderConfig): Promise<boolean> {
   try {
     if (isDashScope(config.baseURL)) {
-      // DashScope: check the models endpoint on their native API
+      // DashScope: /models returns 503, so verify auth via native API POST with empty input.
+      // Valid key → 400 (bad input), invalid key → 401. Both confirm server is reachable.
       const base = config.baseURL.replace(/\/+$/, '').replace(/\/compatible-mode\/v1$/, '');
-      const url = `${base}/compatible-mode/v1/models`;
-      const res = await fetch(url, {
-        method: 'GET',
+      const url = `${base}/api/v1/services/aigc/multimodal-generation/generation`;
+      const res = await tauriFetch(url, {
+        method: 'POST',
         headers: {
+          'Content-Type': 'application/json',
           'Authorization': `Bearer ${config.apiKey}`,
         },
+        body: JSON.stringify({
+          model: config.model,
+          input: { messages: [{ role: 'user', content: [{ text: 'test' }] }] },
+        }),
       });
-      return res.ok;
+      // 401/403 = bad key, 5xx = server down, anything else (200/400) = connection OK
+      return res.status !== 401 && res.status !== 403 && res.status < 500;
     }
 
     // Standard: check /models endpoint

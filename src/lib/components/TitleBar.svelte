@@ -37,6 +37,11 @@
   });
 
   let displayTitle = $derived(isDirty ? `${title} - ${$t('titlebar.unsaved')}` : title);
+
+  // Sync native window title so macOS Window menu and Dock show the document name
+  $effect(() => {
+    appWindow.setTitle(displayTitle);
+  });
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->

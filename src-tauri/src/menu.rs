@@ -7,6 +7,7 @@ use tauri::{
 pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
     // File menu
     let file_new = MenuItem::with_id(app, "file_new", "New", true, Some("CmdOrCtrl+N"))?;
+    let file_new_window = MenuItem::with_id(app, "file_new_window", "New Window", true, Some("CmdOrCtrl+Shift+N"))?;
     let file_open = MenuItem::with_id(app, "file_open", "Open...", true, Some("CmdOrCtrl+O"))?;
     let file_save = MenuItem::with_id(app, "file_save", "Save", true, Some("CmdOrCtrl+S"))?;
     let file_save_as = MenuItem::with_id(app, "file_save_as", "Save As...", true, Some("CmdOrCtrl+Shift+S"))?;
@@ -32,6 +33,7 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
         true,
         &[
             &file_new,
+            &file_new_window,
             &file_open,
             &PredefinedMenuItem::separator(app)?,
             &file_save,
@@ -53,6 +55,7 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
             true,
             &[
                 &file_new,
+                &file_new_window,
                 &file_open,
                 &PredefinedMenuItem::separator(app)?,
                 &file_save,
@@ -149,6 +152,19 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
         ],
     )?;
 
+    // Window menu (macOS standard: Minimize, Zoom + auto window list via set_as_windows_menu_for_nsapp)
+    let window_menu = Submenu::with_id_and_items(
+        app,
+        "menu_window",
+        "Window",
+        true,
+        &[
+            &PredefinedMenuItem::minimize(app, None)?,
+            &PredefinedMenuItem::maximize(app, None)?,
+            &PredefinedMenuItem::fullscreen(app, None)?,
+        ],
+    )?;
+
     // Help menu
     let help_menu = Submenu::with_id_and_items(
         app,
@@ -188,6 +204,9 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
             ],
         )?;
 
+        // Tell macOS this is the "Window" menu so it auto-populates with open windows
+        let _ = window_menu.set_as_windows_menu_for_nsapp();
+
         let menu = Menu::with_items(
             app,
             &[
@@ -197,6 +216,7 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
                 &paragraph_menu,
                 &format_menu,
                 &view_menu,
+                &window_menu,
                 &help_menu,
             ],
         )?;
@@ -213,6 +233,7 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
                 &paragraph_menu,
                 &format_menu,
                 &view_menu,
+                &window_menu,
                 &help_menu,
             ],
         )?;

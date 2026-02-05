@@ -353,9 +353,11 @@ ${tr('welcome.tip')}
       menu_paragraph: tr('menu.paragraph'),
       menu_format: tr('menu.format'),
       menu_view: tr('menu.view'),
+      menu_window: tr('menu.window'),
       menu_help: tr('menu.help'),
       // File menu
       file_new: tr('menu.new'),
+      file_new_window: tr('menu.newWindow'),
       file_open: tr('menu.open'),
       file_save: tr('menu.save'),
       file_save_as: tr('menu.saveAs'),
@@ -668,18 +670,48 @@ ${tr('welcome.tip')}
         insertions.set(img.target, existing);
       }
 
+      // Pre-compute fenced code block regions to avoid inserting images inside them
+      const inCodeBlockAt: boolean[] = new Array(lines.length).fill(false);
+      let inBlock = false;
+      for (let i = 0; i < lines.length; i++) {
+        if (/^\s{0,3}(`{3,}|~{3,})/.test(lines[i])) {
+          inCodeBlockAt[i] = true;
+          inBlock = !inBlock;
+        } else {
+          inCodeBlockAt[i] = inBlock;
+        }
+      }
+
       const result: string[] = [];
+      let deferredImages: string[] = [];
+
       for (let i = 0; i < lines.length; i++) {
         result.push(lines[i]);
         // Count non-empty lines as paragraphs
         if (lines[i].trim() && (i + 1 >= lines.length || !lines[i + 1]?.trim())) {
           const imgs = insertions.get(paragraphIdx);
-          if (imgs) {
-            result.push('');
-            result.push(...imgs);
+          if (inCodeBlockAt[i]) {
+            // Inside code block: defer insertion to after the block
+            if (imgs) deferredImages.push(...imgs);
+          } else {
+            // Normal paragraph: flush deferred images first, then this paragraph's images
+            if (deferredImages.length > 0) {
+              result.push('');
+              result.push(...deferredImages);
+              deferredImages = [];
+            }
+            if (imgs) {
+              result.push('');
+              result.push(...imgs);
+            }
           }
           paragraphIdx++;
         }
+      }
+      // Flush any remaining deferred images at the end
+      if (deferredImages.length > 0) {
+        result.push('');
+        result.push(...deferredImages);
       }
 
       content = result.join('\n');
@@ -817,6 +849,7 @@ ${tr('welcome.tip')}
     const menuHandlers: Record<string, () => void> = {
       // File
       'menu:file_new': () => handleNewFile(),
+      'menu:file_new_window': () => invoke('create_new_window').catch(() => {}),
       'menu:file_open': () => handleOpenFile(),
       'menu:file_save': () => saveFile(content),
       'menu:file_save_as': () => saveFileAs(content),

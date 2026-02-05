@@ -4,6 +4,8 @@ use std::sync::Mutex;
 use tauri::{Emitter, Manager};
 
 mod commands;
+#[cfg(target_os = "macos")]
+mod dock;
 mod menu;
 
 /// Holds file paths requested to be opened via OS file association or CLI args.
@@ -58,19 +60,26 @@ fn get_opened_file(
     None
 }
 
-/// Create a new editor window for the given file path.
-fn create_editor_window(
+/// Create a new editor window, optionally for a specific file path.
+pub(crate) fn create_editor_window(
     app: &tauri::AppHandle,
     pending: &PendingFiles,
-    path: String,
+    path: Option<String>,
 ) -> Result<String, String> {
     let counter = WINDOW_COUNTER.fetch_add(1, Ordering::SeqCst);
     let label = format!("moraya-{}", counter);
 
-    // Store pending file path for this window
-    {
+    // Extract filename for native window title (shown in macOS Dock & Window menu)
+    let title = path
+        .as_ref()
+        .and_then(|p| std::path::Path::new(p).file_name())
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "Moraya".to_string());
+
+    // Store pending file path for this window (if any)
+    if let Some(ref p) = path {
         let mut pending_map = pending.0.lock().unwrap();
-        pending_map.insert(label.clone(), path);
+        pending_map.insert(label.clone(), p.clone());
     }
 
     // Build window with same config as main
@@ -79,7 +88,7 @@ fn create_editor_window(
         &label,
         tauri::WebviewUrl::default(),
     )
-    .title("Moraya")
+    .title(&title)
     .inner_size(1200.0, 800.0)
     .min_inner_size(600.0, 400.0)
     .decorations(false)
@@ -111,7 +120,16 @@ fn open_file_in_new_window(
     if !std::path::Path::new(&path).is_file() {
         return Err(format!("File not found: {}", path));
     }
-    create_editor_window(&app, &pending, path)
+    create_editor_window(&app, &pending, Some(path))
+}
+
+/// Create a new empty editor window (for Dock "New Window" and menu).
+#[tauri::command]
+fn create_new_window(
+    app: tauri::AppHandle,
+    pending: tauri::State<'_, PendingFiles>,
+) -> Result<String, String> {
+    create_editor_window(&app, &pending, None)
 }
 
 /// Extract file paths from CLI arguments (used on Windows where file association
@@ -157,6 +175,7 @@ pub fn run() {
             set_menu_check,
             get_opened_file,
             open_file_in_new_window,
+            create_new_window,
         ])
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
@@ -173,6 +192,10 @@ pub fn run() {
             let app_handle = app.handle().clone();
             let native_menu = menu::create_menu(&app_handle)?;
             app.set_menu(native_menu)?;
+
+            // Set up macOS Dock right-click menu with "New Window"
+            #[cfg(target_os = "macos")]
+            dock::setup_dock_menu(&app_handle);
 
             // Handle menu events — emit to the main window
             let app_handle_for_events = app.handle().clone();
@@ -197,21 +220,31 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_app, _event| {
-            // Handle macOS "Open With" / file association events
             #[cfg(target_os = "macos")]
             {
-                if let tauri::RunEvent::Opened { urls } = &_event {
-                    for u in urls {
-                        if u.scheme() == "file" {
-                            if let Ok(p) = u.to_file_path() {
-                                let path = p.to_string_lossy().into_owned();
-                                // Open each file in a new window
-                                if let Some(pending) = _app.try_state::<PendingFiles>() {
-                                    let _ = create_editor_window(_app, &pending, path);
+                match &_event {
+                    // Handle macOS "Open With" / file association events
+                    tauri::RunEvent::Opened { urls } => {
+                        for u in urls {
+                            if u.scheme() == "file" {
+                                if let Ok(p) = u.to_file_path() {
+                                    let path = p.to_string_lossy().into_owned();
+                                    if let Some(pending) = _app.try_state::<PendingFiles>() {
+                                        let _ = create_editor_window(_app, &pending, Some(path));
+                                    }
                                 }
                             }
                         }
                     }
+                    // Handle Dock icon click when no windows are visible → create new window
+                    tauri::RunEvent::Reopen { has_visible_windows, .. } => {
+                        if !has_visible_windows {
+                            if let Some(pending) = _app.try_state::<PendingFiles>() {
+                                let _ = create_editor_window(_app, &pending, None);
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             }
         });

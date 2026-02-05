@@ -12,6 +12,7 @@
     "core:window:allow-close",
     "core:window:allow-toggle-maximize",
     "core:window:allow-is-maximized",
+    "core:window:allow-set-title",
     "fs:default",
     "fs:allow-read-file",
     "fs:allow-write-file",

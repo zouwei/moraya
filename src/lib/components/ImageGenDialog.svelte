@@ -33,7 +33,7 @@
 
   // Step 1 state
   let prompts = $state<ImagePrompt[]>([]);
-  let imageCount = $state(3);
+  let imageCount = $state(5);
   let imageStyle = $state<ImageStyle>('auto');
   let imageMode = $state<ImageGenMode>('article');
   let isGeneratingPrompts = $state(false);
@@ -272,11 +272,9 @@
             <div class="step-controls">
               <label class="mini-label">{tr('imageGen.countLabel')}</label>
               <select class="mini-select style-select" bind:value={imageCount} onchange={() => { prompts = []; handleGeneratePrompts(); }}>
-                <option value={1}>1</option>
-                <option value={2}>2</option>
-                <option value={3}>3</option>
-                <option value={4}>4</option>
-                <option value={5}>5</option>
+                {#each Array.from({length: 10}, (_, i) => i + 1) as n}
+                  <option value={n}>{n}</option>
+                {/each}
               </select>
             </div>
           </div>
@@ -412,8 +410,8 @@
   }
 
   .dialog {
-    width: 760px;
-    max-height: 620px;
+    width: 860px;
+    max-height: 720px;
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
     border-radius: 10px;
