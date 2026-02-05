@@ -1,6 +1,6 @@
 [package]
 name = "moraya"
-version = "0.1.3"
+version = "0.2.0"
 description = "A minimal, AI-ready Markdown editor"
 authors = ["Moraya Contributors"]
 edition = "2021"
