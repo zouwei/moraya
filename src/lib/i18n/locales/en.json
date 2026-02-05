@@ -498,7 +498,7 @@
     "featureThemes": "Dark & Light themes",
     "featureAI": "AI-powered writing assistant",
     "featureMCP": "MCP protocol for publishing & sync",
-    "featureLightweight": "Lightweight (~3MB installer)",
+    "featureLightweight": "Lightweight (~5MB installer)",
     "mathTitle": "Math Example",
     "codeTitle": "Code Example",
     "tableTitle": "Table Example",

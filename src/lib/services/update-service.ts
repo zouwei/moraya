@@ -5,6 +5,7 @@
 
 import { writable, get } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
+import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { writeFile, BaseDirectory } from '@tauri-apps/plugin-fs';
 import { downloadDir } from '@tauri-apps/api/path';
 import { openPath } from '@tauri-apps/plugin-opener';
@@ -219,7 +220,8 @@ export async function downloadAndInstall(): Promise<void> {
   update(s => ({ ...s, downloadStatus: 'downloading', downloadProgress: 0 }));
 
   try {
-    const res = await fetch(info.downloadUrl);
+    // Use tauriFetch to bypass CORS (GitHub download URLs redirect to a CDN without CORS headers)
+    const res = await tauriFetch(info.downloadUrl);
     if (!res.ok) {
       throw new Error(`Download failed: ${res.status}`);
     }
@@ -233,6 +235,7 @@ export async function downloadAndInstall(): Promise<void> {
       await writeFile(info.assetName, new Uint8Array(buffer), {
         baseDir: BaseDirectory.Download,
       });
+      update(s => ({ ...s, downloadProgress: 100 }));
     } else {
       // Stream with progress
       const chunks: Uint8Array[] = [];
