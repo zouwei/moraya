@@ -1,0 +1,616 @@
+<script lang="ts">
+  import { settingsStore } from '$lib/stores/settings-store';
+  import { t } from '$lib/i18n';
+  import {
+    type PublishTarget,
+    type GitHubTarget,
+    type CustomAPITarget,
+    FRONT_MATTER_PRESETS,
+    FILE_NAME_PRESETS,
+    resolveFileName,
+    createDefaultGitHubTarget,
+    createDefaultCustomAPITarget,
+    testGitHubConnection,
+    testCustomAPIConnection,
+  } from '$lib/services/publish';
+
+  let targets = $state<PublishTarget[]>([]);
+  let editingTarget = $state<PublishTarget | null>(null);
+  let showAddMenu = $state(false);
+  let testStatus = $state<Record<string, 'idle' | 'testing' | 'success' | 'failed'>>({});
+
+  settingsStore.subscribe(state => {
+    targets = state.publishTargets || [];
+  });
+
+  function addGitHubTarget() {
+    editingTarget = createDefaultGitHubTarget();
+    showAddMenu = false;
+  }
+
+  function addCustomAPITarget() {
+    editingTarget = createDefaultCustomAPITarget();
+    showAddMenu = false;
+  }
+
+  function editTarget(target: PublishTarget) {
+    editingTarget = JSON.parse(JSON.stringify(target));
+  }
+
+  function deleteTarget(id: string) {
+    const updated = targets.filter(t => t.id !== id);
+    settingsStore.update({ publishTargets: updated });
+  }
+
+  function saveTarget() {
+    if (!editingTarget) return;
+    const existing = targets.findIndex(t => t.id === editingTarget!.id);
+    let updated: PublishTarget[];
+    if (existing >= 0) {
+      updated = [...targets];
+      updated[existing] = editingTarget;
+    } else {
+      updated = [...targets, editingTarget];
+    }
+    settingsStore.update({ publishTargets: updated });
+    editingTarget = null;
+  }
+
+  function cancelEdit() {
+    editingTarget = null;
+  }
+
+  async function testConnection(target: PublishTarget) {
+    testStatus[target.id] = 'testing';
+    testStatus = { ...testStatus };
+    let success = false;
+    if (target.type === 'github') {
+      success = await testGitHubConnection(target);
+    } else {
+      success = await testCustomAPIConnection(target);
+    }
+    testStatus[target.id] = success ? 'success' : 'failed';
+    testStatus = { ...testStatus };
+    setTimeout(() => {
+      testStatus[target.id] = 'idle';
+      testStatus = { ...testStatus };
+    }, 3000);
+  }
+
+  function handlePresetChange(event: Event) {
+    if (!editingTarget || editingTarget.type !== 'github') return;
+    const gh = editingTarget as GitHubTarget;
+    const preset = (event.target as HTMLSelectElement).value;
+    gh.frontMatterPreset = preset;
+    if (FRONT_MATTER_PRESETS[preset]) {
+      gh.frontMatterTemplate = FRONT_MATTER_PRESETS[preset];
+    }
+  }
+
+  function handleHeadersInput(event: Event) {
+    if (!editingTarget || editingTarget.type !== 'custom-api') return;
+    try {
+      (editingTarget as CustomAPITarget).headers = JSON.parse((event.target as HTMLTextAreaElement).value);
+    } catch {
+      // ignore invalid JSON while typing
+    }
+  }
+
+  function handleFileNamePresetChange(event: Event) {
+    if (!editingTarget) return;
+    const preset = (event.target as HTMLSelectElement).value;
+    if (FILE_NAME_PRESETS[preset]) {
+      editingTarget.fileNamePattern = FILE_NAME_PRESETS[preset];
+    }
+  }
+
+  let fileNamePreview = $derived.by(() => {
+    if (!editingTarget) return '';
+    const pattern = editingTarget.fileNamePattern || '{{date}}-{{slug}}';
+    return resolveFileName(pattern, {
+      date: new Date().toISOString().slice(0, 10),
+      slug: 'my-article',
+      filename: 'my-article',
+      title: 'My Article',
+    });
+  });
+</script>
+
+<div class="publish-settings">
+  {#if editingTarget}
+    <!-- Edit form -->
+    <div class="edit-form">
+      <div class="form-header">
+        <h4>{editingTarget.type === 'github' ? $t('publish.github') : $t('publish.customApi')}</h4>
+      </div>
+
+      <div class="setting-group">
+        <label class="setting-label">{$t('publish.targetName')}</label>
+        <input
+          type="text"
+          class="setting-input"
+          bind:value={editingTarget.name}
+          placeholder={$t('publish.targetNamePlaceholder')}
+        />
+      </div>
+
+      {#if editingTarget.type === 'github'}
+        {@const gh = editingTarget as GitHubTarget}
+        <div class="setting-group">
+          <label class="setting-label">{$t('publish.repoUrl')}</label>
+          <input
+            type="text"
+            class="setting-input"
+            bind:value={gh.repoUrl}
+            placeholder={$t('publish.repoUrlPlaceholder')}
+          />
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-label">{$t('publish.branch')}</label>
+          <input type="text" class="setting-input" bind:value={gh.branch} />
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-label">{$t('publish.articlesDir')}</label>
+          <input
+            type="text"
+            class="setting-input"
+            bind:value={gh.articlesDir}
+            placeholder={$t('publish.articlesDirPlaceholder')}
+          />
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-label">{$t('publish.imagesDir')}</label>
+          <input
+            type="text"
+            class="setting-input"
+            bind:value={gh.imagesDir}
+            placeholder={$t('publish.imagesDirPlaceholder')}
+          />
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-label">{$t('publish.token')}</label>
+          <input
+            type="password"
+            class="setting-input"
+            bind:value={gh.token}
+            placeholder={$t('publish.tokenPlaceholder')}
+          />
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-label">{$t('publish.templatePresets')}</label>
+          <select class="setting-input" value={gh.frontMatterPreset || 'hugo'} onchange={handlePresetChange}>
+            <option value="hugo">{$t('publish.presetHugo')}</option>
+            <option value="hexo">{$t('publish.presetHexo')}</option>
+            <option value="astro">{$t('publish.presetAstro')}</option>
+            <option value="custom">{$t('publish.presetCustom')}</option>
+          </select>
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-label">{$t('publish.frontMatterTemplate')}</label>
+          <textarea
+            class="setting-textarea"
+            bind:value={gh.frontMatterTemplate}
+            rows="8"
+          ></textarea>
+        </div>
+      {:else}
+        {@const api = editingTarget as CustomAPITarget}
+        <div class="setting-group">
+          <label class="setting-label">{$t('publish.endpoint')}</label>
+          <input
+            type="text"
+            class="setting-input"
+            bind:value={api.endpoint}
+            placeholder={$t('publish.endpointPlaceholder')}
+          />
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-label">{$t('publish.method')}</label>
+          <select class="setting-input" bind:value={api.method}>
+            <option value="POST">POST</option>
+            <option value="PUT">PUT</option>
+          </select>
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-label">{$t('publish.headers')}</label>
+          <textarea
+            class="setting-textarea"
+            value={JSON.stringify(api.headers, null, 2)}
+            oninput={handleHeadersInput}
+            rows="4"
+          ></textarea>
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-label">{$t('publish.bodyTemplate')}</label>
+          <textarea
+            class="setting-textarea"
+            bind:value={api.bodyTemplate}
+            rows="8"
+          ></textarea>
+        </div>
+      {/if}
+
+      <!-- File naming pattern (shared for all target types) -->
+      <div class="setting-group">
+        <label class="setting-label">{$t('publish.fileNamePattern')}</label>
+        <div class="filename-row">
+          <select class="setting-input filename-preset" onchange={handleFileNamePresetChange}>
+            <option value="dateSlug" selected={editingTarget.fileNamePattern === FILE_NAME_PRESETS.dateSlug}>{$t('publish.presetDateSlug')}</option>
+            <option value="simple" selected={editingTarget.fileNamePattern === FILE_NAME_PRESETS.simple}>{$t('publish.presetSimple')}</option>
+            <option value="dateFilename" selected={editingTarget.fileNamePattern === FILE_NAME_PRESETS.dateFilename}>{$t('publish.presetDateFilename')}</option>
+            <option value="yearMonth" selected={editingTarget.fileNamePattern === FILE_NAME_PRESETS.yearMonth}>{$t('publish.presetYearMonth')}</option>
+          </select>
+          <input
+            type="text"
+            class="setting-input filename-input"
+            bind:value={editingTarget.fileNamePattern}
+            placeholder={'{{date}}-{{slug}}'}
+          />
+        </div>
+        <span class="setting-hint filename-preview">{$t('publish.fileNamePreview')}：{fileNamePreview}</span>
+        <span class="setting-hint">{$t('publish.fileNameVariables')}</span>
+      </div>
+
+      <div class="form-actions">
+        <button class="btn btn-secondary" onclick={cancelEdit}>{$t('common.cancel')}</button>
+        <button class="btn btn-primary" onclick={saveTarget} disabled={!editingTarget.name}>
+          {$t('common.save')}
+        </button>
+      </div>
+    </div>
+  {:else}
+    <!-- Target list -->
+    {#if targets.length === 0}
+      <div class="empty-state">
+        <p>{$t('publish.settingsEmpty')}</p>
+        <p class="hint">{$t('publish.settingsHint')}</p>
+      </div>
+    {:else}
+      <div class="target-list">
+        {#each targets as target (target.id)}
+          <div class="target-card">
+            <div class="target-info">
+              <span class="target-icon">
+                {target.type === 'github' ? '🔵' : '🟣'}
+              </span>
+              <div class="target-details">
+                <span class="target-name">{target.name || '(unnamed)'}</span>
+                <span class="target-type">
+                  {target.type === 'github' ? $t('publish.github') : $t('publish.customApi')}
+                </span>
+              </div>
+            </div>
+            <div class="target-actions">
+              <button
+                class="action-btn"
+                class:testing={testStatus[target.id] === 'testing'}
+                class:success={testStatus[target.id] === 'success'}
+                class:failed={testStatus[target.id] === 'failed'}
+                onclick={() => testConnection(target)}
+                disabled={testStatus[target.id] === 'testing'}
+              >
+                {#if testStatus[target.id] === 'testing'}
+                  ...
+                {:else if testStatus[target.id] === 'success'}
+                  ✓
+                {:else if testStatus[target.id] === 'failed'}
+                  ✗
+                {:else}
+                  ⚡
+                {/if}
+              </button>
+              <button class="action-btn" onclick={() => editTarget(target)}>✎</button>
+              <button class="action-btn danger" onclick={() => deleteTarget(target.id)}>✕</button>
+            </div>
+          </div>
+        {/each}
+      </div>
+    {/if}
+
+    <!-- Add button -->
+    <div class="add-section">
+      {#if showAddMenu}
+        <div class="add-menu">
+          <button class="add-option" onclick={addGitHubTarget}>
+            🔵 {$t('publish.github')}
+          </button>
+          <button class="add-option" onclick={addCustomAPITarget}>
+            🟣 {$t('publish.customApi')}
+          </button>
+        </div>
+      {/if}
+      <button class="btn btn-add" onclick={() => showAddMenu = !showAddMenu}>
+        + {$t('publish.addTarget')}
+      </button>
+    </div>
+  {/if}
+</div>
+
+<style>
+  .publish-settings {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    color: var(--text-muted);
+    text-align: center;
+    gap: 0.5rem;
+  }
+
+  .empty-state p {
+    margin: 0;
+    font-size: var(--font-size-sm);
+  }
+
+  .empty-state .hint {
+    font-size: var(--font-size-xs);
+  }
+
+  /* Target list */
+  .target-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .target-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-primary);
+  }
+
+  .target-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .target-icon {
+    font-size: 0.85rem;
+  }
+
+  .target-details {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .target-name {
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+
+  .target-type {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+  }
+
+  .target-actions {
+    display: flex;
+    gap: 0.25rem;
+  }
+
+  .action-btn {
+    width: 1.75rem;
+    height: 1.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.75rem;
+    transition: all var(--transition-fast);
+  }
+
+  .action-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .action-btn.danger:hover {
+    border-color: #dc3545;
+    color: #dc3545;
+  }
+
+  .action-btn.testing {
+    color: var(--accent-color);
+    border-color: var(--accent-color);
+  }
+
+  .action-btn.success {
+    color: #28a745;
+    border-color: #28a745;
+  }
+
+  .action-btn.failed {
+    color: #dc3545;
+    border-color: #dc3545;
+  }
+
+  /* Add section */
+  .add-section {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .add-menu {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .add-option {
+    padding: 0.4rem 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: var(--font-size-sm);
+    transition: all var(--transition-fast);
+  }
+
+  .add-option:hover {
+    border-color: var(--accent-color);
+    color: var(--text-primary);
+  }
+
+  .btn {
+    padding: 0.35rem 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: var(--font-size-sm);
+    transition: all var(--transition-fast);
+  }
+
+  .btn-add {
+    background: transparent;
+    color: var(--accent-color);
+    border-color: var(--accent-color);
+  }
+
+  .btn-add:hover {
+    background: var(--accent-color);
+    color: white;
+  }
+
+  .btn-secondary {
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+  }
+
+  .btn-secondary:hover {
+    color: var(--text-primary);
+  }
+
+  .btn-primary {
+    background: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
+  }
+
+  .btn-primary:hover {
+    opacity: 0.9;
+  }
+
+  .btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* Edit form */
+  .edit-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .form-header h4 {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .setting-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+
+  .setting-label {
+    font-size: var(--font-size-xs);
+    color: var(--text-secondary);
+  }
+
+  .setting-input {
+    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: var(--font-size-sm);
+    font-family: var(--font-sans);
+  }
+
+  .setting-input:focus {
+    outline: none;
+    border-color: var(--accent-color);
+  }
+
+  .setting-textarea {
+    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: var(--font-size-xs);
+    font-family: var(--font-mono, monospace);
+    resize: vertical;
+    line-height: 1.5;
+  }
+
+  .setting-textarea:focus {
+    outline: none;
+    border-color: var(--accent-color);
+  }
+
+  .form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border-light);
+  }
+
+  .filename-row {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .filename-preset {
+    flex: 0 0 auto;
+    width: 10rem;
+  }
+
+  .filename-input {
+    flex: 1;
+    font-family: var(--font-mono, monospace);
+    font-size: var(--font-size-xs);
+  }
+
+  .setting-hint {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    line-height: 1.4;
+  }
+
+  .filename-preview {
+    color: var(--accent-color);
+  }
+</style>

@@ -9,6 +9,7 @@ export {
   getAllTools,
   connectAllServers,
   disconnectAllServers,
+  initMCPStore,
 } from './mcp-manager';
 export type {
   MCPServerConfig,

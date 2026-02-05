@@ -75,6 +75,67 @@ export interface AICommandOption {
   systemPrompt: string;
 }
 
+// --- Image Generation (AIGC) Types ---
+
+export type ImageProvider = 'openai' | 'grok' | 'custom';
+
+export type ImageAspectRatio = '16:9' | '4:3' | '3:2' | '1:1' | '2:3' | '3:4' | '9:16';
+export type ImageSizeLevel = 'large' | 'medium' | 'small';
+
+export interface ImageProviderConfig {
+  provider: ImageProvider;
+  baseURL: string;
+  apiKey: string;
+  model: string;
+  defaultRatio: ImageAspectRatio;
+  defaultSizeLevel: ImageSizeLevel;
+  /** @deprecated Use defaultRatio + defaultSizeLevel instead */
+  defaultSize?: string;
+}
+
+/** Resolution map: ratio → sizeLevel → "WxH" */
+export const IMAGE_SIZE_MAP: Record<ImageAspectRatio, Record<ImageSizeLevel, string>> = {
+  '16:9': { large: '1920x1080', medium: '1280x720',  small: '960x540'  },
+  '4:3':  { large: '1600x1200', medium: '1024x768',  small: '800x600'  },
+  '3:2':  { large: '1536x1024', medium: '1200x800',  small: '768x512'  },
+  '1:1':  { large: '1536x1536', medium: '1024x1024', small: '512x512'  },
+  '2:3':  { large: '1024x1536', medium: '800x1200',  small: '512x768'  },
+  '3:4':  { large: '1200x1600', medium: '768x1024',  small: '600x800'  },
+  '9:16': { large: '1080x1920', medium: '720x1280',  small: '540x960'  },
+};
+
+export function resolveImageSize(ratio: ImageAspectRatio, level: ImageSizeLevel): string {
+  return IMAGE_SIZE_MAP[ratio]?.[level] ?? '1024x1024';
+}
+
+export const IMAGE_PROVIDER_PRESETS: Record<ImageProvider, { baseURL: string; model: string }> = {
+  openai: { baseURL: 'https://api.openai.com/v1', model: 'dall-e-3' },
+  grok: { baseURL: 'https://api.x.ai/v1', model: 'grok-2-image' },
+  custom: { baseURL: '', model: '' },
+};
+
+export const DEFAULT_IMAGE_PROVIDER_CONFIG: ImageProviderConfig = {
+  provider: 'openai',
+  baseURL: 'https://api.openai.com/v1',
+  apiKey: '',
+  model: 'dall-e-3',
+  defaultRatio: '16:9',
+  defaultSizeLevel: 'medium',
+};
+
+// --- SEO Types ---
+
+export interface SEOData {
+  titles: string[];
+  selectedTitle: string;
+  excerpt: string;
+  tags: string[];
+  metaDescription: string;
+  slug: string;
+}
+
+// --- AI Commands ---
+
 export const AI_COMMANDS: AICommandOption[] = [
   {
     command: 'write',

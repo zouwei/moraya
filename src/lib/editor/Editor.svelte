@@ -26,6 +26,7 @@
   import type { ImageHostConfig } from '../services/image-hosting';
   import TableToolbar from './TableToolbar.svelte';
   import ImageContextMenu from './ImageContextMenu.svelte';
+  import ImageToolbar from './ImageToolbar.svelte';
 
   const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico', 'tiff', 'tif', 'avif']);
 
@@ -51,6 +52,12 @@
   let imageMenuSrc = $state('');
   let imageMenuIsUploadable = $state(false);
   let contextMenuTargetPos = $state<number | null>(null);
+
+  // Image click toolbar state
+  let showImageToolbar = $state(false);
+  let imageToolbarPosition = $state({ top: 0, left: 0 });
+  let imageToolbarCurrentWidth = $state('');
+  let imageToolbarTargetPos = $state<number | null>(null);
 
   function isInsideTable(): boolean {
     if (!editor) return false;
@@ -336,6 +343,64 @@
     }
   }
 
+  /** Handle left-click on images to show floating resize toolbar */
+  function handleImageClick(event: MouseEvent) {
+    const target = event.target as HTMLElement;
+    if (target.tagName !== 'IMG') {
+      showImageToolbar = false;
+      return;
+    }
+
+    const imgEl = target as HTMLImageElement;
+    const rect = imgEl.getBoundingClientRect();
+    imageToolbarPosition = {
+      top: rect.top - 36,
+      left: rect.left + rect.width / 2,
+    };
+
+    // Get current width from title attr
+    const titleAttr = imgEl.getAttribute('title') || '';
+    const widthMatch = titleAttr.match(/^width=(\d+%?)$/);
+    imageToolbarCurrentWidth = widthMatch ? widthMatch[1] : '';
+
+    // Find ProseMirror position
+    if (editor) {
+      try {
+        editor.action((ctx) => {
+          const view = ctx.get(editorViewCtx);
+          const pos = view.posAtDOM(imgEl, 0);
+          imageToolbarTargetPos = pos;
+        });
+      } catch {
+        imageToolbarTargetPos = null;
+      }
+    }
+
+    showImageToolbar = true;
+  }
+
+  function handleToolbarResize(width: string) {
+    if (!editor || imageToolbarTargetPos === null) return;
+    try {
+      editor.action((ctx) => {
+        const view = ctx.get(editorViewCtx);
+        const pos = imageToolbarTargetPos!;
+        const node = view.state.doc.nodeAt(pos);
+        if (!node || node.type.name !== 'image') return;
+
+        const title = width ? `width=${width}` : '';
+        const tr = view.state.tr.setNodeMarkup(pos, undefined, {
+          ...node.attrs,
+          title,
+        });
+        view.dispatch(tr);
+      });
+    } catch {
+      // Resize failed
+    }
+    imageToolbarCurrentWidth = width;
+  }
+
   onMount(async () => {
     editor = await createEditor({
       root: editorEl,
@@ -414,6 +479,7 @@
     // Listen for selection changes to show/hide table toolbar
     if (proseMirrorEl) {
       proseMirrorEl.addEventListener('click', updateTableToolbar);
+      proseMirrorEl.addEventListener('click', handleImageClick as EventListener);
       proseMirrorEl.addEventListener('keyup', updateTableToolbar);
       proseMirrorEl.addEventListener('paste', handlePaste as EventListener);
       proseMirrorEl.addEventListener('contextmenu', handleContextMenu as EventListener);
@@ -644,6 +710,15 @@
     onAlignLeft={() => runCommand(setAlignCommand, 'left')}
     onAlignCenter={() => runCommand(setAlignCommand, 'center')}
     onAlignRight={() => runCommand(setAlignCommand, 'right')}
+  />
+{/if}
+
+{#if showImageToolbar}
+  <ImageToolbar
+    position={imageToolbarPosition}
+    currentWidth={imageToolbarCurrentWidth}
+    onResize={handleToolbarResize}
+    onClose={() => showImageToolbar = false}
   />
 {/if}
 

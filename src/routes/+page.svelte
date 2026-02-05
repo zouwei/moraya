@@ -31,12 +31,26 @@
   import SettingsPanel from '$lib/components/SettingsPanel.svelte';
   import AIChatPanel from '$lib/components/ai/AIChatPanel.svelte';
   import ImageInsertDialog from '$lib/components/ImageInsertDialog.svelte';
+  import PublishWorkflow from '$lib/components/PublishWorkflow.svelte';
+  import SEOPanel from '$lib/components/SEOPanel.svelte';
+  import ImageGenDialog from '$lib/components/ImageGenDialog.svelte';
+  import PublishConfirm from '$lib/components/PublishConfirm.svelte';
+  import UpdateDialog from '$lib/components/UpdateDialog.svelte';
+  import Toast from '$lib/components/Toast.svelte';
+  import type { SEOData } from '$lib/services/ai/types';
+  import type { PublishResult } from '$lib/services/publish/types';
+  import { publishToGitHub } from '$lib/services/publish/github-publisher';
+  import { publishToCustomAPI } from '$lib/services/publish/api-publisher';
   import { editorStore } from '$lib/stores/editor-store';
-  import { settingsStore } from '$lib/stores/settings-store';
+  import { settingsStore, initSettingsStore } from '$lib/stores/settings-store';
+  import { initAIStore } from '$lib/services/ai';
+  import { initMCPStore } from '$lib/services/mcp';
   import { openFile, saveFile, saveFileAs, loadFile, getFileNameFromPath, readImageAsBlobUrl } from '$lib/services/file-service';
   import { exportDocument, type ExportFormat } from '$lib/services/export-service';
+  import { checkForUpdate, shouldCheckToday, getTodayDateString } from '$lib/services/update-service';
   import { listen, type UnlistenFn } from '@tauri-apps/api/event';
   import { invoke } from '@tauri-apps/api/core';
+  import { getCurrentWebview } from '@tauri-apps/api/webview';
   import { openUrl } from '@tauri-apps/plugin-opener';
   import { t } from '$lib/i18n';
 
@@ -162,6 +176,40 @@ ${tr('welcome.tip')}
   let currentFileName = $state($t('common.untitled'));
   let selectedText = $state('');
   let editorMode = $state<EditorMode>('visual');
+
+  // Publish workflow state
+  let showWorkflow = $state(false);
+  let showSEOPanel = $state(false);
+  let showImageGenDialog = $state(false);
+  let imageGenDialogMounted = $state(false);
+  let showPublishConfirm = $state(false);
+  let showUpdateDialog = $state(false);
+  let seoCompleted = $state(false);
+  let imageGenCompleted = $state(false);
+  let currentSEOData = $state<SEOData | null>(null);
+
+  // Toast notifications
+  let toastMessages = $state<{ id: number; text: string; type: 'success' | 'error' }[]>([]);
+  let toastIdCounter = 0;
+
+  function resetWorkflowState() {
+    showWorkflow = false;
+    showSEOPanel = false;
+    showImageGenDialog = false;
+    imageGenDialogMounted = false;
+    showPublishConfirm = false;
+    seoCompleted = false;
+    imageGenCompleted = false;
+    currentSEOData = null;
+  }
+
+  function showToast(text: string, type: 'success' | 'error' = 'success') {
+    const id = ++toastIdCounter;
+    toastMessages = [...toastMessages, { id, text, type }];
+    setTimeout(() => {
+      toastMessages = toastMessages.filter(m => m.id !== id);
+    }, 4000);
+  }
 
   // Milkdown editor reference for menu commands
   let milkdownEditor: MilkdownEditor | null = null;
@@ -347,6 +395,7 @@ ${tr('welcome.tip')}
       view_zoom_out: tr('menu.zoomOut'),
       view_actual_size: tr('menu.actualSize'),
       // Help menu
+      help_version_info: tr('menu.versionInfo'),
       help_changelog: tr('menu.changelog'),
       help_privacy: tr('menu.privacyPolicy'),
       help_website: tr('menu.officialWebsite'),
@@ -499,17 +548,20 @@ ${tr('welcome.tip')}
     const fileContent = await openFile();
     if (fileContent !== null) {
       content = fileContent;
+      resetWorkflowState();
     }
   }
 
   function handleNewFile() {
     content = '';
     editorStore.reset();
+    resetWorkflowState();
   }
 
   async function handleFileSelect(path: string) {
     const fileContent = await loadFile(path);
     content = fileContent;
+    resetWorkflowState();
   }
 
   function handleAIInsert(text: string) {
@@ -565,6 +617,110 @@ ${tr('welcome.tip')}
       content = content.trimEnd() + '\n\n' + imgMarkdown + '\n';
     } else {
       runEditorCommand(insertImageCommand, { src, alt: data.alt });
+    }
+  }
+
+  // ── Publish Workflow Handlers ─────────────────────────
+
+  function handlePublishWorkflow() {
+    showWorkflow = !showWorkflow;
+  }
+
+  function handleWorkflowSEO() {
+    showWorkflow = false;
+    showSEOPanel = true;
+  }
+
+  function handleWorkflowImageGen() {
+    showWorkflow = false;
+    imageGenDialogMounted = true;
+    showImageGenDialog = true;
+  }
+
+  function handleWorkflowPublish() {
+    showWorkflow = false;
+    showPublishConfirm = true;
+  }
+
+  function handleSEOApply(data: SEOData) {
+    currentSEOData = data;
+    seoCompleted = true;
+    showSEOPanel = false;
+  }
+
+  function handleImageGenInsert(images: { url: string; target: number }[], mode: 'paragraph' | 'end' | 'clipboard') {
+    if (mode === 'end') {
+      // Insert all images at end
+      const imgMarkdown = images.map(img => `![](${img.url})`).join('\n\n');
+      content = content.trimEnd() + '\n\n' + imgMarkdown + '\n';
+      if (milkdownEditor && editorStore.getState().editorMode !== 'source') {
+        try { milkdownEditor.action(replaceAll(content)); } catch { /* ignore */ }
+      }
+    } else if (mode === 'paragraph') {
+      // Insert each image after its target paragraph
+      const lines = content.split('\n');
+      let paragraphIdx = 0;
+      const insertions: Map<number, string[]> = new Map();
+
+      for (const img of images) {
+        const existing = insertions.get(img.target) || [];
+        existing.push(`![](${img.url})`);
+        insertions.set(img.target, existing);
+      }
+
+      const result: string[] = [];
+      for (let i = 0; i < lines.length; i++) {
+        result.push(lines[i]);
+        // Count non-empty lines as paragraphs
+        if (lines[i].trim() && (i + 1 >= lines.length || !lines[i + 1]?.trim())) {
+          const imgs = insertions.get(paragraphIdx);
+          if (imgs) {
+            result.push('');
+            result.push(...imgs);
+          }
+          paragraphIdx++;
+        }
+      }
+
+      content = result.join('\n');
+      if (milkdownEditor && editorStore.getState().editorMode !== 'source') {
+        try { milkdownEditor.action(replaceAll(content)); } catch { /* ignore */ }
+      }
+    }
+
+    imageGenCompleted = true;
+    showImageGenDialog = false;
+  }
+
+  async function handlePublishConfirm(targetIds: string[]) {
+    showPublishConfirm = false;
+    const targets = settingsStore.getState().publishTargets.filter(t => targetIds.includes(t.id));
+
+    const variables: Record<string, string> = {
+      title: currentSEOData?.selectedTitle || '',
+      date: new Date().toISOString().split('T')[0],
+      tags: currentSEOData?.tags?.join(', ') || '',
+      description: currentSEOData?.metaDescription || '',
+      slug: currentSEOData?.slug || 'untitled',
+      cover: '',
+      excerpt: currentSEOData?.excerpt || '',
+      content,
+    };
+
+    const tr = $t;
+    for (const target of targets) {
+      let result: PublishResult;
+      if (target.type === 'github') {
+        result = await publishToGitHub(target, variables, content);
+      } else {
+        result = await publishToCustomAPI(target, variables);
+      }
+
+      if (result.success) {
+        showToast(`${tr('workflow.publishSuccess')} → ${result.targetName}`, 'success');
+      } else {
+        showToast(`${tr('workflow.publishFailed')} → ${result.targetName}: ${result.message}`, 'error');
+      }
     }
   }
 
@@ -635,6 +791,21 @@ ${tr('welcome.tip')}
       document.body.classList.add('platform-linux');
     }
 
+    // Restore persisted settings, AI config, and MCP servers
+    Promise.all([initSettingsStore(), initAIStore(), initMCPStore()])
+      .then(() => {
+        // Auto-check for updates (once daily)
+        const settings = settingsStore.getState();
+        if (shouldCheckToday(settings.lastUpdateCheckDate)) {
+          checkForUpdate()
+            .then(() => {
+              settingsStore.update({ lastUpdateCheckDate: getTodayDateString() });
+            })
+            .catch(() => {}); // Silently fail on background check
+        }
+      })
+      .catch(() => {});
+
     setupAutoSave();
 
     // Initialize word count for default content
@@ -702,6 +873,7 @@ ${tr('welcome.tip')}
         document.documentElement.style.setProperty('--font-size-base', '16px');
       },
       // Help
+      'menu:help_version_info': () => { showUpdateDialog = true; },
       'menu:help_changelog': () => { openUrl('https://github.com/zouwei/moraya/releases'); },
       'menu:help_privacy': async () => {
         try {
@@ -723,13 +895,16 @@ ${tr('welcome.tip')}
     };
 
     Object.entries(menuHandlers).forEach(([event, handler]) => {
-      listen(event, handler).then(unlisten => menuUnlisteners.push(unlisten));
+      listen(event, () => {
+        if (document.hasFocus()) handler();
+      }).then(unlisten => menuUnlisteners.push(unlisten));
     });
 
     // Helper: load a file by path and sync to all editor modes
     async function openFileByPath(filePath: string) {
       const fileContent = await loadFile(filePath);
       content = fileContent;
+      resetWorkflowState();
       // Sync into Milkdown if it's already mounted (visual/split mode)
       if (milkdownEditor && editorStore.getState().editorMode !== 'source') {
         try {
@@ -756,10 +931,29 @@ ${tr('welcome.tip')}
       }
     });
 
+    // Drag-drop: open MD files in new windows
+    const MD_EXTENSIONS = new Set(['md', 'markdown', 'mdown', 'mkd', 'mkdn', 'mdwn', 'mdx', 'txt']);
+    let dragDropUnlisten: UnlistenFn | undefined;
+    getCurrentWebview().onDragDropEvent(async (event) => {
+      if (event.payload.type !== 'drop') return;
+      const { paths } = event.payload;
+      for (const p of paths) {
+        const ext = p.split('.').pop()?.toLowerCase() ?? '';
+        if (MD_EXTENSIONS.has(ext)) {
+          try {
+            await invoke('open_file_in_new_window', { path: p });
+          } catch (err) {
+            console.error('Failed to open file in new window:', err);
+          }
+        }
+      }
+    }).then(unlisten => { dragDropUnlisten = unlisten; });
+
     return () => {
       if (autoSaveTimer) clearInterval(autoSaveTimer);
       menuUnlisteners.forEach(unlisten => unlisten());
       openFileUnlisten?.();
+      dragDropUnlisten?.();
     };
   });
 </script>
@@ -817,7 +1011,7 @@ ${tr('welcome.tip')}
     {/if}
   </div>
 
-  <StatusBar />
+  <StatusBar onPublishWorkflow={handlePublishWorkflow} onShowUpdateDialog={() => showUpdateDialog = true} />
 </div>
 
 {#if showSettings}
@@ -830,6 +1024,46 @@ ${tr('welcome.tip')}
     onClose={() => showImageDialog = false}
   />
 {/if}
+
+{#if showWorkflow}
+  <PublishWorkflow
+    onClose={() => showWorkflow = false}
+    onSEO={handleWorkflowSEO}
+    onImageGen={handleWorkflowImageGen}
+    onPublish={handleWorkflowPublish}
+    {seoCompleted}
+    {imageGenCompleted}
+  />
+{/if}
+
+{#if showSEOPanel}
+  <SEOPanel
+    onClose={() => showSEOPanel = false}
+    onApply={handleSEOApply}
+  />
+{/if}
+
+{#if imageGenDialogMounted}
+  <div class="dialog-visibility" class:hidden={!showImageGenDialog}>
+    <ImageGenDialog
+      onClose={() => showImageGenDialog = false}
+      onInsert={handleImageGenInsert}
+    />
+  </div>
+{/if}
+
+{#if showPublishConfirm}
+  <PublishConfirm
+    onClose={() => showPublishConfirm = false}
+    onConfirm={handlePublishConfirm}
+  />
+{/if}
+
+{#if showUpdateDialog}
+  <UpdateDialog onClose={() => showUpdateDialog = false} />
+{/if}
+
+<Toast messages={toastMessages} />
 
 <style>
   .app-container {
@@ -878,5 +1112,13 @@ ${tr('welcome.tip')}
     display: flex;
     flex-direction: column;
     overflow: hidden;
+  }
+
+  .dialog-visibility {
+    display: contents;
+  }
+
+  .dialog-visibility.hidden {
+    display: none;
   }
 </style>

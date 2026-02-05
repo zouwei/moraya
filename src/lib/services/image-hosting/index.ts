@@ -1,4 +1,4 @@
-export type { ImageHostProvider, ImageHostConfig, UploadResult } from './types';
+export type { ImageHostProvider, ImageHostConfig, UploadResult, GitHubCdnMode } from './types';
 export { DEFAULT_IMAGE_HOST_CONFIG } from './types';
 import type { ImageHostConfig, UploadResult } from './types';
 import { providers } from './providers';

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 use tauri::{Emitter, Manager};
 
@@ -7,6 +8,12 @@ mod menu;
 
 /// Holds file paths requested to be opened via OS file association or CLI args.
 pub struct OpenedFiles(pub Mutex<Vec<String>>);
+
+/// Maps window labels to file paths that should be opened when the window mounts.
+pub struct PendingFiles(pub Mutex<HashMap<String, String>>);
+
+/// Atomic counter for generating unique window labels.
+static WINDOW_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 #[tauri::command]
 fn set_editor_mode_menu(app: tauri::AppHandle, mode: String) {
@@ -23,11 +30,88 @@ fn set_menu_check(app: tauri::AppHandle, id: String, checked: bool) {
     menu::set_check_item(&app, &id, checked);
 }
 
-/// Called by the frontend once it's ready; returns the first file path to open (if any).
+/// Called by the frontend once it's ready; returns the file path to open (if any).
+/// For new windows created via drag-drop, looks up PendingFiles by window label.
+/// For the main window, falls back to OpenedFiles (startup CLI args / file association).
 #[tauri::command]
-fn get_opened_file(state: tauri::State<'_, OpenedFiles>) -> Option<String> {
-    let files = state.0.lock().unwrap();
-    files.first().cloned()
+fn get_opened_file(
+    window: tauri::Window,
+    state: tauri::State<'_, OpenedFiles>,
+    pending: tauri::State<'_, PendingFiles>,
+) -> Option<String> {
+    let label = window.label();
+
+    // Check PendingFiles first (for dynamically created windows)
+    {
+        let mut pending_map = pending.0.lock().unwrap();
+        if let Some(path) = pending_map.remove(label) {
+            return Some(path);
+        }
+    }
+
+    // Main window: fall back to startup OpenedFiles
+    if label == "main" {
+        let files = state.0.lock().unwrap();
+        return files.first().cloned();
+    }
+
+    None
+}
+
+/// Create a new editor window for the given file path.
+fn create_editor_window(
+    app: &tauri::AppHandle,
+    pending: &PendingFiles,
+    path: String,
+) -> Result<String, String> {
+    let counter = WINDOW_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let label = format!("moraya-{}", counter);
+
+    // Store pending file path for this window
+    {
+        let mut pending_map = pending.0.lock().unwrap();
+        pending_map.insert(label.clone(), path);
+    }
+
+    // Build window with same config as main
+    let window = tauri::WebviewWindowBuilder::new(
+        app,
+        &label,
+        tauri::WebviewUrl::default(),
+    )
+    .title("Moraya")
+    .inner_size(1200.0, 800.0)
+    .min_inner_size(600.0, 400.0)
+    .decorations(false)
+    .center()
+    .build()
+    .map_err(|e| format!("Failed to create window: {}", e))?;
+
+    // macOS: enable decorations for native traffic lights, then overlay
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::TitleBarStyle;
+        let _ = window.set_decorations(true);
+        let _ = window.set_title_bar_style(TitleBarStyle::Overlay);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    let _ = window;
+
+    Ok(label)
+}
+
+/// Open a file in a new editor window.
+#[tauri::command]
+fn open_file_in_new_window(
+    app: tauri::AppHandle,
+    pending: tauri::State<'_, PendingFiles>,
+    path: String,
+) -> Result<String, String> {
+    if !std::path::Path::new(&path).is_file() {
+        return Err(format!("File not found: {}", path));
+    }
+    create_editor_window(&app, &pending, path)
 }
 
 /// Extract file paths from CLI arguments (used on Windows where file association
@@ -53,8 +137,10 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_http::init())
         .manage(commands::mcp::MCPProcessManager::new())
         .manage(OpenedFiles(Mutex::new(initial_files)))
+        .manage(PendingFiles(Mutex::new(HashMap::new())))
         .invoke_handler(tauri::generate_handler![
             commands::file::read_file,
             commands::file::read_resource_file,
@@ -64,10 +150,13 @@ pub fn run() {
             commands::mcp::mcp_connect_stdio,
             commands::mcp::mcp_send_request,
             commands::mcp::mcp_disconnect,
+            commands::update::get_platform_info,
+            commands::update::exit_app,
             set_editor_mode_menu,
             update_menu_labels,
             set_menu_check,
             get_opened_file,
+            open_file_in_new_window,
         ])
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
@@ -112,21 +201,16 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             {
                 if let tauri::RunEvent::Opened { urls } = &_event {
-                    let mut paths = Vec::new();
                     for u in urls {
                         if u.scheme() == "file" {
                             if let Ok(p) = u.to_file_path() {
-                                paths.push(p.to_string_lossy().into_owned());
+                                let path = p.to_string_lossy().into_owned();
+                                // Open each file in a new window
+                                if let Some(pending) = _app.try_state::<PendingFiles>() {
+                                    let _ = create_editor_window(_app, &pending, path);
+                                }
                             }
                         }
-                    }
-                    if let Some(path) = paths.first() {
-                        if let Some(state) = _app.try_state::<OpenedFiles>() {
-                            let mut files = state.0.lock().unwrap();
-                            files.clear();
-                            files.push(path.clone());
-                        }
-                        let _ = _app.emit("open-file", path.clone());
                     }
                 }
             }

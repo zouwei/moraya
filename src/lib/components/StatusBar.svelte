@@ -1,15 +1,29 @@
 <script lang="ts">
   import { editorStore, type EditorMode } from '../stores/editor-store';
+  import { updateStore } from '$lib/services/update-service';
   import { t } from '$lib/i18n';
+
+  let {
+    onPublishWorkflow,
+    onShowUpdateDialog,
+  }: {
+    onPublishWorkflow?: () => void;
+    onShowUpdateDialog?: () => void;
+  } = $props();
 
   let wordCount = $state(0);
   let charCount = $state(0);
   let editorMode = $state<EditorMode>('visual');
+  let updateAvailable = $state(false);
 
   editorStore.subscribe(state => {
     wordCount = state.wordCount;
     charCount = state.charCount;
     editorMode = state.editorMode;
+  });
+
+  updateStore.subscribe(state => {
+    updateAvailable = state.checkStatus === 'available';
   });
 
   const modes: EditorMode[] = ['visual', 'source', 'split'];
@@ -43,6 +57,20 @@
         </span>
       {/each}
     </div>
+    {#if onPublishWorkflow}
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <span class="publish-btn" onclick={onPublishWorkflow}>
+        {$t('statusbar.publishWorkflow')}
+      </span>
+    {/if}
+    {#if updateAvailable && onShowUpdateDialog}
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <span class="update-indicator" onclick={onShowUpdateDialog} title={$t('update.newVersionAvailable')}>
+        &#x2B06;&#xFE0F;
+      </span>
+    {/if}
     <span class="status-item">{$t('statusbar.format')}</span>
   </div>
 </div>
@@ -98,5 +126,39 @@
   .mode-btn.active {
     background: var(--accent-color);
     color: white;
+  }
+
+  .publish-btn {
+    padding: 0.1rem 0.4rem;
+    cursor: pointer;
+    border: 1px solid var(--border-light);
+    border-radius: 3px;
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+    transition: background var(--transition-fast), color var(--transition-fast);
+  }
+
+  .publish-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+  }
+
+  .update-indicator {
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1;
+    padding: 0.1rem 0.2rem;
+    border-radius: 3px;
+    transition: background var(--transition-fast);
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  .update-indicator:hover {
+    background: var(--bg-hover);
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
   }
 </style>

@@ -5,6 +5,7 @@
   import AISettings from './ai/AISettings.svelte';
   import MCPPanel from './ai/MCPPanel.svelte';
   import ImageHostingSettings from './ImageHostingSettings.svelte';
+  import PublishSettings from './PublishSettings.svelte';
 
   let {
     onClose,
@@ -12,7 +13,7 @@
     onClose: () => void;
   } = $props();
 
-  type Tab = 'general' | 'editor' | 'appearance' | 'ai' | 'mcp' | 'image';
+  type Tab = 'general' | 'editor' | 'appearance' | 'ai' | 'mcp' | 'image' | 'publish';
   let activeTab = $state<Tab>('general');
 
   let theme = $state<Theme>('system');
@@ -113,6 +114,7 @@
     { key: 'ai', icon: '✦', labelKey: 'settings.tabs.ai' },
     { key: 'mcp', icon: '⇌', labelKey: 'settings.tabs.mcp' },
     { key: 'image', icon: '▣', labelKey: 'settings.tabs.image' },
+    { key: 'publish', icon: '📤', labelKey: 'settings.tabs.publish' },
   ];
 </script>
 
@@ -140,7 +142,7 @@
         {/each}
       </nav>
       <div class="sidebar-footer">
-        <span class="version">{$t('settings.version', { version: '0.1.0' })}</span>
+        <span class="version">{$t('settings.version', { version: __APP_VERSION__ })}</span>
       </div>
     </div>
 
@@ -311,6 +313,9 @@
 
         {:else if activeTab === 'image'}
           <ImageHostingSettings />
+
+        {:else if activeTab === 'publish'}
+          <PublishSettings />
         {/if}
       </div>
     </div>
@@ -523,5 +528,26 @@
     font-size: var(--font-size-sm);
     font-weight: 600;
     color: var(--text-primary);
+  }
+
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    color: var(--text-muted);
+    text-align: center;
+    gap: 0.5rem;
+  }
+
+  .empty-state p {
+    margin: 0;
+    font-size: var(--font-size-sm);
+  }
+
+  .empty-state .hint {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
   }
 </style>

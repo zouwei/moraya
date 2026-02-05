@@ -1,7 +1,12 @@
 import { writable, get } from 'svelte/store';
+import { load } from '@tauri-apps/plugin-store';
 import { setLocale, detectSystemLocale, type SupportedLocale, type LocaleSelection } from '$lib/i18n';
 import { getThemeById } from '$lib/styles/themes';
 import { type ImageHostConfig, DEFAULT_IMAGE_HOST_CONFIG } from '$lib/services/image-hosting';
+import { type ImageProviderConfig, DEFAULT_IMAGE_PROVIDER_CONFIG } from '$lib/services/ai/types';
+import type { PublishTarget } from '$lib/services/publish/types';
+
+const SETTINGS_STORE_FILE = 'settings.json';
 
 export type Theme = 'light' | 'dark' | 'system';
 
@@ -22,6 +27,9 @@ interface Settings {
   editorTabSize: number;
   showLineNumbers: boolean;
   imageHostConfig: ImageHostConfig;
+  imageProviderConfig: ImageProviderConfig;
+  publishTargets: PublishTarget[];
+  lastUpdateCheckDate: string | null;  // "YYYY-MM-DD" format
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -41,6 +49,9 @@ const DEFAULT_SETTINGS: Settings = {
   editorTabSize: 4,
   showLineNumbers: false,
   imageHostConfig: { ...DEFAULT_IMAGE_HOST_CONFIG },
+  imageProviderConfig: { ...DEFAULT_IMAGE_PROVIDER_CONFIG },
+  publishTargets: [],
+  lastUpdateCheckDate: null,
 };
 
 function resolveLocale(selection: LocaleSelection): SupportedLocale {
@@ -93,6 +104,19 @@ function applyColorTheme(settings: Settings) {
   }
 }
 
+/** Debounced persist to avoid excessive disk writes */
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+function schedulePersist(state: Settings) {
+  if (persistTimer) clearTimeout(persistTimer);
+  persistTimer = setTimeout(async () => {
+    try {
+      const store = await load(SETTINGS_STORE_FILE);
+      await store.set('data', state);
+      await store.save();
+    } catch { /* ignore persist errors */ }
+  }, 300);
+}
+
 function createSettingsStore() {
   const { subscribe, set, update } = writable<Settings>(DEFAULT_SETTINGS);
 
@@ -109,8 +133,16 @@ function createSettingsStore() {
     });
   }
 
+  // Auto-save on every state change
+  let initialized = false;
+  subscribe(state => {
+    if (initialized) schedulePersist(state);
+  });
+
   return {
     subscribe,
+    /** Mark store as initialized (call after loading persisted data) */
+    _setInitialized() { initialized = true; },
     update(partial: Partial<Settings>) {
       update(state => {
         const next = { ...state, ...partial };
@@ -164,3 +196,21 @@ function createSettingsStore() {
 }
 
 export const settingsStore = createSettingsStore();
+
+/** Load persisted settings from disk. Call once at app startup. */
+export async function initSettingsStore() {
+  try {
+    const store = await load(SETTINGS_STORE_FILE);
+    const saved = await store.get<Partial<Settings>>('data');
+    if (saved) {
+      // Merge with defaults to handle new fields added in updates
+      settingsStore.update(saved);
+      const state = settingsStore.getState();
+      applyTheme(state.theme);
+      applyColorTheme(state);
+      setLocale(resolveLocale(state.localeSelection));
+      document.documentElement.style.setProperty('--font-size-base', `${state.fontSize}px`);
+    }
+  } catch { /* first launch — no saved data */ }
+  settingsStore._setInitialized();
+}

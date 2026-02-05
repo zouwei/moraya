@@ -4,6 +4,7 @@
  */
 
 import { writable, get } from 'svelte/store';
+import { load } from '@tauri-apps/plugin-store';
 import MCPClient from './mcp-client';
 import type {
   MCPServerConfig,
@@ -51,6 +52,7 @@ function createMCPStore() {
         ...state,
         servers: [...state.servers.filter(s => s.id !== config.id), config],
       }));
+      persistMCPServers();
     },
     removeServer(id: string) {
       update(state => ({
@@ -60,6 +62,7 @@ function createMCPStore() {
         tools: state.tools.filter(t => t.serverId !== id),
         resources: state.resources.filter(r => r.serverId !== id),
       }));
+      persistMCPServers();
     },
     setConnected(id: string, connected: boolean) {
       update(state => {
@@ -106,6 +109,30 @@ function createMCPStore() {
 }
 
 export const mcpStore = createMCPStore();
+
+const MCP_STORE_FILE = 'mcp-config.json';
+
+async function persistMCPServers() {
+  try {
+    const state = mcpStore.getState();
+    const store = await load(MCP_STORE_FILE);
+    await store.set('servers', state.servers);
+    await store.save();
+  } catch { /* ignore */ }
+}
+
+/** Load persisted MCP server configs from disk. Call once at app startup. */
+export async function initMCPStore() {
+  try {
+    const store = await load(MCP_STORE_FILE);
+    const servers = await store.get<MCPServerConfig[]>('servers');
+    if (servers && servers.length > 0) {
+      for (const s of servers) {
+        mcpStore.addServer(s);
+      }
+    }
+  } catch { /* first launch */ }
+}
 
 // ── MCP Client Manager ──
 

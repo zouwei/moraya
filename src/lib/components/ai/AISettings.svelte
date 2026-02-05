@@ -6,7 +6,16 @@
     PROVIDER_BASE_URLS,
     type AIProvider,
     type AIProviderConfig,
+    IMAGE_PROVIDER_PRESETS,
+    type ImageProvider,
+    type ImageProviderConfig,
+    type ImageAspectRatio,
+    type ImageSizeLevel,
+    IMAGE_SIZE_MAP,
+    resolveImageSize,
   } from '$lib/services/ai';
+  import { testImageConnection } from '$lib/services/ai/image-service';
+  import { settingsStore } from '$lib/stores/settings-store';
   import { t } from '$lib/i18n';
 
   let provider = $state<AIProvider>('claude');
@@ -17,6 +26,20 @@
   let temperature = $state(0.7);
   let testStatus = $state<'idle' | 'testing' | 'success' | 'failed'>('idle');
 
+  // AIGC Image provider state
+  let imgProvider = $state<ImageProvider>('openai');
+  let imgApiKey = $state('');
+  let imgBaseUrl = $state('https://api.openai.com/v1');
+  let imgModel = $state('dall-e-3');
+  let imgRatio = $state<ImageAspectRatio>('16:9');
+  let imgSizeLevel = $state<ImageSizeLevel>('medium');
+  let imgTestStatus = $state<'idle' | 'testing' | 'success' | 'failed'>('idle');
+
+  const RATIO_OPTIONS: ImageAspectRatio[] = ['16:9', '4:3', '3:2', '1:1', '2:3', '3:4', '9:16'];
+  const SIZE_LEVEL_OPTIONS: ImageSizeLevel[] = ['large', 'medium', 'small'];
+
+  let imgResolvedSize = $derived(resolveImageSize(imgRatio, imgSizeLevel));
+
   // Load from store
   aiStore.subscribe(state => {
     if (state.providerConfig) {
@@ -26,6 +49,18 @@
       model = state.providerConfig.model;
       maxTokens = state.providerConfig.maxTokens || 4096;
       temperature = state.providerConfig.temperature || 0.7;
+    }
+  });
+
+  // Load image provider config from settings store
+  settingsStore.subscribe(state => {
+    if (state.imageProviderConfig) {
+      imgProvider = state.imageProviderConfig.provider;
+      imgApiKey = state.imageProviderConfig.apiKey;
+      imgBaseUrl = state.imageProviderConfig.baseURL;
+      imgModel = state.imageProviderConfig.model;
+      imgRatio = state.imageProviderConfig.defaultRatio;
+      imgSizeLevel = state.imageProviderConfig.defaultSizeLevel;
     }
   });
 
@@ -62,6 +97,47 @@
 
   function handleInputChange() {
     saveConfig();
+  }
+
+  // --- AIGC Image Provider ---
+  function handleImgProviderChange(event: Event) {
+    imgProvider = (event.target as HTMLSelectElement).value as ImageProvider;
+    const preset = IMAGE_PROVIDER_PRESETS[imgProvider];
+    imgBaseUrl = preset.baseURL;
+    imgModel = preset.model;
+    saveImageConfig();
+  }
+
+  function saveImageConfig() {
+    const config: ImageProviderConfig = {
+      provider: imgProvider,
+      baseURL: imgBaseUrl,
+      apiKey: imgApiKey,
+      model: imgModel,
+      defaultRatio: imgRatio,
+      defaultSizeLevel: imgSizeLevel,
+    };
+    settingsStore.update({ imageProviderConfig: config });
+  }
+
+  function handleImgInputChange() {
+    saveImageConfig();
+  }
+
+  async function handleImgTest() {
+    saveImageConfig();
+    imgTestStatus = 'testing';
+    const config: ImageProviderConfig = {
+      provider: imgProvider,
+      baseURL: imgBaseUrl,
+      apiKey: imgApiKey,
+      model: imgModel,
+      defaultRatio: imgRatio,
+      defaultSizeLevel: imgSizeLevel,
+    };
+    const success = await testImageConnection(config);
+    imgTestStatus = success ? 'success' : 'failed';
+    setTimeout(() => { imgTestStatus = 'idle'; }, 3000);
   }
 </script>
 
@@ -172,6 +248,93 @@
       {/if}
     </button>
   </div>
+
+  <!-- AIGC Image Generation Config -->
+  <h3>{$t('ai.imageConfig.title')}</h3>
+
+  <div class="setting-group">
+    <label class="setting-label">{$t('ai.imageConfig.provider')}</label>
+    <select class="setting-input" value={imgProvider} onchange={handleImgProviderChange}>
+      <option value="openai">{$t('ai.imageConfig.providerOpenai')}</option>
+      <option value="grok">{$t('ai.imageConfig.providerGrok')}</option>
+      <option value="custom">{$t('ai.imageConfig.providerCustom')}</option>
+    </select>
+  </div>
+
+  <div class="setting-group">
+    <label class="setting-label">{$t('ai.imageConfig.apiKey')}</label>
+    <input
+      type="password"
+      class="setting-input"
+      bind:value={imgApiKey}
+      oninput={handleImgInputChange}
+      placeholder={$t('ai.imageConfig.apiKeyPlaceholder')}
+    />
+  </div>
+
+  <div class="setting-group">
+    <label class="setting-label">{$t('ai.imageConfig.baseUrl')}</label>
+    <input
+      type="text"
+      class="setting-input"
+      bind:value={imgBaseUrl}
+      oninput={handleImgInputChange}
+      placeholder="https://api.openai.com/v1"
+    />
+  </div>
+
+  <div class="setting-group">
+    <label class="setting-label">{$t('ai.imageConfig.model')}</label>
+    <input
+      type="text"
+      class="setting-input"
+      bind:value={imgModel}
+      oninput={handleImgInputChange}
+      placeholder={$t('ai.imageConfig.modelPlaceholder')}
+    />
+  </div>
+
+  <div class="setting-group">
+    <label class="setting-label">{$t('ai.imageConfig.ratio')}</label>
+    <select class="setting-input" bind:value={imgRatio} onchange={handleImgInputChange}>
+      {#each RATIO_OPTIONS as r}
+        <option value={r}>{r}</option>
+      {/each}
+    </select>
+  </div>
+
+  <div class="setting-group">
+    <label class="setting-label">{$t('ai.imageConfig.sizeLevel')}</label>
+    <div class="setting-row">
+      <select class="setting-input" style="flex:1" bind:value={imgSizeLevel} onchange={handleImgInputChange}>
+        {#each SIZE_LEVEL_OPTIONS as s}
+          <option value={s}>{$t(`ai.imageConfig.size_${s}`)}</option>
+        {/each}
+      </select>
+      <span class="setting-value">{imgResolvedSize}</span>
+    </div>
+  </div>
+
+  <div class="setting-group">
+    <button
+      class="test-btn"
+      class:testing={imgTestStatus === 'testing'}
+      class:success={imgTestStatus === 'success'}
+      class:failed={imgTestStatus === 'failed'}
+      onclick={handleImgTest}
+      disabled={imgTestStatus === 'testing' || !imgApiKey}
+    >
+      {#if imgTestStatus === 'testing'}
+        {$t('ai.config.testing')}
+      {:else if imgTestStatus === 'success'}
+        {$t('ai.config.connected')}
+      {:else if imgTestStatus === 'failed'}
+        {$t('ai.config.failed')}
+      {:else}
+        {$t('ai.config.testConnection')}
+      {/if}
+    </button>
+  </div>
 </div>
 
 <style>
@@ -185,7 +348,11 @@
     font-size: var(--font-size-sm);
     font-weight: 600;
     color: var(--text-primary);
-    margin: 0.5rem 0 0;
+    margin: 0;
+  }
+
+  .ai-settings h3 + .setting-group ~ h3 {
+    margin-top: 0.5rem;
     padding-top: 0.75rem;
     border-top: 1px solid var(--border-light);
   }

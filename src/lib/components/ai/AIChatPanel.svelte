@@ -31,6 +31,33 @@
   let showCommands = $state(false);
   let messagesEl = $state<HTMLDivElement | undefined>(undefined);
 
+  // Resizable width
+  let panelWidth = $state(340);
+  let isResizing = $state(false);
+  const MIN_WIDTH = 280;
+  const MAX_WIDTH = 800;
+
+  function handleResizeStart(e: MouseEvent) {
+    e.preventDefault();
+    isResizing = true;
+    const startX = e.clientX;
+    const startWidth = panelWidth;
+
+    function onMouseMove(ev: MouseEvent) {
+      const delta = startX - ev.clientX; // moving left = wider
+      panelWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth + delta));
+    }
+
+    function onMouseUp() {
+      isResizing = false;
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    }
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }
+
   // Auto-scroll: track whether user is near bottom
   let userAtBottom = $state(true);
 
@@ -118,7 +145,9 @@
   }
 </script>
 
-<div class="ai-panel no-select">
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="ai-panel no-select" class:resizing={isResizing} style="width:{panelWidth}px">
+  <div class="resize-handle" onmousedown={handleResizeStart}></div>
   <div class="ai-header">
     <span class="ai-title">{$t('ai.title')}</span>
     <button class="ai-btn" onclick={clearChat} title={$t('ai.clearChat')}>
@@ -245,13 +274,34 @@
 
 <style>
   .ai-panel {
-    width: 340px;
+    position: relative;
     height: 100%;
     background: var(--bg-sidebar);
     border-left: 1px solid var(--border-light);
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    flex-shrink: 0;
+  }
+
+  .ai-panel.resizing {
+    user-select: none;
+  }
+
+  .resize-handle {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    cursor: col-resize;
+    z-index: 10;
+    transition: background var(--transition-fast);
+  }
+
+  .resize-handle:hover,
+  .ai-panel.resizing .resize-handle {
+    background: var(--accent-color);
   }
 
   .ai-header {

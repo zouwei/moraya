@@ -233,7 +233,7 @@ Each AI response has action buttons below it:
 - [x] **Phase 2** — AI Integration: Multi-provider LLM API, streaming, chat panel, AI commands
 - [x] **Phase 3** — MCP Ecosystem: MCP client (3 transports), server management
 - [x] **Phase 4** — Editor Enhancement: Source/Visual/Split modes, table toolbar, native menu, i18n, scroll sync
-- [ ] **Phase 5** — Polish & Ecosystem: advanced export (pandoc), plugin system, performance optimization
+- [ ] **Phase 5** — Publish Workflow: SEO assistant, AI image generation, multi-target publishing → [详细需求](docs/iterations/v0.2.0-publish-workflow.md)
 
 ## Recommended IDE Setup
 

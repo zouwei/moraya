@@ -1,5 +1,83 @@
 import type { ImageHostConfig, UploadResult } from './types';
 
+/**
+ * Generate a timestamped filename to avoid conflicts.
+ * e.g. "20260205-143052-photo.png"
+ */
+function timestampedName(originalName: string): string {
+  const now = new Date();
+  const ts = now.toISOString().replace(/[-:T]/g, '').slice(0, 15).replace(/(\d{8})(\d{6})/, '$1-$2');
+  const ext = originalName.includes('.') ? originalName.slice(originalName.lastIndexOf('.')) : '.png';
+  const base = originalName.includes('.')
+    ? originalName.slice(0, originalName.lastIndexOf('.')).replace(/[^a-zA-Z0-9_-]/g, '')
+    : 'image';
+  return `${ts}-${base || 'image'}${ext}`;
+}
+
+/**
+ * Parse owner and repo from a GitHub URL.
+ */
+function parseGitHubUrl(repoUrl: string): { owner: string; repo: string } {
+  const cleaned = repoUrl.replace(/\.git$/, '').replace(/\/$/, '');
+  const match = cleaned.match(/github\.com\/([^/]+)\/([^/]+)/);
+  if (!match) throw new Error(`Invalid GitHub URL: ${repoUrl}`);
+  return { owner: match[1], repo: match[2] };
+}
+
+async function uploadToGitHub(blob: Blob, config: ImageHostConfig): Promise<UploadResult> {
+  if (!config.githubRepoUrl || !config.githubToken) {
+    throw new Error('GitHub image hosting is not configured');
+  }
+
+  const { owner, repo } = parseGitHubUrl(config.githubRepoUrl);
+  const branch = config.githubBranch || 'main';
+  const dir = (config.githubDir || 'images/').replace(/\/$/, '');
+
+  // Generate timestamped filename
+  const fileName = timestampedName((blob as File).name || 'image.png');
+  const filePath = `${dir}/${fileName}`;
+
+  // Read blob as base64
+  const arrayBuffer = await blob.arrayBuffer();
+  const bytes = new Uint8Array(arrayBuffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  const base64Content = btoa(binary);
+
+  // Upload via GitHub Contents API
+  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`;
+  const res = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${config.githubToken}`,
+      Accept: 'application/vnd.github.v3+json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      message: `upload: ${fileName}`,
+      content: base64Content,
+      branch,
+    }),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new Error(`GitHub upload failed (${res.status}): ${errBody}`);
+  }
+
+  // Build access URL based on CDN mode
+  let imageUrl: string;
+  if (config.githubCdn === 'jsdelivr') {
+    imageUrl = `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${branch}/${filePath}`;
+  } else {
+    imageUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filePath}`;
+  }
+
+  return { url: imageUrl };
+}
+
 async function uploadToSmms(blob: Blob, config: ImageHostConfig): Promise<UploadResult> {
   const formData = new FormData();
   formData.append('smfile', blob, 'image.png');
@@ -104,5 +182,6 @@ export const providers: Record<
 > = {
   smms: uploadToSmms,
   imgur: uploadToImgur,
+  github: uploadToGitHub,
   custom: uploadToCustom,
 };

@@ -3,6 +3,7 @@
  */
 
 import { writable, get } from 'svelte/store';
+import { load } from '@tauri-apps/plugin-store';
 import { sendAIRequest, streamAIRequest } from './providers';
 import type {
   AIProviderConfig,
@@ -13,6 +14,16 @@ import type {
 } from './types';
 import { AI_COMMANDS as COMMANDS } from './types';
 import { t } from '$lib/i18n';
+
+const AI_STORE_FILE = 'ai-config.json';
+
+async function persistAIConfig(config: AIProviderConfig) {
+  try {
+    const store = await load(AI_STORE_FILE);
+    await store.set('providerConfig', config);
+    await store.save();
+  } catch { /* ignore */ }
+}
 
 // ── AI State Store ──
 
@@ -46,6 +57,7 @@ function createAIStore() {
         isConfigured: !!config.apiKey,
         error: null,
       }));
+      persistAIConfig(config);
     },
     setLoading(loading: boolean) {
       update(state => ({ ...state, isLoading: loading, error: null }));
@@ -263,4 +275,15 @@ export async function testAIConnection(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/** Load persisted AI config from disk. Call once at app startup. */
+export async function initAIStore() {
+  try {
+    const store = await load(AI_STORE_FILE);
+    const saved = await store.get<AIProviderConfig>('providerConfig');
+    if (saved) {
+      aiStore.setConfig(saved);
+    }
+  } catch { /* first launch */ }
 }

@@ -156,6 +156,8 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
         "Help",
         true,
         &[
+            &MenuItem::with_id(app, "help_version_info", "Version Info", true, None::<&str>)?,
+            &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, "help_changelog", "Changelog", true, None::<&str>)?,
             &MenuItem::with_id(app, "help_privacy", "Privacy Policy", true, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
