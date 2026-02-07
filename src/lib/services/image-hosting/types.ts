@@ -33,3 +33,44 @@ export const DEFAULT_IMAGE_HOST_CONFIG: ImageHostConfig = {
   githubToken: '',
   githubCdn: 'raw',
 };
+
+export interface ImageHostTarget {
+  id: string;
+  name: string;
+  provider: ImageHostProvider;
+  apiToken: string;
+  customEndpoint: string;
+  customHeaders: string;
+  autoUpload: boolean;
+  githubRepoUrl: string;
+  githubBranch: string;
+  githubDir: string;
+  githubToken: string;
+  githubCdn: GitHubCdnMode;
+}
+
+export function generateImageHostTargetId(): string {
+  return `imghost_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function createDefaultImageHostTarget(provider: ImageHostProvider): ImageHostTarget {
+  return {
+    id: generateImageHostTargetId(),
+    name: '',
+    provider,
+    apiToken: '',
+    customEndpoint: '',
+    customHeaders: '',
+    autoUpload: false,
+    githubRepoUrl: '',
+    githubBranch: 'main',
+    githubDir: 'images/',
+    githubToken: '',
+    githubCdn: 'raw',
+  };
+}
+
+export function targetToConfig(target: ImageHostTarget): ImageHostConfig {
+  const { id: _id, name: _name, ...config } = target;
+  return config;
+}

@@ -241,13 +241,23 @@
     "testUpload": "Test Upload",
     "testing": "Testing...",
     "success": "Upload successful!",
-    "failed": "Upload failed"
+    "failed": "Upload failed",
+    "addTarget": "Add Image Host",
+    "targetName": "Name",
+    "targetNamePlaceholder": "e.g., My Blog CDN",
+    "settingsEmpty": "No image hosting targets configured",
+    "settingsHint": "Add an image hosting service to enable auto-upload.",
+    "default": "Default",
+    "setDefault": "Set as Default"
   },
   "imageMenu": {
     "resize": "Resize",
     "upload": "Upload to Image Host",
     "editAlt": "Edit Description",
     "copyUrl": "Copy Image URL",
+    "copyImage": "Copy Image",
+    "openInBrowser": "Open Image in Browser",
+    "saveAs": "Save Image As...",
     "delete": "Delete Image",
     "originalSize": "Original Size"
   },

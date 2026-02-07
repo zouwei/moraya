@@ -728,8 +728,14 @@ ${tr('welcome.tip')}
     showPublishConfirm = false;
     const targets = settingsStore.getState().publishTargets.filter(t => targetIds.includes(t.id));
 
+    // Fallback title: SEO title → first markdown heading → file name
+    const fallbackTitle =
+      currentSEOData?.selectedTitle ||
+      content.match(/^#\s+(.+)$/m)?.[1]?.trim() ||
+      currentFileName.replace(/\.md$/i, '');
+
     const variables: Record<string, string> = {
-      title: currentSEOData?.selectedTitle || '',
+      title: fallbackTitle,
       date: new Date().toISOString().split('T')[0],
       tags: currentSEOData?.tags?.join(', ') || '',
       description: currentSEOData?.metaDescription || '',

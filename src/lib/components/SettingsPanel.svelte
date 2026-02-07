@@ -160,8 +160,8 @@
       <div class="content-body">
         {#if activeTab === 'general'}
           <div class="setting-group">
-            <label class="setting-label">{$t('settings.language.label')}</label>
-            <select class="setting-input" value={currentLocale} onchange={handleLocaleChange}>
+            <label class="setting-label" for="settings-locale">{$t('settings.language.label')}</label>
+            <select id="settings-locale" class="setting-input" value={currentLocale} onchange={handleLocaleChange}>
               {#each SUPPORTED_LOCALES as loc}
                 <option value={loc.code}>{loc.code === 'system' ? $t('settings.language.system') : loc.label}</option>
               {/each}
@@ -181,9 +181,10 @@
 
           {#if autoSave}
             <div class="setting-group">
-              <label class="setting-label">{$t('settings.autoSave.interval')}</label>
+              <label class="setting-label" for="settings-autosave-interval">{$t('settings.autoSave.interval')}</label>
               <div class="setting-row">
                 <input
+                  id="settings-autosave-interval"
                   type="range"
                   min="5"
                   max="120"
@@ -199,9 +200,10 @@
 
         {:else if activeTab === 'editor'}
           <div class="setting-group">
-            <label class="setting-label">{$t('settings.editor.lineWidth')}</label>
+            <label class="setting-label" for="settings-line-width">{$t('settings.editor.lineWidth')}</label>
             <div class="setting-row">
               <input
+                id="settings-line-width"
                 type="range"
                 min="600"
                 max="1200"
@@ -215,8 +217,8 @@
           </div>
 
           <div class="setting-group">
-            <label class="setting-label">{$t('settings.editor.tabSize')}</label>
-            <select class="setting-input" value={editorTabSize} onchange={handleTabSizeChange}>
+            <label class="setting-label" for="settings-tab-size">{$t('settings.editor.tabSize')}</label>
+            <select id="settings-tab-size" class="setting-input" value={editorTabSize} onchange={handleTabSizeChange}>
               <option value={2}>2</option>
               <option value={4}>4</option>
               <option value={8}>8</option>
@@ -240,8 +242,8 @@
             <div class="section-header">{$t('settings.appearance.themeSection')}</div>
 
             <div class="setting-group">
-              <label class="setting-label">{$t('settings.theme.label')}</label>
-              <select class="setting-input" value={colorTheme} onchange={handleColorThemeChange}>
+              <label class="setting-label" for="settings-color-theme">{$t('settings.theme.label')}</label>
+              <select id="settings-color-theme" class="setting-input" value={colorTheme} onchange={handleColorThemeChange}>
                 {#each builtinThemes as ct}
                   <option value={ct.id}>{ct.name}</option>
                 {/each}
@@ -261,8 +263,8 @@
 
             {#if useSeparateDarkTheme}
               <div class="setting-group">
-                <label class="setting-label">{$t('settings.appearance.darkTheme')}</label>
-                <select class="setting-input" value={darkColorTheme} onchange={handleDarkColorThemeChange}>
+                <label class="setting-label" for="settings-dark-theme">{$t('settings.appearance.darkTheme')}</label>
+                <select id="settings-dark-theme" class="setting-input" value={darkColorTheme} onchange={handleDarkColorThemeChange}>
                   {#each darkThemes as ct}
                     <option value={ct.id}>{ct.name}</option>
                   {/each}
@@ -276,8 +278,8 @@
             <div class="section-header">{$t('settings.appearance.darkModeSection')}</div>
 
             <div class="setting-group">
-              <label class="setting-label">{$t('settings.appearance.darkModeLabel')}</label>
-              <select class="setting-input" value={theme} onchange={handleThemeChange}>
+              <label class="setting-label" for="settings-dark-mode">{$t('settings.appearance.darkModeLabel')}</label>
+              <select id="settings-dark-mode" class="setting-input" value={theme} onchange={handleThemeChange}>
                 <option value="system">{$t('settings.theme.system')}</option>
                 <option value="light">{$t('settings.theme.light')}</option>
                 <option value="dark">{$t('settings.theme.dark')}</option>
@@ -290,9 +292,10 @@
             <div class="section-header">{$t('settings.appearance.fontSection')}</div>
 
             <div class="setting-group">
-              <label class="setting-label">{$t('settings.fontSize.label')}</label>
+              <label class="setting-label" for="settings-font-size">{$t('settings.fontSize.label')}</label>
               <div class="setting-row">
                 <input
+                  id="settings-font-size"
                   type="range"
                   min="12"
                   max="24"

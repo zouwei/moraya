@@ -22,11 +22,15 @@
   import { editorStore } from '../stores/editor-store';
   import { settingsStore } from '../stores/settings-store';
   import { readImageAsBlobUrl } from '../services/file-service';
-  import { uploadImage, blobUrlToBlob } from '../services/image-hosting';
+  import { uploadImage, fetchImageAsBlob, targetToConfig } from '../services/image-hosting';
   import type { ImageHostConfig } from '../services/image-hosting';
+  import { save as saveDialog } from '@tauri-apps/plugin-dialog';
+  import { invoke } from '@tauri-apps/api/core';
+  import { openUrl } from '@tauri-apps/plugin-opener';
   import TableToolbar from './TableToolbar.svelte';
   import ImageContextMenu from './ImageContextMenu.svelte';
   import ImageToolbar from './ImageToolbar.svelte';
+  import ImageAltEditor from './ImageAltEditor.svelte';
 
   const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico', 'tiff', 'tif', 'avif']);
 
@@ -52,6 +56,11 @@
   let imageMenuSrc = $state('');
   let imageMenuIsUploadable = $state(false);
   let contextMenuTargetPos = $state<number | null>(null);
+
+  // Image alt editor state
+  let showAltEditor = $state(false);
+  let altEditorPosition = $state({ top: 0, left: 0 });
+  let altEditorInitialValue = $state('');
 
   // Image click toolbar state
   let showImageToolbar = $state(false);
@@ -197,19 +206,18 @@
     }
   }
 
-  /** Try to upload a blob URL image and replace it in the editor */
-  async function uploadAndReplace(blobUrl: string, config: ImageHostConfig) {
+  /** Upload an image (any URL) and replace it in the editor */
+  async function uploadAndReplace(imageSrc: string, config: ImageHostConfig) {
     if (!editor) return;
     try {
-      const blob = await blobUrlToBlob(blobUrl);
+      const blob = await fetchImageAsBlob(imageSrc);
       const result = await uploadImage(blob, config);
 
-      // Find and replace the blob URL in the document
       editor.action((ctx) => {
         const view = ctx.get(editorViewCtx);
         const { doc, tr } = view.state;
         doc.descendants((node, pos) => {
-          if (node.type.name === 'image' && node.attrs.src === blobUrl) {
+          if (node.type.name === 'image' && node.attrs.src === imageSrc) {
             tr.setNodeMarkup(pos, undefined, { ...node.attrs, src: result.url });
           }
         });
@@ -236,9 +244,9 @@
         insertImageAtCursor(blobUrl);
 
         // Auto-upload if enabled
-        const config = settingsStore.getState().imageHostConfig;
-        if (config.autoUpload && config.apiToken) {
-          uploadAndReplace(blobUrl, config);
+        const target = settingsStore.getDefaultImageHostTarget();
+        if (target?.autoUpload) {
+          uploadAndReplace(blobUrl, targetToConfig(target));
         }
         return;
       }
@@ -250,11 +258,12 @@
     const target = event.target as HTMLElement;
     if (target.tagName !== 'IMG') return;
     event.preventDefault();
+    event.stopPropagation();
 
     const imgEl = target as HTMLImageElement;
     imageMenuSrc = imgEl.src;
     imageMenuPosition = { top: event.clientY, left: event.clientX };
-    imageMenuIsUploadable = imgEl.src.startsWith('blob:');
+    imageMenuIsUploadable = !!settingsStore.getDefaultImageHostTarget();
     showImageMenu = true;
 
     // Find the ProseMirror position for this image
@@ -294,8 +303,9 @@
 
   function handleImageUpload() {
     if (!editor || contextMenuTargetPos === null) return;
-    const config = settingsStore.getState().imageHostConfig;
-    uploadAndReplace(imageMenuSrc, config);
+    const target = settingsStore.getDefaultImageHostTarget();
+    if (!target) return;
+    uploadAndReplace(imageMenuSrc, targetToConfig(target));
   }
 
   function handleImageEditAlt() {
@@ -307,9 +317,23 @@
         const node = view.state.doc.nodeAt(pos);
         if (!node || node.type.name !== 'image') return;
 
-        const currentAlt = (node.attrs.alt as string) || '';
-        const newAlt = prompt('Image description:', currentAlt);
-        if (newAlt === null) return;
+        altEditorInitialValue = (node.attrs.alt as string) || '';
+        altEditorPosition = { ...imageMenuPosition };
+        showAltEditor = true;
+      });
+    } catch {
+      // Edit alt failed
+    }
+  }
+
+  function handleAltSave(newAlt: string) {
+    if (!editor || contextMenuTargetPos === null) return;
+    try {
+      editor.action((ctx) => {
+        const view = ctx.get(editorViewCtx);
+        const pos = contextMenuTargetPos!;
+        const node = view.state.doc.nodeAt(pos);
+        if (!node || node.type.name !== 'image') return;
 
         const tr = view.state.tr.setNodeMarkup(pos, undefined, {
           ...node.attrs,
@@ -318,8 +342,9 @@
         view.dispatch(tr);
       });
     } catch {
-      // Edit alt failed
+      // Save alt failed
     }
+    showAltEditor = false;
   }
 
   function handleImageCopyUrl() {
@@ -341,6 +366,93 @@
     } catch {
       // Delete failed
     }
+  }
+
+  async function handleImageCopy() {
+    try {
+      // Pass a Promise<Blob> to ClipboardItem so clipboard.write() is called
+      // synchronously within the user gesture context. WKWebView requires this —
+      // if we await fetchImageAsBlob first, the gesture expires and write() fails.
+      const pngPromise = fetchImageAsBlob(imageMenuSrc).then(async (blob) => {
+        if (blob.type === 'image/png') return blob;
+        // Convert non-PNG images to PNG via canvas
+        const img = new Image();
+        const objectUrl = URL.createObjectURL(blob);
+        return new Promise<Blob>((resolve, reject) => {
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+            const ctx = canvas.getContext('2d')!;
+            ctx.drawImage(img, 0, 0);
+            canvas.toBlob((b) => {
+              URL.revokeObjectURL(objectUrl);
+              if (b) resolve(b);
+              else reject(new Error('Canvas toBlob failed'));
+            }, 'image/png');
+          };
+          img.onerror = () => {
+            URL.revokeObjectURL(objectUrl);
+            reject(new Error('Image load failed'));
+          };
+          img.src = objectUrl;
+        });
+      });
+      await navigator.clipboard.write([
+        new ClipboardItem({ 'image/png': pngPromise }),
+      ]);
+    } catch {
+      await navigator.clipboard.writeText(imageMenuSrc);
+    }
+  }
+
+  function handleImageOpenInBrowser() {
+    if (imageMenuSrc && !imageMenuSrc.startsWith('blob:')) {
+      openUrl(imageMenuSrc);
+    }
+  }
+
+  async function handleImageSaveAs() {
+    try {
+      const blob = await fetchImageAsBlob(imageMenuSrc);
+      const ext = getImageExtension(imageMenuSrc, blob.type);
+      const path = await saveDialog({
+        defaultPath: `image.${ext}`,
+        filters: [{ name: 'Image', extensions: [ext] }],
+      });
+      if (!path || typeof path !== 'string') return;
+
+      const arrayBuffer = await blob.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+      let binary = '';
+      for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      const base64 = btoa(binary);
+      await invoke('write_file_binary', { path, base64Data: base64 });
+    } catch {
+      // Save failed
+    }
+  }
+
+  function getImageExtension(src: string, mimeType: string): string {
+    const urlMatch = src.match(/\.(\w+)(?:\?|$)/);
+    if (urlMatch) {
+      const ext = urlMatch[1].toLowerCase();
+      if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'avif'].includes(ext)) {
+        return ext;
+      }
+    }
+    const mimeMap: Record<string, string> = {
+      'image/png': 'png',
+      'image/jpeg': 'jpg',
+      'image/gif': 'gif',
+      'image/svg+xml': 'svg',
+      'image/webp': 'webp',
+      'image/bmp': 'bmp',
+      'image/avif': 'avif',
+    };
+    return mimeMap[mimeType] || 'png';
   }
 
   /** Handle left-click on images to show floating resize toolbar */
@@ -476,6 +588,12 @@
       }
     }, true);
 
+    // Suppress native WKWebView context menu (Reload / Inspect Element) for editor area.
+    // Must use capture phase to intercept before the native handler.
+    editorEl.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+    }, true);
+
     // Listen for selection changes to show/hide table toolbar
     if (proseMirrorEl) {
       proseMirrorEl.addEventListener('click', updateTableToolbar);
@@ -522,9 +640,9 @@
           }
 
           // Auto-upload if enabled
-          const config = settingsStore.getState().imageHostConfig;
-          if (config.autoUpload && config.apiToken) {
-            uploadAndReplace(blobUrl, config);
+          const target = settingsStore.getDefaultImageHostTarget();
+          if (target?.autoUpload) {
+            uploadAndReplace(blobUrl, targetToConfig(target));
           }
         } catch {
           // Failed to read image file
@@ -727,12 +845,25 @@
     position={imageMenuPosition}
     imageSrc={imageMenuSrc}
     isUploadable={imageMenuIsUploadable}
+    isRemoteUrl={!imageMenuSrc.startsWith('blob:')}
     onResize={handleImageResize}
     onUpload={handleImageUpload}
     onEditAlt={handleImageEditAlt}
+    onCopyImage={handleImageCopy}
     onCopyUrl={handleImageCopyUrl}
+    onOpenInBrowser={handleImageOpenInBrowser}
+    onSaveAs={handleImageSaveAs}
     onDelete={handleImageDelete}
     onClose={() => showImageMenu = false}
+  />
+{/if}
+
+{#if showAltEditor}
+  <ImageAltEditor
+    position={altEditorPosition}
+    initialValue={altEditorInitialValue}
+    onSave={handleAltSave}
+    onCancel={() => showAltEditor = false}
   />
 {/if}
 

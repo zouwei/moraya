@@ -26,7 +26,7 @@
   <div class="workflow-panel" onclick={(e) => e.stopPropagation()}>
     <div class="panel-header">
       <h3>{tr('workflow.title')}</h3>
-      <button class="close-btn" onclick={onClose}>
+      <button class="close-btn" onclick={onClose} aria-label="Close">
         <svg width="10" height="10" viewBox="0 0 10 10">
           <path fill="currentColor" d="M1 0L0 1l4 4-4 4 1 1 4-4 4 4 1-1-4-4 4-4-1-1-4 4z"/>
         </svg>

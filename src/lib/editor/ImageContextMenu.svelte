@@ -5,20 +5,28 @@
     position,
     imageSrc,
     isUploadable,
+    isRemoteUrl,
     onResize,
     onUpload,
     onEditAlt,
+    onCopyImage,
     onCopyUrl,
+    onOpenInBrowser,
+    onSaveAs,
     onDelete,
     onClose,
   }: {
     position: { top: number; left: number };
     imageSrc: string;
     isUploadable: boolean;
+    isRemoteUrl: boolean;
     onResize: (width: string) => void;
     onUpload: () => void;
     onEditAlt: () => void;
+    onCopyImage: () => void;
     onCopyUrl: () => void;
+    onOpenInBrowser: () => void;
+    onSaveAs: () => void;
     onDelete: () => void;
     onClose: () => void;
   } = $props();
@@ -43,7 +51,7 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="menu-backdrop" onclick={onClose}>
+<div class="menu-backdrop" onclick={onClose} oncontextmenu={(e) => { e.preventDefault(); onClose(); }}>
   <div
     class="context-menu"
     style="top: {position.top}px; left: {position.left}px"
@@ -67,6 +75,18 @@
       {/if}
     </div>
 
+    <div class="menu-divider"></div>
+
+    <button class="menu-item" onclick={() => handleAction(onCopyImage)}>
+      {tr('imageMenu.copyImage')}
+    </button>
+
+    <button class="menu-item" onclick={() => handleAction(onCopyUrl)}>
+      {tr('imageMenu.copyUrl')}
+    </button>
+
+    <div class="menu-divider"></div>
+
     {#if isUploadable}
       <button class="menu-item" onclick={() => handleAction(onUpload)}>
         {tr('imageMenu.upload')}
@@ -77,8 +97,16 @@
       {tr('imageMenu.editAlt')}
     </button>
 
-    <button class="menu-item" onclick={() => handleAction(onCopyUrl)}>
-      {tr('imageMenu.copyUrl')}
+    <div class="menu-divider"></div>
+
+    {#if isRemoteUrl}
+      <button class="menu-item" onclick={() => handleAction(onOpenInBrowser)}>
+        {tr('imageMenu.openInBrowser')}
+      </button>
+    {/if}
+
+    <button class="menu-item" onclick={() => handleAction(onSaveAs)}>
+      {tr('imageMenu.saveAs')}
     </button>
 
     <div class="menu-divider"></div>

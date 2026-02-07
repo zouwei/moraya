@@ -4,6 +4,7 @@
  * No git clone needed — lightweight HTTP-based approach.
  */
 
+import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import type { GitHubTarget, PublishResult } from './types';
 import { renderTemplate, resolveFileName, DEFAULT_FILE_NAME_PATTERN } from './types';
 
@@ -34,7 +35,7 @@ async function getFileSha(
   token: string,
 ): Promise<string | null> {
   const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}`;
-  const res = await fetch(url, {
+  const res = await tauriFetch(url, {
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: 'application/vnd.github.v3+json',
@@ -71,7 +72,7 @@ async function putFile(
     body.sha = sha;
   }
 
-  const res = await fetch(url, {
+  const res = await tauriFetch(url, {
     method: 'PUT',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -150,7 +151,7 @@ export async function testGitHubConnection(target: GitHubTarget): Promise<boolea
   try {
     const { owner, repo } = parseGitHubUrl(target.repoUrl);
     const url = `https://api.github.com/repos/${owner}/${repo}`;
-    const res = await fetch(url, {
+    const res = await tauriFetch(url, {
       headers: {
         Authorization: `Bearer ${target.token}`,
         Accept: 'application/vnd.github.v3+json',

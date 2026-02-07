@@ -145,8 +145,8 @@
   <h3>{$t('ai.config.title')}</h3>
 
   <div class="setting-group">
-    <label class="setting-label">{$t('ai.config.provider')}</label>
-    <select class="setting-input" value={provider} onchange={handleProviderChange}>
+    <label class="setting-label" for="ai-provider">{$t('ai.config.provider')}</label>
+    <select id="ai-provider" class="setting-input" value={provider} onchange={handleProviderChange}>
       <option value="claude">{$t('ai.providers.claude')}</option>
       <option value="openai">{$t('ai.providers.openai')}</option>
       <option value="gemini">{$t('ai.providers.gemini')}</option>
@@ -157,8 +157,9 @@
   </div>
 
   <div class="setting-group">
-    <label class="setting-label">{$t('ai.config.apiKey')}</label>
+    <label class="setting-label" for="ai-api-key">{$t('ai.config.apiKey')}</label>
     <input
+      id="ai-api-key"
       type="password"
       class="setting-input"
       bind:value={apiKey}
@@ -169,8 +170,9 @@
 
   {#if provider === 'custom' || provider === 'ollama'}
     <div class="setting-group">
-      <label class="setting-label">{$t('ai.config.baseUrl')}</label>
+      <label class="setting-label" for="ai-base-url">{$t('ai.config.baseUrl')}</label>
       <input
+        id="ai-base-url"
         type="text"
         class="setting-input"
         bind:value={baseUrl}
@@ -181,15 +183,16 @@
   {/if}
 
   <div class="setting-group">
-    <label class="setting-label">{$t('ai.config.model')}</label>
+    <label class="setting-label" for="ai-model">{$t('ai.config.model')}</label>
     {#if getModels().length > 0}
-      <select class="setting-input" bind:value={model} onchange={handleInputChange}>
+      <select id="ai-model" class="setting-input" bind:value={model} onchange={handleInputChange}>
         {#each getModels() as m}
           <option value={m}>{m}</option>
         {/each}
       </select>
     {:else}
       <input
+        id="ai-model"
         type="text"
         class="setting-input"
         bind:value={model}
@@ -200,8 +203,9 @@
   </div>
 
   <div class="setting-group">
-    <label class="setting-label">{$t('ai.config.maxTokens')}</label>
+    <label class="setting-label" for="ai-max-tokens">{$t('ai.config.maxTokens')}</label>
     <input
+      id="ai-max-tokens"
       type="number"
       class="setting-input"
       bind:value={maxTokens}
@@ -213,9 +217,10 @@
   </div>
 
   <div class="setting-group">
-    <label class="setting-label">{$t('ai.config.temperature')}</label>
+    <label class="setting-label" for="ai-temperature">{$t('ai.config.temperature')}</label>
     <div class="setting-row">
       <input
+        id="ai-temperature"
         type="range"
         class="setting-range"
         bind:value={temperature}
@@ -253,8 +258,8 @@
   <h3>{$t('ai.imageConfig.title')}</h3>
 
   <div class="setting-group">
-    <label class="setting-label">{$t('ai.imageConfig.provider')}</label>
-    <select class="setting-input" value={imgProvider} onchange={handleImgProviderChange}>
+    <label class="setting-label" for="img-provider">{$t('ai.imageConfig.provider')}</label>
+    <select id="img-provider" class="setting-input" value={imgProvider} onchange={handleImgProviderChange}>
       <option value="openai">{$t('ai.imageConfig.providerOpenai')}</option>
       <option value="grok">{$t('ai.imageConfig.providerGrok')}</option>
       <option value="custom">{$t('ai.imageConfig.providerCustom')}</option>
@@ -262,8 +267,9 @@
   </div>
 
   <div class="setting-group">
-    <label class="setting-label">{$t('ai.imageConfig.apiKey')}</label>
+    <label class="setting-label" for="img-api-key">{$t('ai.imageConfig.apiKey')}</label>
     <input
+      id="img-api-key"
       type="password"
       class="setting-input"
       bind:value={imgApiKey}
@@ -273,8 +279,9 @@
   </div>
 
   <div class="setting-group">
-    <label class="setting-label">{$t('ai.imageConfig.baseUrl')}</label>
+    <label class="setting-label" for="img-base-url">{$t('ai.imageConfig.baseUrl')}</label>
     <input
+      id="img-base-url"
       type="text"
       class="setting-input"
       bind:value={imgBaseUrl}
@@ -284,8 +291,9 @@
   </div>
 
   <div class="setting-group">
-    <label class="setting-label">{$t('ai.imageConfig.model')}</label>
+    <label class="setting-label" for="img-model">{$t('ai.imageConfig.model')}</label>
     <input
+      id="img-model"
       type="text"
       class="setting-input"
       bind:value={imgModel}
@@ -295,8 +303,8 @@
   </div>
 
   <div class="setting-group">
-    <label class="setting-label">{$t('ai.imageConfig.ratio')}</label>
-    <select class="setting-input" bind:value={imgRatio} onchange={handleImgInputChange}>
+    <label class="setting-label" for="img-ratio">{$t('ai.imageConfig.ratio')}</label>
+    <select id="img-ratio" class="setting-input" bind:value={imgRatio} onchange={handleImgInputChange}>
       {#each RATIO_OPTIONS as r}
         <option value={r}>{r}</option>
       {/each}
@@ -304,9 +312,9 @@
   </div>
 
   <div class="setting-group">
-    <label class="setting-label">{$t('ai.imageConfig.sizeLevel')}</label>
+    <label class="setting-label" for="img-size-level">{$t('ai.imageConfig.sizeLevel')}</label>
     <div class="setting-row">
-      <select class="setting-input" style="flex:1" bind:value={imgSizeLevel} onchange={handleImgInputChange}>
+      <select id="img-size-level" class="setting-input" style="flex:1" bind:value={imgSizeLevel} onchange={handleImgInputChange}>
         {#each SIZE_LEVEL_OPTIONS as s}
           <option value={s}>{$t(`ai.imageConfig.size_${s}`)}</option>
         {/each}

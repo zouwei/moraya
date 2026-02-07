@@ -1,3 +1,4 @@
+import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import type { ImageHostConfig, UploadResult } from './types';
 
 /**
@@ -48,7 +49,7 @@ async function uploadToGitHub(blob: Blob, config: ImageHostConfig): Promise<Uplo
 
   // Upload via GitHub Contents API
   const url = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`;
-  const res = await fetch(url, {
+  const res = await tauriFetch(url, {
     method: 'PUT',
     headers: {
       Authorization: `Bearer ${config.githubToken}`,
@@ -82,7 +83,7 @@ async function uploadToSmms(blob: Blob, config: ImageHostConfig): Promise<Upload
   const formData = new FormData();
   formData.append('smfile', blob, 'image.png');
 
-  const res = await fetch('https://sm.ms/api/v2/upload', {
+  const res = await tauriFetch('https://sm.ms/api/v2/upload', {
     method: 'POST',
     headers: {
       Authorization: config.apiToken,
@@ -106,7 +107,7 @@ async function uploadToImgur(blob: Blob, config: ImageHostConfig): Promise<Uploa
   const formData = new FormData();
   formData.append('image', blob);
 
-  const res = await fetch('https://api.imgur.com/3/image', {
+  const res = await tauriFetch('https://api.imgur.com/3/image', {
     method: 'POST',
     headers: {
       Authorization: `Client-ID ${config.apiToken}`,
@@ -148,7 +149,7 @@ async function uploadToCustom(blob: Blob, config: ImageHostConfig): Promise<Uplo
     }
   }
 
-  const res = await fetch(config.customEndpoint, {
+  const res = await tauriFetch(config.customEndpoint, {
     method: 'POST',
     headers,
     body: formData,

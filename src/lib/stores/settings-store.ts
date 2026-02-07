@@ -2,7 +2,7 @@ import { writable, get } from 'svelte/store';
 import { load } from '@tauri-apps/plugin-store';
 import { setLocale, detectSystemLocale, type SupportedLocale, type LocaleSelection } from '$lib/i18n';
 import { getThemeById } from '$lib/styles/themes';
-import { type ImageHostConfig, DEFAULT_IMAGE_HOST_CONFIG } from '$lib/services/image-hosting';
+import { type ImageHostConfig, type ImageHostTarget, DEFAULT_IMAGE_HOST_CONFIG, generateImageHostTargetId } from '$lib/services/image-hosting';
 import { type ImageProviderConfig, DEFAULT_IMAGE_PROVIDER_CONFIG } from '$lib/services/ai/types';
 import type { PublishTarget } from '$lib/services/publish/types';
 
@@ -27,6 +27,8 @@ interface Settings {
   editorTabSize: number;
   showLineNumbers: boolean;
   imageHostConfig: ImageHostConfig;
+  imageHostTargets: ImageHostTarget[];
+  defaultImageHostId: string;
   imageProviderConfig: ImageProviderConfig;
   publishTargets: PublishTarget[];
   lastUpdateCheckDate: string | null;  // "YYYY-MM-DD" format
@@ -49,6 +51,8 @@ const DEFAULT_SETTINGS: Settings = {
   editorTabSize: 4,
   showLineNumbers: false,
   imageHostConfig: { ...DEFAULT_IMAGE_HOST_CONFIG },
+  imageHostTargets: [],
+  defaultImageHostId: '',
   imageProviderConfig: { ...DEFAULT_IMAGE_PROVIDER_CONFIG },
   publishTargets: [],
   lastUpdateCheckDate: null,
@@ -189,6 +193,10 @@ function createSettingsStore() {
     getState() {
       return get({ subscribe });
     },
+    getDefaultImageHostTarget(): ImageHostTarget | null {
+      const state = get({ subscribe });
+      return state.imageHostTargets.find(t => t.id === state.defaultImageHostId) || null;
+    },
     reset() {
       set(DEFAULT_SETTINGS);
     },
@@ -205,6 +213,35 @@ export async function initSettingsStore() {
     if (saved) {
       // Merge with defaults to handle new fields added in updates
       settingsStore.update(saved);
+
+      // Migration: single imageHostConfig → imageHostTargets array
+      const current = settingsStore.getState();
+      if ((!current.imageHostTargets || current.imageHostTargets.length === 0) && current.imageHostConfig) {
+        const old = current.imageHostConfig;
+        const hasConfig = old.apiToken || old.githubRepoUrl || old.customEndpoint;
+        if (hasConfig) {
+          const PROVIDER_NAMES: Record<string, string> = { smms: 'SM.MS', imgur: 'Imgur', github: 'GitHub', custom: 'Custom API' };
+          const migratedTarget: ImageHostTarget = {
+            id: generateImageHostTargetId(),
+            name: PROVIDER_NAMES[old.provider] || old.provider,
+            provider: old.provider,
+            apiToken: old.apiToken,
+            customEndpoint: old.customEndpoint,
+            customHeaders: old.customHeaders,
+            autoUpload: old.autoUpload,
+            githubRepoUrl: old.githubRepoUrl,
+            githubBranch: old.githubBranch,
+            githubDir: old.githubDir,
+            githubToken: old.githubToken,
+            githubCdn: old.githubCdn,
+          };
+          settingsStore.update({
+            imageHostTargets: [migratedTarget],
+            defaultImageHostId: migratedTarget.id,
+          });
+        }
+      }
+
       const state = settingsStore.getState();
       applyTheme(state.theme);
       applyColorTheme(state);

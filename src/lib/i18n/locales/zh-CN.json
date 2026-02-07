@@ -241,13 +241,23 @@
     "testUpload": "测试上传",
     "testing": "测试中...",
     "success": "上传成功！",
-    "failed": "上传失败"
+    "failed": "上传失败",
+    "addTarget": "添加图床",
+    "targetName": "名称",
+    "targetNamePlaceholder": "例如：我的博客图床",
+    "settingsEmpty": "未配置图床",
+    "settingsHint": "添加图床服务以启用图片自动上传。",
+    "default": "默认",
+    "setDefault": "设为默认"
   },
   "imageMenu": {
     "resize": "调整大小",
     "upload": "上传到图床",
     "editAlt": "编辑描述",
     "copyUrl": "复制图片地址",
+    "copyImage": "复制图片",
+    "openInBrowser": "在浏览器中打开图片",
+    "saveAs": "图片另存为...",
     "delete": "删除图片",
     "originalSize": "原始大小"
   },

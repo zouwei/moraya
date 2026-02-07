@@ -18,6 +18,7 @@
   let editingTarget = $state<PublishTarget | null>(null);
   let showAddMenu = $state(false);
   let testStatus = $state<Record<string, 'idle' | 'testing' | 'success' | 'failed'>>({});
+  let headersText = $state('');
 
   settingsStore.subscribe(state => {
     targets = state.publishTargets || [];
@@ -29,30 +30,54 @@
   }
 
   function addCustomAPITarget() {
-    editingTarget = createDefaultCustomAPITarget();
+    const target = createDefaultCustomAPITarget();
+    editingTarget = target;
+    headersText = JSON.stringify(target.headers, null, 2);
     showAddMenu = false;
   }
 
   function editTarget(target: PublishTarget) {
-    editingTarget = JSON.parse(JSON.stringify(target));
+    const cloned = JSON.parse(JSON.stringify(target));
+    editingTarget = cloned;
+    if (cloned.type === 'custom-api') {
+      headersText = JSON.stringify((cloned as CustomAPITarget).headers, null, 2);
+    }
   }
 
   function deleteTarget(id: string) {
     const updated = targets.filter(t => t.id !== id);
-    settingsStore.update({ publishTargets: updated });
+    settingsStore.update({ publishTargets: JSON.parse(JSON.stringify(updated)) });
   }
 
   function saveTarget() {
     if (!editingTarget) return;
-    const existing = targets.findIndex(t => t.id === editingTarget!.id);
+    // Sanitize macOS smart/curly quotes for custom-api targets
+    if (editingTarget.type === 'custom-api') {
+      const api = editingTarget as CustomAPITarget;
+      try {
+        const sanitized = headersText
+          .replace(/[\u201C\u201D]/g, '"')
+          .replace(/[\u2018\u2019]/g, "'");
+        api.headers = JSON.parse(sanitized);
+      } catch {
+        // Keep existing headers if JSON is invalid
+      }
+      api.bodyTemplate = api.bodyTemplate
+        .replace(/[\u201C\u201D]/g, '"')
+        .replace(/[\u2018\u2019]/g, "'");
+    }
+    // Deep clone to plain object to avoid Svelte 5 $state proxy in store
+    const targetToSave: PublishTarget = JSON.parse(JSON.stringify(editingTarget));
+    const existing = targets.findIndex(t => t.id === targetToSave.id);
     let updated: PublishTarget[];
     if (existing >= 0) {
       updated = [...targets];
-      updated[existing] = editingTarget;
+      updated[existing] = targetToSave;
     } else {
-      updated = [...targets, editingTarget];
+      updated = [...targets, targetToSave];
     }
-    settingsStore.update({ publishTargets: updated });
+    // Deep clone entire array to strip Svelte 5 $state proxies before passing to store
+    settingsStore.update({ publishTargets: JSON.parse(JSON.stringify(updated)) });
     editingTarget = null;
   }
 
@@ -87,14 +112,6 @@
     }
   }
 
-  function handleHeadersInput(event: Event) {
-    if (!editingTarget || editingTarget.type !== 'custom-api') return;
-    try {
-      (editingTarget as CustomAPITarget).headers = JSON.parse((event.target as HTMLTextAreaElement).value);
-    } catch {
-      // ignore invalid JSON while typing
-    }
-  }
 
   function handleFileNamePresetChange(event: Event) {
     if (!editingTarget) return;
@@ -125,8 +142,9 @@
       </div>
 
       <div class="setting-group">
-        <label class="setting-label">{$t('publish.targetName')}</label>
+        <label class="setting-label" for="pub-target-name">{$t('publish.targetName')}</label>
         <input
+          id="pub-target-name"
           type="text"
           class="setting-input"
           bind:value={editingTarget.name}
@@ -137,8 +155,9 @@
       {#if editingTarget.type === 'github'}
         {@const gh = editingTarget as GitHubTarget}
         <div class="setting-group">
-          <label class="setting-label">{$t('publish.repoUrl')}</label>
+          <label class="setting-label" for="pub-repo-url">{$t('publish.repoUrl')}</label>
           <input
+            id="pub-repo-url"
             type="text"
             class="setting-input"
             bind:value={gh.repoUrl}
@@ -147,13 +166,14 @@
         </div>
 
         <div class="setting-group">
-          <label class="setting-label">{$t('publish.branch')}</label>
-          <input type="text" class="setting-input" bind:value={gh.branch} />
+          <label class="setting-label" for="pub-branch">{$t('publish.branch')}</label>
+          <input id="pub-branch" type="text" class="setting-input" bind:value={gh.branch} />
         </div>
 
         <div class="setting-group">
-          <label class="setting-label">{$t('publish.articlesDir')}</label>
+          <label class="setting-label" for="pub-articles-dir">{$t('publish.articlesDir')}</label>
           <input
+            id="pub-articles-dir"
             type="text"
             class="setting-input"
             bind:value={gh.articlesDir}
@@ -162,8 +182,9 @@
         </div>
 
         <div class="setting-group">
-          <label class="setting-label">{$t('publish.imagesDir')}</label>
+          <label class="setting-label" for="pub-images-dir">{$t('publish.imagesDir')}</label>
           <input
+            id="pub-images-dir"
             type="text"
             class="setting-input"
             bind:value={gh.imagesDir}
@@ -172,8 +193,9 @@
         </div>
 
         <div class="setting-group">
-          <label class="setting-label">{$t('publish.token')}</label>
+          <label class="setting-label" for="pub-token">{$t('publish.token')}</label>
           <input
+            id="pub-token"
             type="password"
             class="setting-input"
             bind:value={gh.token}
@@ -182,8 +204,8 @@
         </div>
 
         <div class="setting-group">
-          <label class="setting-label">{$t('publish.templatePresets')}</label>
-          <select class="setting-input" value={gh.frontMatterPreset || 'hugo'} onchange={handlePresetChange}>
+          <label class="setting-label" for="pub-template-preset">{$t('publish.templatePresets')}</label>
+          <select id="pub-template-preset" class="setting-input" value={gh.frontMatterPreset || 'hugo'} onchange={handlePresetChange}>
             <option value="hugo">{$t('publish.presetHugo')}</option>
             <option value="hexo">{$t('publish.presetHexo')}</option>
             <option value="astro">{$t('publish.presetAstro')}</option>
@@ -192,18 +214,21 @@
         </div>
 
         <div class="setting-group">
-          <label class="setting-label">{$t('publish.frontMatterTemplate')}</label>
+          <label class="setting-label" for="pub-front-matter">{$t('publish.frontMatterTemplate')}</label>
           <textarea
+            id="pub-front-matter"
             class="setting-textarea"
             bind:value={gh.frontMatterTemplate}
+            spellcheck="false"
             rows="8"
           ></textarea>
         </div>
       {:else}
         {@const api = editingTarget as CustomAPITarget}
         <div class="setting-group">
-          <label class="setting-label">{$t('publish.endpoint')}</label>
+          <label class="setting-label" for="pub-endpoint">{$t('publish.endpoint')}</label>
           <input
+            id="pub-endpoint"
             type="text"
             class="setting-input"
             bind:value={api.endpoint}
@@ -212,28 +237,31 @@
         </div>
 
         <div class="setting-group">
-          <label class="setting-label">{$t('publish.method')}</label>
-          <select class="setting-input" bind:value={api.method}>
+          <label class="setting-label" for="pub-method">{$t('publish.method')}</label>
+          <select id="pub-method" class="setting-input" bind:value={api.method}>
             <option value="POST">POST</option>
             <option value="PUT">PUT</option>
           </select>
         </div>
 
         <div class="setting-group">
-          <label class="setting-label">{$t('publish.headers')}</label>
+          <label class="setting-label" for="pub-headers">{$t('publish.headers')}</label>
           <textarea
+            id="pub-headers"
             class="setting-textarea"
-            value={JSON.stringify(api.headers, null, 2)}
-            oninput={handleHeadersInput}
+            bind:value={headersText}
+            spellcheck="false"
             rows="4"
           ></textarea>
         </div>
 
         <div class="setting-group">
-          <label class="setting-label">{$t('publish.bodyTemplate')}</label>
+          <label class="setting-label" for="pub-body-template">{$t('publish.bodyTemplate')}</label>
           <textarea
+            id="pub-body-template"
             class="setting-textarea"
             bind:value={api.bodyTemplate}
+            spellcheck="false"
             rows="8"
           ></textarea>
         </div>
@@ -241,7 +269,7 @@
 
       <!-- File naming pattern (shared for all target types) -->
       <div class="setting-group">
-        <label class="setting-label">{$t('publish.fileNamePattern')}</label>
+        <label class="setting-label" for="pub-filename-input">{$t('publish.fileNamePattern')}</label>
         <div class="filename-row">
           <select class="setting-input filename-preset" onchange={handleFileNamePresetChange}>
             <option value="dateSlug" selected={editingTarget.fileNamePattern === FILE_NAME_PRESETS.dateSlug}>{$t('publish.presetDateSlug')}</option>
@@ -250,6 +278,7 @@
             <option value="yearMonth" selected={editingTarget.fileNamePattern === FILE_NAME_PRESETS.yearMonth}>{$t('publish.presetYearMonth')}</option>
           </select>
           <input
+            id="pub-filename-input"
             type="text"
             class="setting-input filename-input"
             bind:value={editingTarget.fileNamePattern}

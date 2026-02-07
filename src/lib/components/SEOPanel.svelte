@@ -86,7 +86,7 @@
 <div class="seo-panel">
   <div class="panel-header">
     <h3>{tr('seo.title')}</h3>
-    <button class="close-btn" onclick={onClose}>
+    <button class="close-btn" onclick={onClose} aria-label="Close">
       <svg width="12" height="12" viewBox="0 0 10 10">
         <path fill="currentColor" d="M1 0L0 1l4 4-4 4 1 1 4-4 4 4 1-1-4-4 4-4-1-1-4 4z"/>
       </svg>
@@ -107,7 +107,7 @@
     {:else if seoData}
       <!-- Titles -->
       <div class="seo-section">
-        <label class="section-label">{tr('seo.titles')}</label>
+        <label class="section-label" for="seo-custom-title">{tr('seo.titles')}</label>
         <div class="title-options">
           {#each seoData.titles as title, i}
             <label class="title-option">
@@ -121,6 +121,7 @@
             </label>
           {/each}
           <input
+            id="seo-custom-title"
             type="text"
             class="custom-title-input"
             value={seoData.selectedTitle}
@@ -132,11 +133,12 @@
 
       <!-- Excerpt -->
       <div class="seo-section">
-        <label class="section-label">
+        <label class="section-label" for="seo-excerpt">
           {tr('seo.excerpt')}
           <span class="char-count">{seoData.excerpt.length}/120</span>
         </label>
         <textarea
+          id="seo-excerpt"
           class="seo-textarea"
           bind:value={seoData.excerpt}
           rows="2"
@@ -146,7 +148,7 @@
 
       <!-- Tags -->
       <div class="seo-section">
-        <label class="section-label">{tr('seo.tags')}</label>
+        <label class="section-label" for="seo-tag-input">{tr('seo.tags')}</label>
         <div class="tags-container">
           {#each seoData.tags as tag}
             <span class="tag-chip">
@@ -155,6 +157,7 @@
             </span>
           {/each}
           <input
+            id="seo-tag-input"
             type="text"
             class="tag-input"
             placeholder={tr('seo.addTag')}
@@ -165,17 +168,18 @@
 
       <!-- Slug -->
       <div class="seo-section">
-        <label class="section-label">{tr('seo.slug')}</label>
-        <input type="text" class="seo-input" bind:value={seoData.slug} />
+        <label class="section-label" for="seo-slug">{tr('seo.slug')}</label>
+        <input id="seo-slug" type="text" class="seo-input" bind:value={seoData.slug} />
       </div>
 
       <!-- Meta Description -->
       <div class="seo-section">
-        <label class="section-label">
+        <label class="section-label" for="seo-meta-desc">
           {tr('seo.metaDescription')}
           <span class="char-count">{seoData.metaDescription.length}/160</span>
         </label>
         <textarea
+          id="seo-meta-desc"
           class="seo-textarea"
           bind:value={seoData.metaDescription}
           rows="2"

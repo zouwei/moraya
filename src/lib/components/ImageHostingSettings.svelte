@@ -1,38 +1,23 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
   import { settingsStore } from '$lib/stores/settings-store';
-  import type { ImageHostProvider, ImageHostConfig, GitHubCdnMode } from '$lib/services/image-hosting';
-  import { uploadImage } from '$lib/services/image-hosting';
+  import type { ImageHostTarget, ImageHostProvider, ImageHostConfig, GitHubCdnMode } from '$lib/services/image-hosting';
+  import { createDefaultImageHostTarget, targetToConfig, uploadImage } from '$lib/services/image-hosting';
 
   const tr = $t;
 
-  let provider = $state<ImageHostProvider>('custom');
-  let apiToken = $state('');
-  let customEndpoint = $state('');
-  let customHeaders = $state('');
-  let autoUpload = $state(false);
-  let githubRepoUrl = $state('');
-  let githubBranch = $state('main');
-  let githubDir = $state('images/');
-  let githubToken = $state('');
-  let githubCdn = $state<GitHubCdnMode>('raw');
-  let testStatus = $state<'idle' | 'testing' | 'success' | 'failed'>('idle');
+  let targets = $state<ImageHostTarget[]>([]);
+  let defaultId = $state('');
+  let editingTarget = $state<ImageHostTarget | null>(null);
+  let showAddMenu = $state(false);
+  let testStatus = $state<Record<string, 'idle' | 'testing' | 'success' | 'failed'>>({});
 
-  // Publish targets for quick import
+  // Publish targets for quick import (GitHub only)
   let publishTargets = $state<Array<{ type: string; name: string; repoUrl?: string; branch?: string; token?: string }>>([]);
 
   settingsStore.subscribe(state => {
-    provider = state.imageHostConfig.provider;
-    apiToken = state.imageHostConfig.apiToken;
-    customEndpoint = state.imageHostConfig.customEndpoint;
-    customHeaders = state.imageHostConfig.customHeaders;
-    autoUpload = state.imageHostConfig.autoUpload;
-    githubRepoUrl = state.imageHostConfig.githubRepoUrl;
-    githubBranch = state.imageHostConfig.githubBranch;
-    githubDir = state.imageHostConfig.githubDir;
-    githubToken = state.imageHostConfig.githubToken;
-    githubCdn = state.imageHostConfig.githubCdn;
-    // Collect GitHub publish targets for import
+    targets = state.imageHostTargets || [];
+    defaultId = state.defaultImageHostId || '';
     publishTargets = (state.publishTargets || [])
       .filter((t: { type: string }) => t.type === 'github')
       .map((t: { type: string; name: string; repoUrl?: string; branch?: string; token?: string }) => ({
@@ -44,83 +29,72 @@
       }));
   });
 
-  function saveConfig() {
-    const config: ImageHostConfig = {
-      provider,
-      apiToken,
-      customEndpoint,
-      customHeaders,
-      autoUpload,
-      githubRepoUrl,
-      githubBranch,
-      githubDir,
-      githubToken,
-      githubCdn,
-    };
-    settingsStore.update({ imageHostConfig: config });
+  const PROVIDER_ICONS: Record<ImageHostProvider, string> = {
+    smms: '🟠',
+    imgur: '🟢',
+    github: '🔵',
+    custom: '🟣',
+  };
+
+  function addTarget(provider: ImageHostProvider) {
+    editingTarget = createDefaultImageHostTarget(provider);
+    showAddMenu = false;
   }
 
-  function handleProviderChange(event: Event) {
-    provider = (event.target as HTMLSelectElement).value as ImageHostProvider;
-    saveConfig();
+  function editTarget(target: ImageHostTarget) {
+    editingTarget = JSON.parse(JSON.stringify(target));
   }
 
-  function handleTokenChange(event: Event) {
-    apiToken = (event.target as HTMLInputElement).value;
-    saveConfig();
+  function deleteTarget(id: string) {
+    const updated = targets.filter(t => t.id !== id);
+    // Deep clone to strip Svelte 5 $state proxies
+    const patch: Record<string, unknown> = { imageHostTargets: JSON.parse(JSON.stringify(updated)) };
+    // If deleting the default, auto-set first remaining as default
+    if (id === defaultId) {
+      patch.defaultImageHostId = updated.length > 0 ? updated[0].id : '';
+    }
+    settingsStore.update(patch);
   }
 
-  function handleEndpointChange(event: Event) {
-    customEndpoint = (event.target as HTMLInputElement).value;
-    saveConfig();
+  function saveTarget() {
+    if (!editingTarget) return;
+    const existing = targets.findIndex(t => t.id === editingTarget!.id);
+    let updated: ImageHostTarget[];
+    if (existing >= 0) {
+      updated = [...targets];
+      updated[existing] = editingTarget;
+    } else {
+      updated = [...targets, editingTarget];
+    }
+    // Deep clone entire array to strip Svelte 5 $state proxies before passing to store
+    const patch: Record<string, unknown> = { imageHostTargets: JSON.parse(JSON.stringify(updated)) };
+    // Auto-set as default if it's the first target
+    if (!defaultId && updated.length > 0) {
+      patch.defaultImageHostId = editingTarget.id;
+    }
+    settingsStore.update(patch);
+    editingTarget = null;
   }
 
-  function handleHeadersChange(event: Event) {
-    customHeaders = (event.target as HTMLTextAreaElement).value;
-    saveConfig();
+  function cancelEdit() {
+    editingTarget = null;
   }
 
-  function handleAutoUploadChange(event: Event) {
-    autoUpload = (event.target as HTMLInputElement).checked;
-    saveConfig();
-  }
-
-  function handleGithubRepoUrlChange(event: Event) {
-    githubRepoUrl = (event.target as HTMLInputElement).value;
-    saveConfig();
-  }
-
-  function handleGithubBranchChange(event: Event) {
-    githubBranch = (event.target as HTMLInputElement).value;
-    saveConfig();
-  }
-
-  function handleGithubDirChange(event: Event) {
-    githubDir = (event.target as HTMLInputElement).value;
-    saveConfig();
-  }
-
-  function handleGithubTokenChange(event: Event) {
-    githubToken = (event.target as HTMLInputElement).value;
-    saveConfig();
-  }
-
-  function handleGithubCdnChange(event: Event) {
-    githubCdn = (event.target as HTMLSelectElement).value as GitHubCdnMode;
-    saveConfig();
+  function setDefault(id: string) {
+    settingsStore.update({ defaultImageHostId: id });
   }
 
   function importFromPublishTarget(target: { repoUrl?: string; branch?: string; token?: string }) {
-    if (target.repoUrl) githubRepoUrl = target.repoUrl;
-    if (target.branch) githubBranch = target.branch;
-    if (target.token) githubToken = target.token;
-    saveConfig();
+    if (!editingTarget) return;
+    if (target.repoUrl) editingTarget.githubRepoUrl = target.repoUrl;
+    if (target.branch) editingTarget.githubBranch = target.branch;
+    if (target.token) editingTarget.githubToken = target.token;
   }
 
-  async function handleTestUpload() {
-    testStatus = 'testing';
+  async function handleTestUpload(target: ImageHostTarget) {
+    testStatus[target.id] = 'testing';
+    testStatus = { ...testStatus };
     try {
-      // Create a tiny 1x1 red pixel PNG
       const canvas = document.createElement('canvas');
       canvas.width = 1;
       canvas.height = 1;
@@ -130,200 +104,475 @@
       const blob = await new Promise<Blob>((resolve) =>
         canvas.toBlob((b) => resolve(b!), 'image/png')
       );
-
-      const config: ImageHostConfig = {
-        provider,
-        apiToken,
-        customEndpoint,
-        customHeaders,
-        autoUpload,
-        githubRepoUrl,
-        githubBranch,
-        githubDir,
-        githubToken,
-        githubCdn,
-      };
-      await uploadImage(blob, config);
-      testStatus = 'success';
+      await uploadImage(blob, targetToConfig(target));
+      testStatus[target.id] = 'success';
     } catch {
-      testStatus = 'failed';
+      testStatus[target.id] = 'failed';
     }
-    setTimeout(() => { testStatus = 'idle'; }, 3000);
+    testStatus = { ...testStatus };
+    setTimeout(() => {
+      testStatus[target.id] = 'idle';
+      testStatus = { ...testStatus };
+    }, 3000);
   }
 </script>
 
-<div class="setting-section">
-  <div class="section-header">{tr('imageHost.title')}</div>
+<div class="imghost-settings">
+  {#if editingTarget}
+    <!-- Edit form -->
+    <div class="edit-form">
+      <div class="form-header">
+        <h4>{PROVIDER_ICONS[editingTarget.provider]} {tr(`imageHost.${editingTarget.provider === 'smms' ? 'smms' : editingTarget.provider === 'imgur' ? 'imgur' : editingTarget.provider === 'github' ? 'github' : 'custom'}`)}</h4>
+      </div>
 
-  <div class="setting-group">
-    <label class="setting-label">{tr('imageHost.provider')}</label>
-    <select class="setting-input" value={provider} onchange={handleProviderChange}>
-      <option value="smms">{tr('imageHost.smms')}</option>
-      <option value="imgur">{tr('imageHost.imgur')}</option>
-      <option value="github">{tr('imageHost.github')}</option>
-      <option value="custom">{tr('imageHost.custom')}</option>
-    </select>
-  </div>
-
-  {#if provider === 'smms' || provider === 'imgur'}
-    <div class="setting-group">
-      <label class="setting-label">{tr('imageHost.apiToken')}</label>
-      <input
-        type="password"
-        class="setting-input"
-        placeholder={tr('imageHost.apiTokenPlaceholder')}
-        value={apiToken}
-        oninput={handleTokenChange}
-      />
-    </div>
-  {/if}
-
-  {#if provider === 'github'}
-    {#if publishTargets.length > 0}
       <div class="setting-group">
-        <label class="setting-label">{tr('imageHost.importFromPublish')}</label>
-        <div class="import-targets">
-          {#each publishTargets as target}
-            <button
-              class="import-btn"
-              onclick={() => importFromPublishTarget(target)}
-            >
-              {target.name || target.repoUrl || 'GitHub'}
-            </button>
-          {/each}
+        <label class="setting-label" for="imghost-target-name">{tr('imageHost.targetName')}</label>
+        <input
+          id="imghost-target-name"
+          type="text"
+          class="setting-input"
+          bind:value={editingTarget.name}
+          placeholder={tr('imageHost.targetNamePlaceholder')}
+        />
+      </div>
+
+      {#if editingTarget.provider === 'smms' || editingTarget.provider === 'imgur'}
+        <div class="setting-group">
+          <label class="setting-label" for="imghost-api-token">{tr('imageHost.apiToken')}</label>
+          <input
+            id="imghost-api-token"
+            type="password"
+            class="setting-input"
+            bind:value={editingTarget.apiToken}
+            placeholder={tr('imageHost.apiTokenPlaceholder')}
+          />
         </div>
+      {/if}
+
+      {#if editingTarget.provider === 'github'}
+        {#if publishTargets.length > 0}
+          <div class="setting-group">
+            <span class="setting-label">{tr('imageHost.importFromPublish')}</span>
+            <div class="import-targets">
+              {#each publishTargets as target}
+                <button
+                  class="import-btn"
+                  onclick={() => importFromPublishTarget(target)}
+                >
+                  {target.name || target.repoUrl || 'GitHub'}
+                </button>
+              {/each}
+            </div>
+          </div>
+        {/if}
+
+        <div class="setting-group">
+          <label class="setting-label" for="imghost-github-repo">{tr('imageHost.githubRepoUrl')}</label>
+          <input
+            id="imghost-github-repo"
+            type="text"
+            class="setting-input"
+            bind:value={editingTarget.githubRepoUrl}
+            placeholder={tr('imageHost.githubRepoUrlPlaceholder')}
+          />
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-label" for="imghost-github-branch">{tr('imageHost.githubBranch')}</label>
+          <input
+            id="imghost-github-branch"
+            type="text"
+            class="setting-input"
+            bind:value={editingTarget.githubBranch}
+            placeholder="main"
+          />
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-label" for="imghost-github-dir">{tr('imageHost.githubDir')}</label>
+          <input
+            id="imghost-github-dir"
+            type="text"
+            class="setting-input"
+            bind:value={editingTarget.githubDir}
+            placeholder="images/"
+          />
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-label" for="imghost-github-token">{tr('imageHost.githubToken')}</label>
+          <input
+            id="imghost-github-token"
+            type="password"
+            class="setting-input"
+            bind:value={editingTarget.githubToken}
+            placeholder={tr('imageHost.githubTokenPlaceholder')}
+          />
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-label" for="imghost-github-cdn">{tr('imageHost.githubCdn')}</label>
+          <select id="imghost-github-cdn" class="setting-input" bind:value={editingTarget.githubCdn}>
+            <option value="raw">{tr('imageHost.githubCdnRaw')}</option>
+            <option value="jsdelivr">{tr('imageHost.githubCdnJsdelivr')}</option>
+          </select>
+        </div>
+      {/if}
+
+      {#if editingTarget.provider === 'custom'}
+        <div class="setting-group">
+          <label class="setting-label" for="imghost-custom-token">{tr('imageHost.apiToken')}</label>
+          <input
+            id="imghost-custom-token"
+            type="password"
+            class="setting-input"
+            bind:value={editingTarget.apiToken}
+            placeholder={tr('imageHost.apiTokenPlaceholder')}
+          />
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-label" for="imghost-custom-endpoint">{tr('imageHost.customEndpoint')}</label>
+          <input
+            id="imghost-custom-endpoint"
+            type="text"
+            class="setting-input"
+            bind:value={editingTarget.customEndpoint}
+            placeholder={tr('imageHost.customEndpointPlaceholder')}
+          />
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-label" for="imghost-custom-headers">{tr('imageHost.customHeaders')}</label>
+          <textarea
+            id="imghost-custom-headers"
+            class="setting-textarea"
+            bind:value={editingTarget.customHeaders}
+            placeholder={'{"X-Custom-Header": "value"}'}
+            rows="3"
+          ></textarea>
+        </div>
+      {/if}
+
+      <div class="setting-group">
+        <label class="setting-label">
+          <input
+            type="checkbox"
+            bind:checked={editingTarget.autoUpload}
+          />
+          {tr('imageHost.autoUpload')}
+        </label>
+      </div>
+
+      <div class="form-actions">
+        <button class="btn btn-secondary" onclick={cancelEdit}>{tr('common.cancel')}</button>
+        <button class="btn btn-primary" onclick={saveTarget} disabled={!editingTarget.name}>
+          {tr('common.save')}
+        </button>
+      </div>
+    </div>
+  {:else}
+    <!-- Target list -->
+    {#if targets.length === 0}
+      <div class="empty-state">
+        <p>{tr('imageHost.settingsEmpty')}</p>
+        <p class="hint">{tr('imageHost.settingsHint')}</p>
+      </div>
+    {:else}
+      <div class="target-list">
+        {#each targets as target (target.id)}
+          <div class="target-card">
+            <div class="target-info">
+              <span class="target-icon">
+                {PROVIDER_ICONS[target.provider]}
+              </span>
+              <div class="target-details">
+                <span class="target-name">
+                  {target.name || '(unnamed)'}
+                  {#if target.id === defaultId}
+                    <span class="default-badge">{tr('imageHost.default')}</span>
+                  {/if}
+                </span>
+                <span class="target-type">
+                  {tr(`imageHost.${target.provider === 'smms' ? 'smms' : target.provider === 'imgur' ? 'imgur' : target.provider === 'github' ? 'github' : 'custom'}`)}
+                </span>
+              </div>
+            </div>
+            <div class="target-actions">
+              <button
+                class="action-btn"
+                class:is-default={target.id === defaultId}
+                onclick={() => setDefault(target.id)}
+                title={tr('imageHost.setDefault')}
+              >
+                {target.id === defaultId ? '★' : '☆'}
+              </button>
+              <button
+                class="action-btn"
+                class:testing={testStatus[target.id] === 'testing'}
+                class:success={testStatus[target.id] === 'success'}
+                class:failed={testStatus[target.id] === 'failed'}
+                onclick={() => handleTestUpload(target)}
+                disabled={testStatus[target.id] === 'testing'}
+              >
+                {#if testStatus[target.id] === 'testing'}
+                  ...
+                {:else if testStatus[target.id] === 'success'}
+                  ✓
+                {:else if testStatus[target.id] === 'failed'}
+                  ✗
+                {:else}
+                  ⚡
+                {/if}
+              </button>
+              <button class="action-btn" onclick={() => editTarget(target)}>✎</button>
+              <button class="action-btn danger" onclick={() => deleteTarget(target.id)}>✕</button>
+            </div>
+          </div>
+        {/each}
       </div>
     {/if}
 
-    <div class="setting-group">
-      <label class="setting-label">{tr('imageHost.githubRepoUrl')}</label>
-      <input
-        type="text"
-        class="setting-input wide"
-        placeholder={tr('imageHost.githubRepoUrlPlaceholder')}
-        value={githubRepoUrl}
-        oninput={handleGithubRepoUrlChange}
-      />
-    </div>
-
-    <div class="setting-group">
-      <label class="setting-label">{tr('imageHost.githubBranch')}</label>
-      <input
-        type="text"
-        class="setting-input"
-        placeholder="main"
-        value={githubBranch}
-        oninput={handleGithubBranchChange}
-      />
-    </div>
-
-    <div class="setting-group">
-      <label class="setting-label">{tr('imageHost.githubDir')}</label>
-      <input
-        type="text"
-        class="setting-input"
-        placeholder="images/"
-        value={githubDir}
-        oninput={handleGithubDirChange}
-      />
-    </div>
-
-    <div class="setting-group">
-      <label class="setting-label">{tr('imageHost.githubToken')}</label>
-      <input
-        type="password"
-        class="setting-input wide"
-        placeholder={tr('imageHost.githubTokenPlaceholder')}
-        value={githubToken}
-        oninput={handleGithubTokenChange}
-      />
-    </div>
-
-    <div class="setting-group">
-      <label class="setting-label">{tr('imageHost.githubCdn')}</label>
-      <select class="setting-input" value={githubCdn} onchange={handleGithubCdnChange}>
-        <option value="raw">{tr('imageHost.githubCdnRaw')}</option>
-        <option value="jsdelivr">{tr('imageHost.githubCdnJsdelivr')}</option>
-      </select>
-    </div>
-  {/if}
-
-  {#if provider === 'custom'}
-    <div class="setting-group">
-      <label class="setting-label">{tr('imageHost.apiToken')}</label>
-      <input
-        type="password"
-        class="setting-input"
-        placeholder={tr('imageHost.apiTokenPlaceholder')}
-        value={apiToken}
-        oninput={handleTokenChange}
-      />
-    </div>
-
-    <div class="setting-group">
-      <label class="setting-label">{tr('imageHost.customEndpoint')}</label>
-      <input
-        type="text"
-        class="setting-input wide"
-        placeholder={tr('imageHost.customEndpointPlaceholder')}
-        value={customEndpoint}
-        oninput={handleEndpointChange}
-      />
-    </div>
-
-    <div class="setting-group">
-      <label class="setting-label">{tr('imageHost.customHeaders')}</label>
-      <textarea
-        class="setting-textarea"
-        placeholder={'{"X-Custom-Header": "value"}'}
-        value={customHeaders}
-        oninput={handleHeadersChange}
-        rows="3"
-      ></textarea>
-    </div>
-  {/if}
-
-  <div class="setting-group">
-    <label class="setting-label">
-      <input
-        type="checkbox"
-        checked={autoUpload}
-        onchange={handleAutoUploadChange}
-      />
-      {tr('imageHost.autoUpload')}
-    </label>
-  </div>
-
-  <div class="setting-group">
-    <button
-      class="test-btn"
-      class:testing={testStatus === 'testing'}
-      class:success={testStatus === 'success'}
-      class:failed={testStatus === 'failed'}
-      onclick={handleTestUpload}
-      disabled={testStatus === 'testing'}
-    >
-      {#if testStatus === 'testing'}
-        {tr('imageHost.testing')}
-      {:else if testStatus === 'success'}
-        {tr('imageHost.success')}
-      {:else if testStatus === 'failed'}
-        {tr('imageHost.failed')}
-      {:else}
-        {tr('imageHost.testUpload')}
+    <!-- Add button -->
+    <div class="add-section">
+      {#if showAddMenu}
+        <div class="add-menu">
+          <button class="add-option" onclick={() => addTarget('smms')}>
+            🟠 {tr('imageHost.smms')}
+          </button>
+          <button class="add-option" onclick={() => addTarget('imgur')}>
+            🟢 {tr('imageHost.imgur')}
+          </button>
+          <button class="add-option" onclick={() => addTarget('github')}>
+            🔵 {tr('imageHost.github')}
+          </button>
+          <button class="add-option" onclick={() => addTarget('custom')}>
+            🟣 {tr('imageHost.custom')}
+          </button>
+        </div>
       {/if}
-    </button>
-  </div>
+      <button class="btn btn-add" onclick={() => showAddMenu = !showAddMenu}>
+        + {tr('imageHost.addTarget')}
+      </button>
+    </div>
+  {/if}
 </div>
 
 <style>
-  .setting-section {
+  .imghost-settings {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    color: var(--text-muted);
+    text-align: center;
+    gap: 0.5rem;
+  }
+
+  .empty-state p {
+    margin: 0;
+    font-size: var(--font-size-sm);
+  }
+
+  .empty-state .hint {
+    font-size: var(--font-size-xs);
+  }
+
+  /* Target list */
+  .target-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .target-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-primary);
+  }
+
+  .target-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .target-icon {
+    font-size: 0.85rem;
+  }
+
+  .target-details {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .target-name {
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .default-badge {
+    font-size: var(--font-size-xs);
+    font-weight: 500;
+    color: var(--accent-color);
+    background: color-mix(in srgb, var(--accent-color) 12%, transparent);
+    padding: 0.05rem 0.35rem;
+    border-radius: 3px;
+  }
+
+  .target-type {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+  }
+
+  .target-actions {
+    display: flex;
+    gap: 0.25rem;
+  }
+
+  .action-btn {
+    width: 1.75rem;
+    height: 1.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.75rem;
+    transition: all var(--transition-fast);
+  }
+
+  .action-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .action-btn.is-default {
+    color: var(--accent-color);
+    border-color: var(--accent-color);
+  }
+
+  .action-btn.danger:hover {
+    border-color: #dc3545;
+    color: #dc3545;
+  }
+
+  .action-btn.testing {
+    color: var(--accent-color);
+    border-color: var(--accent-color);
+  }
+
+  .action-btn.success {
+    color: #28a745;
+    border-color: #28a745;
+  }
+
+  .action-btn.failed {
+    color: #dc3545;
+    border-color: #dc3545;
+  }
+
+  /* Add section */
+  .add-section {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .add-menu {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .add-option {
+    padding: 0.4rem 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: var(--font-size-sm);
+    transition: all var(--transition-fast);
+  }
+
+  .add-option:hover {
+    border-color: var(--accent-color);
+    color: var(--text-primary);
+  }
+
+  .btn {
+    padding: 0.35rem 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: var(--font-size-sm);
+    transition: all var(--transition-fast);
+  }
+
+  .btn-add {
+    background: transparent;
+    color: var(--accent-color);
+    border-color: var(--accent-color);
+  }
+
+  .btn-add:hover {
+    background: var(--accent-color);
+    color: white;
+  }
+
+  .btn-secondary {
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+  }
+
+  .btn-secondary:hover {
+    color: var(--text-primary);
+  }
+
+  .btn-primary {
+    background: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
+  }
+
+  .btn-primary:hover {
+    opacity: 0.9;
+  }
+
+  .btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* Edit form */
+  .edit-form {
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
   }
 
-  .section-header {
+  .form-header h4 {
+    margin: 0;
     font-size: var(--font-size-sm);
     font-weight: 600;
     color: var(--text-primary);
@@ -332,11 +581,11 @@
   .setting-group {
     display: flex;
     flex-direction: column;
-    gap: 0.35rem;
+    gap: 0.3rem;
   }
 
   .setting-label {
-    font-size: var(--font-size-sm);
+    font-size: var(--font-size-xs);
     color: var(--text-secondary);
     display: flex;
     align-items: center;
@@ -344,29 +593,35 @@
   }
 
   .setting-input {
-    padding: 0.4rem 0.5rem;
+    padding: 0.35rem 0.5rem;
     border: 1px solid var(--border-color);
     border-radius: 4px;
     background: var(--bg-primary);
     color: var(--text-primary);
     font-size: var(--font-size-sm);
-    max-width: 280px;
+    font-family: var(--font-sans);
   }
 
-  .setting-input.wide {
-    max-width: 400px;
+  .setting-input:focus {
+    outline: none;
+    border-color: var(--accent-color);
   }
 
   .setting-textarea {
-    padding: 0.4rem 0.5rem;
+    padding: 0.35rem 0.5rem;
     border: 1px solid var(--border-color);
     border-radius: 4px;
     background: var(--bg-primary);
     color: var(--text-primary);
-    font-size: var(--font-size-sm);
-    font-family: var(--font-mono);
-    max-width: 400px;
+    font-size: var(--font-size-xs);
+    font-family: var(--font-mono, monospace);
     resize: vertical;
+    line-height: 1.5;
+  }
+
+  .setting-textarea:focus {
+    outline: none;
+    border-color: var(--accent-color);
   }
 
   .import-targets {
@@ -391,34 +646,11 @@
     color: #fff;
   }
 
-  .test-btn {
-    padding: 0.4rem 0.75rem;
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-    font-size: var(--font-size-sm);
-    cursor: pointer;
-    transition: background var(--transition-fast);
-    max-width: fit-content;
-  }
-
-  .test-btn:hover:not(:disabled) {
-    background: var(--bg-hover);
-  }
-
-  .test-btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  .test-btn.success {
-    color: #2ea043;
-    border-color: #2ea043;
-  }
-
-  .test-btn.failed {
-    color: #e81123;
-    border-color: #e81123;
+  .form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border-light);
   }
 </style>

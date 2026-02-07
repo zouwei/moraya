@@ -244,8 +244,8 @@
               </button>
             {/each}
             <div class="mode-row-spacer"></div>
-            <label class="mini-label">{tr('imageGen.styleLabel')}</label>
-            <select class="mini-select style-select" bind:value={imageStyle} onchange={() => { prompts = []; handleGeneratePrompts(); }}>
+            <label class="mini-label" for="imggen-style">{tr('imageGen.styleLabel')}</label>
+            <select id="imggen-style" class="mini-select style-select" bind:value={imageStyle} onchange={() => { prompts = []; handleGeneratePrompts(); }}>
               {#each availableStyles as s}
                 <option value={s}>{tr(`imageGen.style_${s}`)}</option>
               {/each}
@@ -255,14 +255,14 @@
           <!-- Row 3: Ratio + Resolution + Count -->
           <div class="step-header">
             <div class="step-controls">
-              <label class="mini-label">{tr('ai.imageConfig.ratio')}</label>
-              <select class="mini-select" bind:value={imgRatio}>
+              <label class="mini-label" for="imggen-ratio">{tr('ai.imageConfig.ratio')}</label>
+              <select id="imggen-ratio" class="mini-select" bind:value={imgRatio}>
                 {#each RATIO_OPTIONS as r}
                   <option value={r}>{r}</option>
                 {/each}
               </select>
-              <label class="mini-label">{tr('ai.imageConfig.sizeLevel')}</label>
-              <select class="mini-select" bind:value={imgSizeLevel}>
+              <label class="mini-label" for="imggen-size-level">{tr('ai.imageConfig.sizeLevel')}</label>
+              <select id="imggen-size-level" class="mini-select" bind:value={imgSizeLevel}>
                 {#each SIZE_LEVEL_OPTIONS as s}
                   <option value={s}>{tr(`ai.imageConfig.size_${s}`)}</option>
                 {/each}
@@ -270,8 +270,8 @@
               <span class="mini-hint">{imgResolvedSize}</span>
             </div>
             <div class="step-controls">
-              <label class="mini-label">{tr('imageGen.countLabel')}</label>
-              <select class="mini-select style-select" bind:value={imageCount} onchange={() => { prompts = []; handleGeneratePrompts(); }}>
+              <label class="mini-label" for="imggen-count">{tr('imageGen.countLabel')}</label>
+              <select id="imggen-count" class="mini-select style-select" bind:value={imageCount} onchange={() => { prompts = []; handleGeneratePrompts(); }}>
                 {#each Array.from({length: 10}, (_, i) => i + 1) as n}
                   <option value={n}>{n}</option>
                 {/each}
@@ -301,6 +301,7 @@
                     class="prompt-text"
                     bind:value={prompt.prompt}
                     rows="2"
+                    aria-label={tr('imageGen.step1Title')}
                   ></textarea>
                 </div>
               {/each}
