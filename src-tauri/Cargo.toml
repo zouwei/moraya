@@ -1,6 +1,6 @@
 [package]
 name = "moraya"
-version = "0.2.1"
+version = "0.2.0"
 description = "A minimal, AI-ready Markdown editor"
 authors = ["Moraya Contributors"]
 edition = "2021"
@@ -21,6 +21,11 @@ tauri-plugin-opener = "2"
 tauri-plugin-http = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+reqwest = { version = "0.12", features = ["stream"] }
+tokio = { version = "1", features = ["fs", "io-util"] }
+futures-util = "0.3"
+dirs = "6"
+open = "5"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = "0.2"

@@ -5,10 +5,7 @@
 
 import { writable, get } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
-import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
-import { writeFile, BaseDirectory } from '@tauri-apps/plugin-fs';
-import { downloadDir } from '@tauri-apps/api/path';
-import { openPath } from '@tauri-apps/plugin-opener';
+import { listen } from '@tauri-apps/api/event';
 
 // --- Types ---
 
@@ -154,7 +151,7 @@ export function shouldCheckToday(lastCheckDate: string | null): boolean {
 // --- Core Functions ---
 
 export async function checkForUpdate(): Promise<UpdateInfo> {
-  update(s => ({ ...s, checkStatus: 'checking', error: null }));
+  update(s => ({ ...s, checkStatus: 'checking', downloadStatus: 'idle', downloadProgress: 0, error: null }));
 
   try {
     const res = await fetch(RELEASES_API, {
@@ -219,68 +216,29 @@ export async function downloadAndInstall(): Promise<void> {
 
   update(s => ({ ...s, downloadStatus: 'downloading', downloadProgress: 0 }));
 
+  // Listen for progress events from Rust
+  const unlisten = await listen<{ received: number; total: number; progress: number }>(
+    'download-progress',
+    (event) => {
+      update(s => ({ ...s, downloadProgress: event.payload.progress }));
+    },
+  );
+
   try {
-    // Use tauriFetch to bypass CORS (GitHub download URLs redirect to a CDN without CORS headers)
-    const res = await tauriFetch(info.downloadUrl);
-    if (!res.ok) {
-      throw new Error(`Download failed: ${res.status}`);
-    }
-
-    const contentLength = Number(res.headers.get('content-length')) || info.assetSize;
-    const reader = res.body?.getReader();
-
-    if (!reader) {
-      // Fallback: no streaming, just download all at once
-      const buffer = await res.arrayBuffer();
-      await writeFile(info.assetName, new Uint8Array(buffer), {
-        baseDir: BaseDirectory.Download,
-      });
-      update(s => ({ ...s, downloadProgress: 100 }));
-    } else {
-      // Stream with progress
-      const chunks: Uint8Array[] = [];
-      let received = 0;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(value);
-        received += value.length;
-        if (contentLength > 0) {
-          const progress = Math.round((received / contentLength) * 100);
-          update(s => ({ ...s, downloadProgress: progress }));
-        }
-      }
-
-      // Combine chunks
-      const total = chunks.reduce((acc, c) => acc + c.length, 0);
-      const data = new Uint8Array(total);
-      let offset = 0;
-      for (const chunk of chunks) {
-        data.set(chunk, offset);
-        offset += chunk.length;
-      }
-
-      await writeFile(info.assetName, data, {
-        baseDir: BaseDirectory.Download,
-      });
-    }
+    // Download entirely in Rust — reqwest streams directly to disk,
+    // no IPC binary transfer needed.
+    const fullPath: string = await invoke('download_update', {
+      url: info.downloadUrl,
+      filename: info.assetName,
+    });
 
     update(s => ({ ...s, downloadStatus: 'completed', downloadProgress: 100 }));
-
-    // Open the installer
-    const dlDir = await downloadDir();
-    const sep = dlDir.endsWith('/') || dlDir.endsWith('\\') ? '' : '/';
-    const fullPath = `${dlDir}${sep}${info.assetName}`;
-    await openPath(fullPath);
-
-    // Exit the app after a short delay
-    setTimeout(() => {
-      invoke('exit_app').catch(() => {});
-    }, 1000);
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Download failed';
+    // Tauri invoke errors are strings, not Error objects
+    const message = err instanceof Error ? err.message : String(err) || 'Download failed';
     update(s => ({ ...s, downloadStatus: 'error', error: message }));
     throw err;
+  } finally {
+    unlisten();
   }
 }

@@ -63,6 +63,9 @@ class MCPClient {
         version: '0.1.0',
       },
     });
+
+    // Send initialized notification (required by MCP spec before calling tools/list)
+    await this.sendNotification('initialized');
   }
 
   /**
@@ -95,6 +98,39 @@ class MCPClient {
         reject(new Error(`SSE connection failed to ${url}`));
       };
     });
+  }
+
+  /**
+   * Send a JSON-RPC notification (no id, no response expected)
+   */
+  private async sendNotification(method: string, params?: Record<string, unknown>): Promise<void> {
+    const notification = {
+      jsonrpc: '2.0',
+      method,
+      params: params || {},
+    };
+
+    const transport = this.serverConfig.transport;
+
+    if (transport.type === 'stdio') {
+      await invoke('mcp_send_notification', {
+        serverId: this.serverConfig.id,
+        notification: JSON.stringify(notification),
+      });
+    } else if (transport.type === 'http') {
+      await fetch(transport.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(transport.headers || {}) },
+        body: JSON.stringify(notification),
+      });
+    } else if (transport.type === 'sse') {
+      const postUrl = transport.url.replace('/sse', '/message');
+      await fetch(postUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(transport.headers || {}) },
+        body: JSON.stringify(notification),
+      });
+    }
   }
 
   /**
@@ -148,11 +184,16 @@ class MCPClient {
       });
 
     } else if (transport.type === 'stdio') {
-      // Delegate to Rust backend
-      return invoke('mcp_send_request', {
+      // Delegate to Rust backend — returns raw JSON string, must parse
+      const responseStr = await invoke<string>('mcp_send_request', {
         serverId: this.serverConfig.id,
         request: JSON.stringify(request),
       });
+      const response: JSONRPCResponse = JSON.parse(responseStr);
+      if (response.error) {
+        throw new Error(response.error.message);
+      }
+      return response.result;
     }
   }
 
@@ -206,6 +247,10 @@ class MCPClient {
     if (this.eventSource) {
       this.eventSource.close();
       this.eventSource = null;
+    }
+    // Kill stdio process via Rust backend
+    if (this.serverConfig.transport.type === 'stdio') {
+      invoke('mcp_disconnect', { serverId: this.serverConfig.id }).catch(() => {});
     }
     this.pendingRequests.clear();
   }

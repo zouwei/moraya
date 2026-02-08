@@ -7,12 +7,16 @@ export type {
   AICommand,
   AICommandOption,
   AIResponse,
+  ToolCallRequest,
+  ToolDefinition,
   ImageProvider,
   ImageProviderConfig,
   ImageAspectRatio,
   ImageSizeLevel,
   SEOData,
 } from './types';
+export { mcpToolsToToolDefs } from './tool-bridge';
+export { INTERNAL_TOOLS, isInternalTool, executeInternalTool } from './internal-tools';
 export {
   AI_COMMANDS,
   DEFAULT_MODELS,

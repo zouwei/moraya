@@ -40,6 +40,10 @@
     checkForUpdate().catch(() => {});
   }
 
+  function handleRetryDownload() {
+    downloadAndInstall().catch(() => {});
+  }
+
   function handleUpgrade() {
     downloadAndInstall().catch(() => {});
   }
@@ -141,8 +145,12 @@
         </button>
       {/if}
 
-      {#if checkStatus === 'error' || downloadStatus === 'error'}
+      {#if checkStatus === 'error'}
         <button class="btn btn-primary" onclick={handleRetry}>
+          {tr('update.retry')}
+        </button>
+      {:else if downloadStatus === 'error'}
+        <button class="btn btn-primary" onclick={handleRetryDownload}>
           {tr('update.retry')}
         </button>
       {:else if checkStatus === 'available' && updateInfo?.downloadUrl && downloadStatus === 'idle'}

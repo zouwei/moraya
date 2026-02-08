@@ -10,6 +10,9 @@ export {
   connectAllServers,
   disconnectAllServers,
   initMCPStore,
+  addSyncConfig,
+  removeSyncConfig,
+  discoverPublishTargets,
 } from './mcp-manager';
 export type {
   MCPServerConfig,
@@ -24,3 +27,4 @@ export type {
   SyncConfig,
   SyncStatus,
 } from './types';
+export { MCP_PRESETS, type MCPPreset } from './presets';

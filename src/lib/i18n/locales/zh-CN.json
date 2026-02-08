@@ -10,6 +10,7 @@
     "insert": "插入",
     "replace": "替换",
     "copy": "复制",
+    "edit": "编辑",
     "untitled": "未命名"
   },
   "settings": {
@@ -130,6 +131,15 @@
       "ollama": "Ollama（本地）",
       "custom": "自定义 API"
     },
+    "multiModel": {
+      "addModel": "+ 添加模型",
+      "default": "默认",
+      "setDefault": "设为默认",
+      "noModels": "未配置 AI 模型",
+      "noModelsHint": "添加 AI 模型以启用 AI 功能。",
+      "noImageModels": "未配置图像模型",
+      "noImageModelsHint": "添加图像生成模型以使用 AI 配图功能。"
+    },
     "imageConfig": {
       "title": "图片生成 AI",
       "provider": "服务商",
@@ -187,7 +197,18 @@
       "serverName": "服务器名称",
       "serverUrl": "服务器 URL（例如：http://localhost:3000/mcp）",
       "http": "HTTP",
-      "sse": "SSE（服务器发送事件）"
+      "sse": "SSE（服务器发送事件）",
+      "stdio": "stdio（本地进程）",
+      "command": "命令",
+      "commandPlaceholder": "命令（如：npx、node、python）",
+      "argsPlaceholder": "参数（如：-y @modelcontextprotocol/server-filesystem /path）",
+      "presets": "快速添加",
+      "presetsHint": "一键添加常用 MCP 服务器",
+      "formMode": "表单",
+      "jsonMode": "JSON 导入",
+      "jsonPlaceholder": "粘贴 JSON 配置，例如：\n{\n  \"mcpServers\": {\n    \"名称\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"@.../server-xxx\"]\n    }\n  }\n}",
+      "jsonNoConfig": "未找到有效的 MCP 服务器配置",
+      "jsonParseError": "解析错误"
     },
     "publish": {
       "empty": "未配置发布目标",
@@ -200,8 +221,21 @@
     },
     "sync": {
       "empty": "未配置同步",
-      "hint": "配置知识库 MCP 服务器以启用文档同步。",
-      "syncNow": "立即同步"
+      "hint": "请先连接 MCP 服务器，然后添加同步配置。",
+      "syncNow": "立即同步",
+      "addSync": "+ 添加同步",
+      "name": "配置名称",
+      "server": "MCP 服务器",
+      "remotePath": "远程路径",
+      "localPath": "本地路径",
+      "direction": "方向",
+      "push": "推送（本地 → 远程）",
+      "pull": "拉取（远程 → 本地）",
+      "bidirectional": "双向同步",
+      "lastSync": "上次同步：{time}",
+      "syncing": "同步中...",
+      "success": "同步完成",
+      "error": "同步错误：{message}"
     }
   },
   "imageDialog": {

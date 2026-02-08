@@ -98,6 +98,9 @@ export interface SyncConfig {
   autoSync: boolean;
   syncInterval: number; // milliseconds
   lastSyncTime?: number;
+  direction: 'push' | 'pull' | 'bidirectional';
+  conflictResolution: 'local-wins' | 'remote-wins' | 'manual';
+  fileFilter?: string; // glob pattern, e.g., '*.md'
 }
 
 export interface SyncStatus {

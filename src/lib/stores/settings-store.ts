@@ -3,7 +3,7 @@ import { load } from '@tauri-apps/plugin-store';
 import { setLocale, detectSystemLocale, type SupportedLocale, type LocaleSelection } from '$lib/i18n';
 import { getThemeById } from '$lib/styles/themes';
 import { type ImageHostConfig, type ImageHostTarget, DEFAULT_IMAGE_HOST_CONFIG, generateImageHostTargetId } from '$lib/services/image-hosting';
-import { type ImageProviderConfig, DEFAULT_IMAGE_PROVIDER_CONFIG } from '$lib/services/ai/types';
+import type { ImageProviderConfig } from '$lib/services/ai/types';
 import type { PublishTarget } from '$lib/services/publish/types';
 
 const SETTINGS_STORE_FILE = 'settings.json';
@@ -29,7 +29,8 @@ interface Settings {
   imageHostConfig: ImageHostConfig;
   imageHostTargets: ImageHostTarget[];
   defaultImageHostId: string;
-  imageProviderConfig: ImageProviderConfig;
+  imageProviderConfigs: ImageProviderConfig[];
+  activeImageConfigId: string | null;
   publishTargets: PublishTarget[];
   lastUpdateCheckDate: string | null;  // "YYYY-MM-DD" format
 }
@@ -53,7 +54,8 @@ const DEFAULT_SETTINGS: Settings = {
   imageHostConfig: { ...DEFAULT_IMAGE_HOST_CONFIG },
   imageHostTargets: [],
   defaultImageHostId: '',
-  imageProviderConfig: { ...DEFAULT_IMAGE_PROVIDER_CONFIG },
+  imageProviderConfigs: [],
+  activeImageConfigId: null,
   publishTargets: [],
   lastUpdateCheckDate: null,
 };
@@ -238,6 +240,19 @@ export async function initSettingsStore() {
           settingsStore.update({
             imageHostTargets: [migratedTarget],
             defaultImageHostId: migratedTarget.id,
+          });
+        }
+      }
+
+      // Migration: single imageProviderConfig → imageProviderConfigs array
+      const current2 = settingsStore.getState();
+      if ((!current2.imageProviderConfigs || current2.imageProviderConfigs.length === 0) && (saved as any).imageProviderConfig) {
+        const old = (saved as any).imageProviderConfig;
+        if (old.apiKey) {
+          old.id = old.id || crypto.randomUUID();
+          settingsStore.update({
+            imageProviderConfigs: [old],
+            activeImageConfigId: old.id,
           });
         }
       }

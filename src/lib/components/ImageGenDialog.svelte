@@ -57,14 +57,15 @@
   let insertMode = $state<InsertMode>('paragraph');
 
   aiStore.subscribe(state => {
-    textAIConfig = state.providerConfig;
+    textAIConfig = state.providerConfigs.find(c => c.id === state.activeConfigId) || null;
   });
 
   settingsStore.subscribe(state => {
-    imageConfig = state.imageProviderConfig;
-    if (state.imageProviderConfig) {
-      imgRatio = state.imageProviderConfig.defaultRatio;
-      imgSizeLevel = state.imageProviderConfig.defaultSizeLevel;
+    const activeImg = state.imageProviderConfigs.find(c => c.id === state.activeImageConfigId) || null;
+    imageConfig = activeImg;
+    if (activeImg) {
+      imgRatio = activeImg.defaultRatio;
+      imgSizeLevel = activeImg.defaultSizeLevel;
     }
   });
 

@@ -21,7 +21,7 @@
   let providerConfig = $state<AIProviderConfig | null>(null);
 
   aiStore.subscribe(state => {
-    providerConfig = state.providerConfig;
+    providerConfig = state.providerConfigs.find(c => c.id === state.activeConfigId) || null;
   });
 
   async function generate() {

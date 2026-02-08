@@ -11,16 +11,24 @@ import type {
   ChatMessage,
   AIResponse,
   AI_COMMANDS,
+  ToolDefinition,
 } from './types';
 import { AI_COMMANDS as COMMANDS } from './types';
 import { t } from '$lib/i18n';
+import { getAllTools, callTool } from '$lib/services/mcp';
+import { mcpToolsToToolDefs } from './tool-bridge';
+import { INTERNAL_TOOLS, isInternalTool, executeInternalTool } from './internal-tools';
+import { editorStore } from '$lib/stores/editor-store';
+import { documentDir } from '@tauri-apps/api/path';
+import { invoke } from '@tauri-apps/api/core';
 
 const AI_STORE_FILE = 'ai-config.json';
 
-async function persistAIConfig(config: AIProviderConfig) {
+async function persistAIConfigs(configs: AIProviderConfig[], activeConfigId: string | null) {
   try {
     const store = await load(AI_STORE_FILE);
-    await store.set('providerConfig', config);
+    await store.set('providerConfigs', configs);
+    await store.set('activeConfigId', activeConfigId);
     await store.save();
   } catch { /* ignore */ }
 }
@@ -34,7 +42,13 @@ interface AIState {
   chatHistory: ChatMessage[];
   lastResponse: string | null;
   streamingContent: string;
-  providerConfig: AIProviderConfig | null;
+  providerConfigs: AIProviderConfig[];
+  activeConfigId: string | null;
+}
+
+function computeIsConfigured(configs: AIProviderConfig[], activeId: string | null): boolean {
+  const active = configs.find(c => c.id === activeId);
+  return !!active?.apiKey;
 }
 
 function createAIStore() {
@@ -45,20 +59,84 @@ function createAIStore() {
     chatHistory: [],
     lastResponse: null,
     streamingContent: '',
-    providerConfig: null,
+    providerConfigs: [],
+    activeConfigId: null,
   });
 
   return {
     subscribe,
-    setConfig(config: AIProviderConfig) {
+
+    /** Load configs from disk without re-persisting */
+    _load(configs: AIProviderConfig[], activeId: string | null) {
       update(state => ({
         ...state,
-        providerConfig: config,
-        isConfigured: !!config.apiKey,
+        providerConfigs: configs,
+        activeConfigId: activeId,
+        isConfigured: computeIsConfigured(configs, activeId),
         error: null,
       }));
-      persistAIConfig(config);
     },
+
+    addProviderConfig(config: AIProviderConfig) {
+      update(state => {
+        const configs = [...state.providerConfigs, config];
+        const activeId = state.activeConfigId || config.id;
+        persistAIConfigs(configs, activeId);
+        return {
+          ...state,
+          providerConfigs: configs,
+          activeConfigId: activeId,
+          isConfigured: computeIsConfigured(configs, activeId),
+        };
+      });
+    },
+
+    updateProviderConfig(config: AIProviderConfig) {
+      update(state => {
+        const configs = state.providerConfigs.map(c => c.id === config.id ? config : c);
+        persistAIConfigs(configs, state.activeConfigId);
+        return {
+          ...state,
+          providerConfigs: configs,
+          isConfigured: computeIsConfigured(configs, state.activeConfigId),
+        };
+      });
+    },
+
+    removeProviderConfig(id: string) {
+      update(state => {
+        if (state.providerConfigs.length <= 1) return state;
+        const configs = state.providerConfigs.filter(c => c.id !== id);
+        let activeId = state.activeConfigId;
+        if (activeId === id) {
+          activeId = configs[0]?.id || null;
+        }
+        persistAIConfigs(configs, activeId);
+        return {
+          ...state,
+          providerConfigs: configs,
+          activeConfigId: activeId,
+          isConfigured: computeIsConfigured(configs, activeId),
+        };
+      });
+    },
+
+    setActiveConfig(id: string) {
+      update(state => {
+        persistAIConfigs(state.providerConfigs, id);
+        return {
+          ...state,
+          activeConfigId: id,
+          isConfigured: computeIsConfigured(state.providerConfigs, id),
+        };
+      });
+    },
+
+    getActiveConfig(): AIProviderConfig | null {
+      const state = get({ subscribe });
+      return state.providerConfigs.find(c => c.id === state.activeConfigId) || null;
+    },
+
     setLoading(loading: boolean) {
       update(state => ({ ...state, isLoading: loading, error: null }));
     },
@@ -106,8 +184,9 @@ export async function executeAICommand(
   }
 ): Promise<string> {
   const state = aiStore.getState();
+  const activeConfig = aiStore.getActiveConfig();
   const tr = get(t);
-  if (!state.providerConfig || !state.isConfigured) {
+  if (!activeConfig || !state.isConfigured) {
     throw new Error(tr('errors.aiNotConfigured'));
   }
 
@@ -176,7 +255,7 @@ export async function executeAICommand(
 
     // Stream the response
     let fullContent = '';
-    const stream = streamAIRequest(state.providerConfig, { messages, stream: true });
+    const stream = streamAIRequest(activeConfig, { messages, stream: true });
 
     for await (const chunk of stream) {
       fullContent += chunk;
@@ -201,11 +280,13 @@ export async function executeAICommand(
 }
 
 /**
- * Send a free-form chat message to the AI
+ * Send a free-form chat message to the AI.
+ * If MCP tools are available, enables tool calling with an execution loop.
  */
 export async function sendChatMessage(message: string, documentContext?: string): Promise<string> {
   const state = aiStore.getState();
-  if (!state.providerConfig || !state.isConfigured) {
+  const activeConfig = aiStore.getActiveConfig();
+  if (!activeConfig || !state.isConfigured) {
     throw new Error(get(t)('errors.aiNotConfigured'));
   }
 
@@ -213,14 +294,25 @@ export async function sendChatMessage(message: string, documentContext?: string)
   aiStore.resetStream();
 
   try {
+    // Collect MCP tools + internal tools
+    const mcpTools = getAllTools();
+    const toolDefs = [...INTERNAL_TOOLS, ...mcpToolsToToolDefs(mcpTools)];
+
+    // Build working directory context from current file path
+    // For unsaved documents, default to user's Documents directory
+    const currentFilePath = editorStore.getState().currentFilePath;
+    const currentDir = currentFilePath
+      ? currentFilePath.replace(/\/[^/]+$/, '')
+      : await documentDir().catch(() => null);
+
     const messages: ChatMessage[] = [
       {
         role: 'system',
-        content: `You are Moraya AI, a helpful writing assistant integrated into a Markdown editor. Help the user with writing, editing, and content creation. Always respond in Markdown format when producing content.\n\n${documentContext ? `Current document context (last 1000 chars):\n${documentContext.slice(-1000)}` : ''}`,
+        content: `You are Moraya AI, a helpful writing assistant integrated into a Markdown editor. You are powered by ${activeConfig.model} (${activeConfig.provider}). Help the user with writing, editing, and content creation. Always respond in Markdown format when producing content.${toolDefs.length > 0 ? ' You have access to tools. Use them when they can help answer the user\'s question. You can use add_mcp_server to help users install and configure new MCP servers.' : ''}${currentDir ? `\n\nCurrent working directory: ${currentDir}` : ''}${currentFilePath ? `\nCurrent file: ${currentFilePath}` : ''}\n\n${documentContext ? `Current document context (last 1000 chars):\n${documentContext.slice(-1000)}` : ''}`,
         timestamp: Date.now(),
       },
-      // Include recent chat history for context
-      ...state.chatHistory.slice(-10),
+      // Include recent chat history for context (preserve tool call/result pairs)
+      ...state.chatHistory.slice(-20),
       {
         role: 'user',
         content: message,
@@ -234,24 +326,123 @@ export async function sendChatMessage(message: string, documentContext?: string)
       timestamp: Date.now(),
     });
 
-    let fullContent = '';
-    const stream = streamAIRequest(state.providerConfig, { messages, stream: true });
+    // Tool execution loop
+    const MAX_TOOL_ROUNDS = 10;
+    let round = 0;
+    let finalContent = '';
 
-    for await (const chunk of stream) {
-      fullContent += chunk;
-      aiStore.appendStreamContent(chunk);
+    while (round < MAX_TOOL_ROUNDS) {
+      round++;
+
+      console.log(`[AI] Tool round ${round}/${MAX_TOOL_ROUNDS}, messages: ${messages.length}, tools: ${toolDefs.length}`);
+
+      // Use non-streaming for tool call rounds, streaming for final response
+      const response = await sendAIRequest(activeConfig, {
+        messages,
+        tools: toolDefs.length > 0 ? toolDefs : undefined,
+      });
+
+      console.log(`[AI] Response: stopReason=${response.stopReason}, toolCalls=${response.toolCalls?.length || 0}, content=${response.content?.length || 0} chars`);
+
+      // No tool calls: this is the final response
+      if (!response.toolCalls || response.toolCalls.length === 0) {
+        // If this is the first round (no tool calls at all), try streaming
+        if (round === 1 && toolDefs.length === 0) {
+          // Re-do as streaming for better UX when no tools
+          aiStore.resetStream();
+          let streamContent = '';
+          const stream = streamAIRequest(activeConfig, { messages, stream: true });
+          for await (const chunk of stream) {
+            streamContent += chunk;
+            aiStore.appendStreamContent(chunk);
+          }
+          finalContent = streamContent;
+        } else {
+          finalContent = response.content;
+          aiStore.appendStreamContent(response.content);
+        }
+        break;
+      }
+
+      // Record assistant message with tool calls
+      const assistantMsg: ChatMessage = {
+        role: 'assistant',
+        content: response.content || '',
+        timestamp: Date.now(),
+        toolCalls: response.toolCalls,
+      };
+      aiStore.addMessage(assistantMsg);
+      messages.push(assistantMsg);
+
+      // Execute each tool call (internal or MCP)
+      for (const tc of response.toolCalls) {
+        aiStore.appendStreamContent(`\n[Calling tool: ${tc.name}...]\n`);
+
+        let resultText = '';
+        let isError = false;
+
+        try {
+          console.log(`[AI] Calling tool: ${tc.name}`, JSON.stringify(tc.arguments).slice(0, 200));
+
+          if (isInternalTool(tc.name)) {
+            // Internal tool — execute locally
+            const result = await executeInternalTool(tc);
+            resultText = result.content;
+            isError = result.isError;
+          } else {
+            // MCP tool — execute via MCP server
+            const result = await callTool(tc.name, tc.arguments);
+            resultText = result.content?.map(c => c.text || '').join('\n') || '';
+            isError = result.isError || false;
+
+            // Sync editor if the tool wrote to the currently open file
+            if (!isError && (tc.name === 'write_file' || tc.name === 'edit_file')) {
+              const writtenPath = tc.arguments.path as string;
+              const currentPath = editorStore.getState().currentFilePath;
+              if (writtenPath && currentPath && writtenPath === currentPath) {
+                try {
+                  const newContent = await invoke<string>('read_file', { path: writtenPath });
+                  editorStore.setContent(newContent);
+                  editorStore.setDirty(false);
+                  window.dispatchEvent(new CustomEvent('moraya:file-synced', { detail: { content: newContent } }));
+                  console.log('[AI] Synced editor content after MCP file write');
+                } catch { /* ignore sync errors */ }
+              }
+            }
+          }
+
+          console.log(`[AI] Tool result: ${isError ? 'ERROR' : 'OK'}, ${resultText.length} chars`);
+        } catch (error: any) {
+          console.error(`[AI] Tool call failed: ${tc.name}`, error);
+          resultText = `Error: ${error.message}`;
+          isError = true;
+        }
+
+        const toolMsg: ChatMessage = {
+          role: 'tool',
+          content: resultText,
+          timestamp: Date.now(),
+          toolCallId: tc.id,
+          toolName: tc.name,
+          isError,
+        };
+        aiStore.addMessage(toolMsg);
+        messages.push(toolMsg);
+      }
     }
 
+    // Record final assistant response
     aiStore.addMessage({
       role: 'assistant',
-      content: fullContent,
+      content: finalContent,
       timestamp: Date.now(),
     });
 
-    aiStore.setLastResponse(fullContent);
-    return fullContent;
+    aiStore.setLastResponse(finalContent);
+    return finalContent;
 
   } catch (error: any) {
+    console.error('[AI] sendChatMessage failed:', error);
     const errMsg = error?.message || get(t)('errors.chatRequestFailed');
     aiStore.setError(errMsg);
     throw error;
@@ -259,14 +450,14 @@ export async function sendChatMessage(message: string, documentContext?: string)
 }
 
 /**
- * Test the AI connection with current config
+ * Test the AI connection with a given or active config
  */
-export async function testAIConnection(): Promise<boolean> {
-  const state = aiStore.getState();
-  if (!state.providerConfig) return false;
+export async function testAIConnection(config?: AIProviderConfig): Promise<boolean> {
+  const testConfig = config || aiStore.getActiveConfig();
+  if (!testConfig) return false;
 
   try {
-    const response = await sendAIRequest(state.providerConfig, {
+    const response = await sendAIRequest(testConfig, {
       messages: [
         { role: 'user', content: 'Say "Hello from Moraya!" in exactly 3 words.', timestamp: Date.now() },
       ],
@@ -281,9 +472,29 @@ export async function testAIConnection(): Promise<boolean> {
 export async function initAIStore() {
   try {
     const store = await load(AI_STORE_FILE);
-    const saved = await store.get<AIProviderConfig>('providerConfig');
-    if (saved) {
-      aiStore.setConfig(saved);
+
+    // Try new format first
+    const configs = await store.get<AIProviderConfig[]>('providerConfigs');
+    const activeId = await store.get<string>('activeConfigId');
+
+    if (configs && configs.length > 0) {
+      // Ensure all configs have ids
+      for (const c of configs) {
+        if (!c.id) c.id = crypto.randomUUID();
+      }
+      aiStore._load(configs, activeId || configs[0].id);
+    } else {
+      // Try old single-config format (migration)
+      const saved = await store.get<any>('providerConfig');
+      if (saved) {
+        saved.id = saved.id || crypto.randomUUID();
+        aiStore._load([saved], saved.id);
+        // Persist in new format and clean up old key
+        await store.set('providerConfigs', [saved]);
+        await store.set('activeConfigId', saved.id);
+        await store.delete('providerConfig');
+        await store.save();
+      }
     }
   } catch { /* first launch */ }
 }

@@ -44,7 +44,7 @@
   import { editorStore } from '$lib/stores/editor-store';
   import { settingsStore, initSettingsStore } from '$lib/stores/settings-store';
   import { initAIStore } from '$lib/services/ai';
-  import { initMCPStore } from '$lib/services/mcp';
+  import { initMCPStore, connectAllServers } from '$lib/services/mcp';
   import { openFile, saveFile, saveFileAs, loadFile, getFileNameFromPath, readImageAsBlobUrl } from '$lib/services/file-service';
   import { exportDocument, type ExportFormat } from '$lib/services/export-service';
   import { checkForUpdate, shouldCheckToday, getTodayDateString } from '$lib/services/update-service';
@@ -832,6 +832,9 @@ ${tr('welcome.tip')}
     // Restore persisted settings, AI config, and MCP servers
     Promise.all([initSettingsStore(), initAIStore(), initMCPStore()])
       .then(() => {
+        // Auto-connect all enabled MCP servers
+        connectAllServers().catch(() => {});
+
         // Auto-check for updates (once daily)
         const settings = settingsStore.getState();
         if (shouldCheckToday(settings.lastUpdateCheckDate)) {
@@ -970,6 +973,18 @@ ${tr('welcome.tip')}
       }
     });
 
+    // Listen for AI/MCP file-synced events to reload content into the editor
+    function handleFileSynced(e: Event) {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.content != null) {
+        content = detail.content;
+        if (milkdownEditor && editorStore.getState().editorMode !== 'source') {
+          try { milkdownEditor.action(replaceAll(content)); } catch { /* ignore */ }
+        }
+      }
+    }
+    window.addEventListener('moraya:file-synced', handleFileSynced);
+
     // Drag-drop: open MD files in new windows
     const MD_EXTENSIONS = new Set(['md', 'markdown', 'mdown', 'mkd', 'mkdn', 'mdwn', 'mdx', 'txt']);
     let dragDropUnlisten: UnlistenFn | undefined;
@@ -993,6 +1008,7 @@ ${tr('welcome.tip')}
       menuUnlisteners.forEach(unlisten => unlisten());
       openFileUnlisten?.();
       dragDropUnlisten?.();
+      window.removeEventListener('moraya:file-synced', handleFileSynced);
     };
   });
 </script>

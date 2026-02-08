@@ -94,6 +94,33 @@ pub fn mcp_send_request(
     Ok(line.trim().to_string())
 }
 
+/// Send a JSON-RPC notification (no response expected) to an MCP server via stdio
+#[tauri::command]
+pub fn mcp_send_notification(
+    state: State<'_, MCPProcessManager>,
+    server_id: String,
+    notification: String,
+) -> Result<(), String> {
+    let mut processes = state.processes.lock().map_err(|e| e.to_string())?;
+
+    let child = processes
+        .get_mut(&server_id)
+        .ok_or_else(|| format!("MCP server not found: {}", server_id))?;
+
+    let stdin = child
+        .stdin
+        .as_mut()
+        .ok_or("Failed to access MCP server stdin")?;
+
+    writeln!(stdin, "{}", notification)
+        .map_err(|e| format!("Failed to write to MCP server: {}", e))?;
+    stdin
+        .flush()
+        .map_err(|e| format!("Failed to flush MCP server stdin: {}", e))?;
+
+    Ok(())
+}
+
 /// Disconnect from an MCP server
 #[tauri::command]
 pub fn mcp_disconnect(

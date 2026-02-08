@@ -6,6 +6,7 @@
 export type AIProvider = 'claude' | 'openai' | 'gemini' | 'deepseek' | 'ollama' | 'custom';
 
 export interface AIProviderConfig {
+  id: string;
   provider: AIProvider;
   apiKey: string;
   baseUrl?: string;    // For custom/local endpoints
@@ -15,7 +16,7 @@ export interface AIProviderConfig {
 }
 
 export const DEFAULT_MODELS: Record<AIProvider, string[]> = {
-  claude: ['claude-opus-4-5-20251101', 'claude-sonnet-4-20250514', 'claude-3-5-haiku-20241022'],
+  claude: ['claude-opus-4-6', 'claude-opus-4-5-20251101', 'claude-sonnet-4-20250514', 'claude-3-5-haiku-20241022'],
   openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o1', 'o1-mini'],
   gemini: ['gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
   deepseek: ['deepseek-chat', 'deepseek-reasoner'],
@@ -33,14 +34,31 @@ export const PROVIDER_BASE_URLS: Record<AIProvider, string> = {
 };
 
 export interface ChatMessage {
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
   timestamp: number;
+  toolCalls?: ToolCallRequest[];
+  toolCallId?: string;
+  toolName?: string;
+  isError?: boolean;
+}
+
+export interface ToolCallRequest {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+}
+
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
 }
 
 export interface AIRequest {
   messages: ChatMessage[];
   stream?: boolean;
+  tools?: ToolDefinition[];
 }
 
 export interface AIResponse {
@@ -50,6 +68,8 @@ export interface AIResponse {
     inputTokens: number;
     outputTokens: number;
   };
+  toolCalls?: ToolCallRequest[];
+  stopReason?: 'end_turn' | 'tool_use' | 'max_tokens' | 'stop';
 }
 
 export type AICommand =
@@ -83,6 +103,7 @@ export type ImageAspectRatio = '16:9' | '4:3' | '3:2' | '1:1' | '2:3' | '3:4' | 
 export type ImageSizeLevel = 'large' | 'medium' | 'small';
 
 export interface ImageProviderConfig {
+  id: string;
   provider: ImageProvider;
   baseURL: string;
   apiKey: string;
@@ -114,7 +135,7 @@ export const IMAGE_PROVIDER_PRESETS: Record<ImageProvider, { baseURL: string; mo
   custom: { baseURL: '', model: '' },
 };
 
-export const DEFAULT_IMAGE_PROVIDER_CONFIG: ImageProviderConfig = {
+export const DEFAULT_IMAGE_PROVIDER_CONFIG: Omit<ImageProviderConfig, 'id'> = {
   provider: 'openai',
   baseURL: 'https://api.openai.com/v1',
   apiKey: '',

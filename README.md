@@ -2,7 +2,7 @@
 
 A minimal, open-source WYSIWYG Markdown editor built with Rust + Tauri v2. Inspired by Minimalist style seamless editing experience — small (\~5MB DMG), elegant, and AI-ready.
 
-> **mora** (Latin, "a moment") + **ya** (Chinese, "elegance") = **Moraya** (墨雅)
+> **mora** (Latin, "a moment") + **ya** (Chinese, "elegance") = **Moraya**
 
 ![](https://raw.githubusercontent.com/zouwei/resource/master/images/moraya/20260205-160315.-image.png)
 

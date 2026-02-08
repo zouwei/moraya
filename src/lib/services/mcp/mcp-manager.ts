@@ -89,6 +89,12 @@ function createMCPStore() {
         syncConfigs: [...state.syncConfigs.filter(c => c.id !== config.id), config],
       }));
     },
+    removeSyncConfig(configId: string) {
+      update(state => ({
+        ...state,
+        syncConfigs: state.syncConfigs.filter(c => c.id !== configId),
+      }));
+    },
     updateSyncStatus(status: SyncStatus) {
       update(state => {
         const statuses = new Map(state.syncStatuses);
@@ -121,6 +127,15 @@ async function persistMCPServers() {
   } catch { /* ignore */ }
 }
 
+async function persistSyncConfigs() {
+  try {
+    const state = mcpStore.getState();
+    const store = await load(MCP_STORE_FILE);
+    await store.set('syncConfigs', state.syncConfigs);
+    await store.save();
+  } catch { /* ignore */ }
+}
+
 /** Load persisted MCP server configs from disk. Call once at app startup. */
 export async function initMCPStore() {
   try {
@@ -131,7 +146,29 @@ export async function initMCPStore() {
         mcpStore.addServer(s);
       }
     }
+    const syncConfigs = await store.get<SyncConfig[]>('syncConfigs');
+    if (syncConfigs && syncConfigs.length > 0) {
+      for (const sc of syncConfigs) {
+        mcpStore.addSyncConfig(sc);
+      }
+    }
   } catch { /* first launch */ }
+}
+
+/**
+ * Add a sync configuration and persist it
+ */
+export function addSyncConfig(config: SyncConfig) {
+  mcpStore.addSyncConfig(config);
+  persistSyncConfigs();
+}
+
+/**
+ * Remove a sync configuration and persist
+ */
+export function removeSyncConfig(configId: string) {
+  mcpStore.removeSyncConfig(configId);
+  persistSyncConfigs();
 }
 
 // ── MCP Client Manager ──
@@ -149,21 +186,27 @@ export async function connectServer(config: MCPServerConfig): Promise<void> {
   const client = new MCPClient(config);
   try {
     mcpStore.setLoading(true);
+    console.log(`[MCP] Connecting to ${config.name} (${config.transport.type})...`);
     await client.connect();
     clients.set(config.id, client);
     mcpStore.setConnected(config.id, true);
+    console.log(`[MCP] Connected to ${config.name}`);
 
     // Discover tools and resources
     const [tools, resources] = await Promise.all([
-      client.listTools().catch(() => []),
-      client.listResources().catch(() => []),
+      client.listTools().catch((e) => { console.error(`[MCP] listTools failed for ${config.name}:`, e); return []; }),
+      client.listResources().catch((e) => { console.error(`[MCP] listResources failed for ${config.name}:`, e); return []; }),
     ]);
+
+    console.log(`[MCP] ${config.name}: discovered ${tools.length} tools, ${resources.length} resources`);
+    if (tools.length > 0) console.log(`[MCP] Tools:`, tools.map(t => t.name).join(', '));
 
     const state = mcpStore.getState();
     mcpStore.setTools([...state.tools.filter(t => t.serverId !== config.id), ...tools]);
     mcpStore.setResources([...state.resources.filter(r => r.serverId !== config.id), ...resources]);
     mcpStore.setError(null);
   } catch (error: any) {
+    console.error(`[MCP] Failed to connect to ${config.name}:`, error);
     mcpStore.setError(`Failed to connect to ${config.name}: ${error.message}`);
     throw error;
   } finally {
@@ -290,6 +333,29 @@ export async function syncToKnowledgeBase(syncConfigId: string, files: Array<{ p
  */
 export function getAllTools(): MCPTool[] {
   return mcpStore.getState().tools;
+}
+
+/**
+ * Discover publishing capabilities from connected MCP servers.
+ * Looks for tools with names or descriptions matching publishing patterns.
+ */
+export function discoverPublishTargets(): PublishTarget[] {
+  const state = mcpStore.getState();
+  return state.tools
+    .filter(t =>
+      t.name.toLowerCase().includes('publish') ||
+      t.description.toLowerCase().includes('publish')
+    )
+    .map(t => {
+      const server = state.servers.find(s => s.id === t.serverId);
+      return {
+        id: `auto-${t.serverId}-${t.name}`,
+        name: `${server?.name || t.serverId}: ${t.name}`,
+        type: 'custom' as const,
+        mcpServerId: t.serverId,
+        config: { toolName: t.name },
+      };
+    });
 }
 
 /**

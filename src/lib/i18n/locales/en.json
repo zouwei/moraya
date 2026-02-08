@@ -10,6 +10,7 @@
     "insert": "Insert",
     "replace": "Replace",
     "copy": "Copy",
+    "edit": "Edit",
     "untitled": "Untitled"
   },
   "settings": {
@@ -130,6 +131,15 @@
       "ollama": "Ollama (Local)",
       "custom": "Custom API"
     },
+    "multiModel": {
+      "addModel": "+ Add Model",
+      "default": "Default",
+      "setDefault": "Set Default",
+      "noModels": "No AI models configured",
+      "noModelsHint": "Add an AI model to start using AI features.",
+      "noImageModels": "No image models configured",
+      "noImageModelsHint": "Add an image generation model to use AI image features."
+    },
     "imageConfig": {
       "title": "Image Generation AI",
       "provider": "Provider",
@@ -187,7 +197,18 @@
       "serverName": "Server name",
       "serverUrl": "Server URL (e.g., http://localhost:3000/mcp)",
       "http": "HTTP",
-      "sse": "SSE (Server-Sent Events)"
+      "sse": "SSE (Server-Sent Events)",
+      "stdio": "stdio (Local Process)",
+      "command": "Command",
+      "commandPlaceholder": "Command (e.g., npx, node, python)",
+      "argsPlaceholder": "Arguments (e.g., -y @modelcontextprotocol/server-filesystem /path)",
+      "presets": "Quick Add",
+      "presetsHint": "One-click add popular MCP servers",
+      "formMode": "Form",
+      "jsonMode": "JSON",
+      "jsonPlaceholder": "Paste JSON config, e.g.:\n{\n  \"mcpServers\": {\n    \"name\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"@.../server-xxx\"]\n    }\n  }\n}",
+      "jsonNoConfig": "No valid MCP server config found",
+      "jsonParseError": "parse error"
     },
     "publish": {
       "empty": "No publish targets configured",
@@ -200,8 +221,21 @@
     },
     "sync": {
       "empty": "No sync configurations",
-      "hint": "Configure a knowledge base MCP server to enable document syncing.",
-      "syncNow": "Sync Now"
+      "hint": "Connect an MCP server first, then add a sync configuration.",
+      "syncNow": "Sync Now",
+      "addSync": "+ Add Sync",
+      "name": "Configuration name",
+      "server": "MCP Server",
+      "remotePath": "Remote path",
+      "localPath": "Local path",
+      "direction": "Direction",
+      "push": "Push (local → remote)",
+      "pull": "Pull (remote → local)",
+      "bidirectional": "Bidirectional",
+      "lastSync": "Last sync: {time}",
+      "syncing": "Syncing...",
+      "success": "Sync complete",
+      "error": "Sync error: {message}"
     }
   },
   "imageDialog": {

@@ -7,7 +7,9 @@
     AI_COMMANDS,
     type ChatMessage,
     type AICommand,
+    type AIProviderConfig,
   } from '$lib/services/ai';
+  import { mcpStore } from '$lib/services/mcp';
   import { t } from '$lib/i18n';
 
   let {
@@ -30,6 +32,14 @@
   let inputText = $state('');
   let showCommands = $state(false);
   let messagesEl = $state<HTMLDivElement | undefined>(undefined);
+  let inputEl = $state<HTMLTextAreaElement | undefined>(undefined);
+  let mcpToolCount = $state(0);
+  let providerConfigs = $state<AIProviderConfig[]>([]);
+  let activeConfigId = $state<string | null>(null);
+
+  mcpStore.subscribe(state => {
+    mcpToolCount = state.tools.length;
+  });
 
   // Resizable width
   let panelWidth = $state(340);
@@ -67,7 +77,14 @@
     error = state.error;
     streamingContent = state.streamingContent;
     isConfigured = state.isConfigured;
+    providerConfigs = state.providerConfigs;
+    activeConfigId = state.activeConfigId;
   });
+
+  function handleModelSwitch(e: Event) {
+    const id = (e.target as HTMLSelectElement).value;
+    aiStore.setActiveConfig(id);
+  }
 
   // Auto-scroll during streaming when user is at bottom
   $effect(() => {
@@ -92,6 +109,7 @@
     inputText = '';
     showCommands = false;
     userAtBottom = true;
+    resetInputHeight();
 
     try {
       await sendChatMessage(message, documentContent);
@@ -110,6 +128,7 @@
         customPrompt: inputText.trim() || undefined,
       });
       inputText = '';
+      resetInputHeight();
     } catch {
       // Error handled by store
     }
@@ -140,6 +159,23 @@
     aiStore.clearHistory();
   }
 
+  function autoResizeInput() {
+    if (!inputEl) return;
+    inputEl.style.height = 'auto';
+    inputEl.style.height = Math.min(inputEl.scrollHeight, maxInputHeight) + 'px';
+  }
+
+  function resetInputHeight() {
+    if (!inputEl) return;
+    inputEl.style.height = 'auto';
+  }
+
+  // Compute max height for 5 lines based on line-height
+  const lineHeight = 1.4; // matches CSS line-height
+  const fontSize = 14; // --font-size-sm approx
+  const paddingY = 16; // 0.5rem * 2
+  const maxInputHeight = Math.round(fontSize * lineHeight * 5 + paddingY);
+
   function formatTime(timestamp: number): string {
     return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
@@ -149,7 +185,21 @@
 <div class="ai-panel no-select" class:resizing={isResizing} style="width:{panelWidth}px">
   <div class="resize-handle" onmousedown={handleResizeStart}></div>
   <div class="ai-header">
-    <span class="ai-title">{$t('ai.title')}</span>
+    <div class="ai-header-left">
+      <span class="ai-title">{$t('ai.title')}</span>
+      {#if providerConfigs.length > 1}
+        <select class="model-switcher" value={activeConfigId} onchange={handleModelSwitch}>
+          {#each providerConfigs as cfg}
+            <option value={cfg.id}>{cfg.model || cfg.provider}</option>
+          {/each}
+        </select>
+      {:else if providerConfigs.length === 1}
+        <span class="model-name">{providerConfigs[0].model || providerConfigs[0].provider}</span>
+      {/if}
+      {#if mcpToolCount > 0}
+        <span class="mcp-badge" title="{mcpToolCount} MCP tools available">{mcpToolCount} tools</span>
+      {/if}
+    </div>
     <button class="ai-btn" onclick={clearChat} title={$t('ai.clearChat')}>
       <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
         <path d="M4 1V0h6v1h4v2H0V1h4zm1 3h1v8H5V4zm3 0h1v8H8V4zM1 3h12l-1 11H2L1 3z"/>
@@ -180,28 +230,53 @@
       {/if}
 
       {#each chatMessages as msg}
-        <div class="message {msg.role}">
-          <div class="message-header">
-            <span class="message-role">{msg.role === 'user' ? $t('ai.you') : $t('ai.assistant')}</span>
+        {#if msg.role === 'tool'}
+          <div class="message tool-result">
+            <div class="tool-header">
+              <span class="tool-icon">&#9881;</span>
+              <span class="tool-name">{msg.toolName}</span>
+              {#if msg.isError}<span class="tool-error-badge">error</span>{/if}
+            </div>
+            <pre class="tool-output">{msg.content}</pre>
           </div>
-          <div class="message-content">{msg.content}</div>
-          <span class="message-time">{formatTime(msg.timestamp)}</span>
-          <div class="message-actions">
-            {#if msg.role === 'assistant'}
-              <button class="action-btn" onclick={() => handleInsert(msg.content)} title={$t('ai.insertToEditor')}>
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M6 0v5H1v2h5v5h2V7h5V5H8V0H6z"/></svg>
-              </button>
-              {#if selectedText}
-                <button class="action-btn" onclick={() => handleReplace(msg.content)} title={$t('ai.replaceSelection')}>
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M0 0h5v2H2v3H0V0zm12 12H7v-2h3V7h2v5zM8.5 3.5L5 7 3.5 5.5 2 7l3 3 5-5-1.5-1.5z"/></svg>
-                </button>
-              {/if}
+        {:else if msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0}
+          <div class="message assistant tool-calling">
+            {#if msg.content}
+              <div class="message-content">{msg.content}</div>
             {/if}
-            <button class="action-btn" onclick={() => navigator.clipboard.writeText(msg.content)} title={$t('common.copy')}>
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M4 0h8v8h-2V2H4V0zM0 4h8v8H0V4zm2 2v4h4V6H2z"/></svg>
-            </button>
+            {#each msg.toolCalls as tc}
+              <details class="tool-call-block">
+                <summary class="tool-call-summary">Calling: {tc.name}</summary>
+                <pre class="tool-call-args">{JSON.stringify(tc.arguments, null, 2)}</pre>
+              </details>
+            {/each}
           </div>
-        </div>
+        {:else if msg.role === 'system'}
+          <!-- skip system messages in display -->
+        {:else}
+          <div class="message {msg.role}">
+            <div class="message-header">
+              <span class="message-role">{msg.role === 'user' ? $t('ai.you') : $t('ai.assistant')}</span>
+            </div>
+            <div class="message-content">{msg.content}</div>
+            <span class="message-time">{formatTime(msg.timestamp)}</span>
+            <div class="message-actions">
+              {#if msg.role === 'assistant'}
+                <button class="action-btn" onclick={() => handleInsert(msg.content)} title={$t('ai.insertToEditor')}>
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M6 0v5H1v2h5v5h2V7h5V5H8V0H6z"/></svg>
+                </button>
+                {#if selectedText}
+                  <button class="action-btn" onclick={() => handleReplace(msg.content)} title={$t('ai.replaceSelection')}>
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M0 0h5v2H2v3H0V0zm12 12H7v-2h3V7h2v5zM8.5 3.5L5 7 3.5 5.5 2 7l3 3 5-5-1.5-1.5z"/></svg>
+                  </button>
+                {/if}
+              {/if}
+              <button class="action-btn" onclick={() => navigator.clipboard.writeText(msg.content)} title={$t('common.copy')}>
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M4 0h8v8h-2V2H4V0zM0 4h8v8H0V4zm2 2v4h4V6H2z"/></svg>
+              </button>
+            </div>
+          </div>
+        {/if}
       {/each}
 
       {#if isLoading && streamingContent}
@@ -251,7 +326,9 @@
       <div class="input-row">
         <textarea
           class="ai-input"
+          bind:this={inputEl}
           bind:value={inputText}
+          oninput={autoResizeInput}
           onkeydown={handleKeydown}
           placeholder={selectedText ? $t('ai.placeholderSelection') : $t('ai.placeholder')}
           rows={1}
@@ -312,12 +389,52 @@
     border-bottom: 1px solid var(--border-light);
   }
 
+  .ai-header-left {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
   .ai-title {
     font-size: var(--font-size-xs);
     font-weight: 600;
     color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.05em;
+  }
+
+  .model-switcher {
+    font-size: 10px;
+    padding: 0.1rem 0.3rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    max-width: 120px;
+    cursor: pointer;
+  }
+
+  .model-switcher:focus {
+    outline: none;
+    border-color: var(--accent-color);
+  }
+
+  .model-name {
+    font-size: 10px;
+    color: var(--text-muted);
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mcp-badge {
+    font-size: 10px;
+    padding: 0.1rem 0.4rem;
+    border-radius: 8px;
+    background: var(--accent-color);
+    color: white;
+    font-weight: 500;
   }
 
   .ai-btn {
@@ -451,6 +568,81 @@
     border-color: var(--accent-color);
   }
 
+  .message.tool-result {
+    background: var(--bg-hover);
+    border: 1px solid var(--border-light);
+    border-left: 3px solid var(--text-muted);
+    max-width: 90%;
+    padding: 0.4rem 0.6rem;
+  }
+
+  .tool-header {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    margin-bottom: 0.25rem;
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+
+  .tool-icon { font-size: 12px; }
+
+  .tool-name {
+    font-family: var(--font-mono, monospace);
+  }
+
+  .tool-error-badge {
+    font-size: 10px;
+    padding: 0 0.3rem;
+    border-radius: 3px;
+    background: #dc3545;
+    color: white;
+  }
+
+  .tool-output {
+    font-size: 11px;
+    font-family: var(--font-mono, monospace);
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin: 0;
+    max-height: 150px;
+    overflow-y: auto;
+    color: var(--text-secondary);
+    -webkit-user-select: text;
+    user-select: text;
+    cursor: text;
+  }
+
+  .message.tool-calling {
+    border-color: var(--accent-color);
+    border-style: dashed;
+  }
+
+  .tool-call-block {
+    margin-top: 0.3rem;
+    font-size: var(--font-size-xs);
+  }
+
+  .tool-call-summary {
+    cursor: pointer;
+    color: var(--accent-color);
+    font-weight: 500;
+    font-family: var(--font-mono, monospace);
+  }
+
+  .tool-call-args {
+    font-size: 11px;
+    font-family: var(--font-mono, monospace);
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin: 0.25rem 0 0;
+    padding: 0.3rem;
+    background: var(--bg-hover);
+    border-radius: 4px;
+    color: var(--text-secondary);
+  }
+
   .message-header {
     display: flex;
     justify-content: space-between;
@@ -485,6 +677,9 @@
     white-space: pre-wrap;
     word-break: break-word;
     padding-bottom: 1.25rem;
+    -webkit-user-select: text;
+    user-select: text;
+    cursor: text;
   }
 
   /* Action buttons: hidden by default, shown on hover, inside message */
@@ -649,8 +844,8 @@
     background: var(--bg-primary);
     color: var(--text-primary);
     line-height: 1.4;
-    max-height: 100px;
     outline: none;
+    overflow-y: auto;
   }
 
   .ai-input:focus {
