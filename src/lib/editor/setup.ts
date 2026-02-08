@@ -5,8 +5,9 @@ import { gfm } from '@milkdown/preset-gfm';
 import { history } from '@milkdown/plugin-history';
 import { clipboard } from '@milkdown/plugin-clipboard';
 import { cursor } from '@milkdown/plugin-cursor';
-import { listener, listenerCtx } from '@milkdown/plugin-listener';
 import { enterHandlerPlugin } from './plugins/enter-handler';
+import { $prose } from '@milkdown/utils';
+import { Plugin, PluginKey } from '@milkdown/prose/state';
 
 // ── Tier 1: Enhancement plugins (dynamic imports, loaded in parallel) ──
 
@@ -61,6 +62,44 @@ export function preloadEnhancementPlugins(): Promise<Tier1Plugins> {
   return tier1Loading;
 }
 
+/**
+ * ProseMirror plugin that defers markdown serialization to the next animation frame.
+ * Unlike Milkdown's built-in `markdownUpdated` listener (which serializes synchronously
+ * on every ProseMirror transaction), this batches rapid changes and serializes once per frame.
+ */
+function createLazyChangePlugin(onChange: (markdown: string) => void) {
+  return $prose((ctx) => {
+    let changeTimer: ReturnType<typeof setTimeout> | null = null;
+
+    return new Plugin({
+      key: new PluginKey('moraya-lazy-change'),
+      view: () => ({
+        update: (view, prevState) => {
+          if (!prevState || view.state.doc.eq(prevState.doc)) return;
+
+          if (changeTimer !== null) clearTimeout(changeTimer);
+          // Use setTimeout instead of rAF so user input events (Delete, typing)
+          // can preempt pending serialization after heavy operations like undo.
+          changeTimer = setTimeout(() => {
+            try {
+              const serializer = ctx.get('serializerCtx' as any) as unknown as (node: any) => string;
+              const markdown = serializer(view.state.doc);
+              onChange(markdown);
+            } catch { /* editor might be destroyed */ }
+            changeTimer = null;
+          }, 100);
+        },
+        destroy: () => {
+          if (changeTimer !== null) {
+            clearTimeout(changeTimer);
+            changeTimer = null;
+          }
+        }
+      })
+    });
+  });
+}
+
 export interface EditorOptions {
   root: HTMLElement;
   defaultValue?: string;
@@ -75,6 +114,8 @@ export async function createEditor(options: EditorOptions): Promise<Editor> {
   // Load Tier 1 plugins (uses cache if already preloaded)
   const tier1 = await preloadEnhancementPlugins();
 
+  const t0 = performance.now();
+
   let builder = Editor.make()
     .config((ctx) => {
       ctx.set(rootCtx, root);
@@ -85,12 +126,6 @@ export async function createEditor(options: EditorOptions): Promise<Editor> {
           spellcheck: 'true',
         },
       });
-
-      if (onChange) {
-        ctx.get(listenerCtx).markdownUpdated((_ctx, markdown) => {
-          onChange(markdown);
-        });
-      }
     })
     // Tier 0: Core plugins
     .use(commonmark)
@@ -98,8 +133,12 @@ export async function createEditor(options: EditorOptions): Promise<Editor> {
     .use(history)
     .use(clipboard)
     .use(cursor)
-    .use(listener)
     .use(enterHandlerPlugin);
+
+  // Lazy change detection: serializes once per animation frame instead of per keystroke
+  if (onChange) {
+    builder = builder.use(createLazyChangePlugin(onChange));
+  }
 
   // Tier 1: Enhancement plugins (only attach successfully loaded ones)
   if (tier1.highlight) builder = builder.use(tier1.highlight);
@@ -110,6 +149,7 @@ export async function createEditor(options: EditorOptions): Promise<Editor> {
   }
 
   const editor = await builder.create();
+  console.log(`[Editor] createEditor: ${(performance.now() - t0).toFixed(1)}ms (plugins: ${Object.keys(tier1).length} tier1)`);
 
   // Handle focus/blur events on the editor DOM
   if (onFocus || onBlur) {

@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import type { Editor as MilkdownEditor } from '@milkdown/core';
   import { editorViewCtx } from '@milkdown/core';
-  import { callCommand, replaceAll } from '@milkdown/utils';
+  import { callCommand, replaceAll, insert } from '@milkdown/utils';
   import {
     wrapInHeadingCommand,
     wrapInBlockquoteCommand,
@@ -558,14 +558,17 @@ ${tr('welcome.tip')}
   }
 
   function handleAIInsert(text: string) {
-    content = content.trimEnd() + '\n\n' + text + '\n';
-    // In visual/split mode, sync the new content into Milkdown
     if (milkdownEditor && editorStore.getState().editorMode !== 'source') {
       try {
-        milkdownEditor.action(replaceAll(content));
+        // Insert AI text at current cursor position (not replaceAll which resets scroll)
+        milkdownEditor.action(insert('\n\n' + text));
       } catch {
-        // Editor may not be ready
+        // Fallback: append to content string
+        content = content.trimEnd() + '\n\n' + text + '\n';
       }
+    } else {
+      // Source mode: directly update content string
+      content = content.trimEnd() + '\n\n' + text + '\n';
     }
   }
 
