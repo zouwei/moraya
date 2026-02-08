@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Mutex;
 use tauri::{Emitter, Manager};
 
@@ -13,6 +13,10 @@ pub struct OpenedFiles(pub Mutex<Vec<String>>);
 
 /// Maps window labels to file paths that should be opened when the window mounts.
 pub struct PendingFiles(pub Mutex<HashMap<String, String>>);
+
+/// Tracks whether the main window has called get_opened_file (i.e. frontend is ready).
+/// Used to distinguish cold-start file association from runtime file opens.
+pub struct MainWindowReady(pub AtomicBool);
 
 /// Atomic counter for generating unique window labels.
 static WINDOW_COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -40,6 +44,7 @@ fn get_opened_file(
     window: tauri::Window,
     state: tauri::State<'_, OpenedFiles>,
     pending: tauri::State<'_, PendingFiles>,
+    ready: tauri::State<'_, MainWindowReady>,
 ) -> Option<String> {
     let label = window.label();
 
@@ -53,6 +58,9 @@ fn get_opened_file(
 
     // Main window: fall back to startup OpenedFiles
     if label == "main" {
+        // Mark main window as ready so future RunEvent::Opened events
+        // create new windows instead of routing to main
+        ready.0.store(true, Ordering::SeqCst);
         let files = state.0.lock().unwrap();
         return files.first().cloned();
     }
@@ -159,6 +167,7 @@ pub fn run() {
         .manage(commands::mcp::MCPProcessManager::new())
         .manage(OpenedFiles(Mutex::new(initial_files)))
         .manage(PendingFiles(Mutex::new(HashMap::new())))
+        .manage(MainWindowReady(AtomicBool::new(false)))
         .invoke_handler(tauri::generate_handler![
             commands::file::read_file,
             commands::file::read_resource_file,
@@ -227,12 +236,29 @@ pub fn run() {
                 match &_event {
                     // Handle macOS "Open With" / file association events
                     tauri::RunEvent::Opened { urls } => {
+                        let main_ready = _app
+                            .try_state::<MainWindowReady>()
+                            .map(|s| s.0.load(Ordering::SeqCst))
+                            .unwrap_or(false);
+
                         for u in urls {
                             if u.scheme() == "file" {
                                 if let Ok(p) = u.to_file_path() {
                                     let path = p.to_string_lossy().into_owned();
-                                    if let Some(pending) = _app.try_state::<PendingFiles>() {
-                                        let _ = create_editor_window(_app, &pending, Some(path));
+
+                                    if !main_ready {
+                                        // Cold start: store file for the main window to pick up
+                                        // via get_opened_file(). Also emit open-file in case the
+                                        // frontend has already called get_opened_file.
+                                        if let Some(opened) = _app.try_state::<OpenedFiles>() {
+                                            opened.0.lock().unwrap().push(path.clone());
+                                        }
+                                        let _ = _app.emit("open-file", &path);
+                                    } else {
+                                        // Runtime: create a new window for the file
+                                        if let Some(pending) = _app.try_state::<PendingFiles>() {
+                                            let _ = create_editor_window(_app, &pending, Some(path));
+                                        }
                                     }
                                 }
                             }

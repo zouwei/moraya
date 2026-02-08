@@ -30,8 +30,11 @@ function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = AI_FETCH_T
   const fetchFn = tauriFetch || fetch;
   return fetchFn(url, { ...init, signal: controller.signal }).catch((err: Error) => {
     console.error(`[AI] fetch failed: ${url}`, err.name, err.message);
+    // User-initiated abort: always propagate as AbortError
+    if (externalSignal?.aborted) {
+      throw new DOMException('Aborted', 'AbortError');
+    }
     if (err.name === 'AbortError') {
-      if (externalSignal?.aborted) throw new DOMException('Aborted', 'AbortError');
       throw new Error(`AI 请求超时（${Math.round(timeoutMs / 1000)}s），请尝试简化请求或检查网络`);
     }
     throw new Error(`AI 服务连接失败 (${err.message})，请检查网络连接和 API 配置`);

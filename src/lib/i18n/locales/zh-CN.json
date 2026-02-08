@@ -106,6 +106,7 @@
     "placeholderSelection": "询问选中内容...（/ 查看命令）",
     "send": "发送（Enter）",
     "stop": "停止（Esc）",
+    "interrupted": "被打断",
     "insertToEditor": "插入到编辑器",
     "replaceSelection": "替换选中内容",
     "config": {

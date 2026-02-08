@@ -20,7 +20,6 @@
     insertTableCommand,
     toggleStrikethroughCommand,
   } from '@milkdown/preset-gfm';
-  import { mathBlockSchema } from '@milkdown/plugin-math';
   import Editor from '$lib/editor/Editor.svelte';
   import SourceEditor from '$lib/editor/SourceEditor.svelte';
   import SearchBar from '$lib/editor/SearchBar.svelte';
@@ -28,23 +27,14 @@
   import TitleBar from '$lib/components/TitleBar.svelte';
   import StatusBar from '$lib/components/StatusBar.svelte';
   import Sidebar from '$lib/components/Sidebar.svelte';
-  import SettingsPanel from '$lib/components/SettingsPanel.svelte';
-  import AIChatPanel from '$lib/components/ai/AIChatPanel.svelte';
-  import ImageInsertDialog from '$lib/components/ImageInsertDialog.svelte';
-  import PublishWorkflow from '$lib/components/PublishWorkflow.svelte';
-  import SEOPanel from '$lib/components/SEOPanel.svelte';
-  import ImageGenDialog from '$lib/components/ImageGenDialog.svelte';
-  import PublishConfirm from '$lib/components/PublishConfirm.svelte';
-  import UpdateDialog from '$lib/components/UpdateDialog.svelte';
   import Toast from '$lib/components/Toast.svelte';
   import type { SEOData } from '$lib/services/ai/types';
   import type { PublishResult } from '$lib/services/publish/types';
-  import { publishToGitHub } from '$lib/services/publish/github-publisher';
-  import { publishToCustomAPI } from '$lib/services/publish/api-publisher';
   import { editorStore } from '$lib/stores/editor-store';
   import { settingsStore, initSettingsStore } from '$lib/stores/settings-store';
   import { initAIStore } from '$lib/services/ai';
   import { initMCPStore, connectAllServers } from '$lib/services/mcp';
+  import { preloadEnhancementPlugins } from '$lib/editor/setup';
   import { openFile, saveFile, saveFileAs, loadFile, getFileNameFromPath, readImageAsBlobUrl } from '$lib/services/file-service';
   import { exportDocument, type ExportFormat } from '$lib/services/export-service';
   import { checkForUpdate, shouldCheckToday, getTodayDateString } from '$lib/services/update-service';
@@ -233,9 +223,10 @@ ${tr('welcome.tip')}
     }
   }
 
-  function insertMathBlock() {
+  async function insertMathBlock() {
     if (!milkdownEditor) return;
     try {
+      const { mathBlockSchema } = await import('@milkdown/plugin-math');
       milkdownEditor.action((ctx) => {
         const view = ctx.get(editorViewCtx);
         const { state, dispatch } = view;
@@ -745,6 +736,12 @@ ${tr('welcome.tip')}
       content,
     };
 
+    // Lazy-load publish services
+    const [{ publishToGitHub }, { publishToCustomAPI }] = await Promise.all([
+      import('$lib/services/publish/github-publisher'),
+      import('$lib/services/publish/api-publisher'),
+    ]);
+
     const tr = $t;
     for (const target of targets) {
       let result: PublishResult;
@@ -828,6 +825,9 @@ ${tr('welcome.tip')}
     } else {
       document.body.classList.add('platform-linux');
     }
+
+    // Preload enhancement plugins in background (warms cache for editor creation)
+    preloadEnhancementPlugins();
 
     // Restore persisted settings, AI config, and MCP servers
     Promise.all([initSettingsStore(), initAIStore(), initMCPStore()])
@@ -1057,12 +1057,14 @@ ${tr('welcome.tip')}
     </main>
 
     {#if showAIPanel}
-      <AIChatPanel
-        documentContent={content}
-        {selectedText}
-        onInsert={handleAIInsert}
-        onReplace={handleAIReplace}
-      />
+      {#await import('$lib/components/ai/AIChatPanel.svelte') then { default: AIChatPanel }}
+        <AIChatPanel
+          documentContent={content}
+          {selectedText}
+          onInsert={handleAIInsert}
+          onReplace={handleAIReplace}
+        />
+      {/await}
     {/if}
   </div>
 
@@ -1070,52 +1072,66 @@ ${tr('welcome.tip')}
 </div>
 
 {#if showSettings}
-  <SettingsPanel onClose={() => showSettings = false} />
+  {#await import('$lib/components/SettingsPanel.svelte') then { default: SettingsPanel }}
+    <SettingsPanel onClose={() => showSettings = false} />
+  {/await}
 {/if}
 
 {#if showImageDialog}
-  <ImageInsertDialog
-    onInsert={handleInsertImage}
-    onClose={() => showImageDialog = false}
-  />
+  {#await import('$lib/components/ImageInsertDialog.svelte') then { default: ImageInsertDialog }}
+    <ImageInsertDialog
+      onInsert={handleInsertImage}
+      onClose={() => showImageDialog = false}
+    />
+  {/await}
 {/if}
 
 {#if showWorkflow}
-  <PublishWorkflow
-    onClose={() => showWorkflow = false}
-    onSEO={handleWorkflowSEO}
-    onImageGen={handleWorkflowImageGen}
-    onPublish={handleWorkflowPublish}
-    {seoCompleted}
-    {imageGenCompleted}
-  />
+  {#await import('$lib/components/PublishWorkflow.svelte') then { default: PublishWorkflow }}
+    <PublishWorkflow
+      onClose={() => showWorkflow = false}
+      onSEO={handleWorkflowSEO}
+      onImageGen={handleWorkflowImageGen}
+      onPublish={handleWorkflowPublish}
+      {seoCompleted}
+      {imageGenCompleted}
+    />
+  {/await}
 {/if}
 
 {#if showSEOPanel}
-  <SEOPanel
-    onClose={() => showSEOPanel = false}
-    onApply={handleSEOApply}
-  />
+  {#await import('$lib/components/SEOPanel.svelte') then { default: SEOPanel }}
+    <SEOPanel
+      onClose={() => showSEOPanel = false}
+      onApply={handleSEOApply}
+    />
+  {/await}
 {/if}
 
 {#if imageGenDialogMounted}
   <div class="dialog-visibility" class:hidden={!showImageGenDialog}>
-    <ImageGenDialog
-      onClose={() => showImageGenDialog = false}
-      onInsert={handleImageGenInsert}
-    />
+    {#await import('$lib/components/ImageGenDialog.svelte') then { default: ImageGenDialog }}
+      <ImageGenDialog
+        onClose={() => showImageGenDialog = false}
+        onInsert={handleImageGenInsert}
+      />
+    {/await}
   </div>
 {/if}
 
 {#if showPublishConfirm}
-  <PublishConfirm
-    onClose={() => showPublishConfirm = false}
-    onConfirm={handlePublishConfirm}
-  />
+  {#await import('$lib/components/PublishConfirm.svelte') then { default: PublishConfirm }}
+    <PublishConfirm
+      onClose={() => showPublishConfirm = false}
+      onConfirm={handlePublishConfirm}
+    />
+  {/await}
 {/if}
 
 {#if showUpdateDialog}
-  <UpdateDialog onClose={() => showUpdateDialog = false} />
+  {#await import('$lib/components/UpdateDialog.svelte') then { default: UpdateDialog }}
+    <UpdateDialog onClose={() => showUpdateDialog = false} />
+  {/await}
 {/if}
 
 <Toast messages={toastMessages} />

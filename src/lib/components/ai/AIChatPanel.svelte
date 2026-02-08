@@ -30,6 +30,7 @@
   let chatMessages = $state<ChatMessage[]>([]);
   let isLoading = $state(false);
   let error = $state<string | null>(null);
+  let interrupted = $state(false);
   let streamingContent = $state('');
   let isConfigured = $state(false);
   let inputText = $state('');
@@ -81,6 +82,7 @@
     chatMessages = state.chatHistory;
     isLoading = state.isLoading;
     error = state.error;
+    interrupted = state.interrupted;
     streamingContent = state.streamingContent;
     isConfigured = state.isConfigured;
     providerConfigs = state.providerConfigs;
@@ -333,6 +335,12 @@
       {#if error}
         <div class="message error">
           <span>{error}</span>
+        </div>
+      {/if}
+
+      {#if interrupted}
+        <div class="interrupted-indicator">
+          <span>{$t('ai.interrupted')}</span>
         </div>
       {/if}
     </div>
@@ -625,6 +633,13 @@
 
   .message.streaming {
     border-color: var(--accent-color);
+  }
+
+  .interrupted-indicator {
+    text-align: center;
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    padding: 0.25rem 0;
   }
 
   .message.tool-result {

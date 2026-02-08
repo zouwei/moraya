@@ -39,6 +39,7 @@ interface AIState {
   isConfigured: boolean;
   isLoading: boolean;
   error: string | null;
+  interrupted: boolean;
   chatHistory: ChatMessage[];
   lastResponse: string | null;
   streamingContent: string;
@@ -56,6 +57,7 @@ function createAIStore() {
     isConfigured: false,
     isLoading: false,
     error: null,
+    interrupted: false,
     chatHistory: [],
     lastResponse: null,
     streamingContent: '',
@@ -138,7 +140,7 @@ function createAIStore() {
     },
 
     setLoading(loading: boolean) {
-      update(state => ({ ...state, isLoading: loading, error: null }));
+      update(state => ({ ...state, isLoading: loading, error: null, interrupted: false }));
     },
     setError(error: string) {
       update(state => ({ ...state, error, isLoading: false }));
@@ -158,8 +160,11 @@ function createAIStore() {
     setLastResponse(content: string) {
       update(state => ({ ...state, lastResponse: content, isLoading: false }));
     },
+    setInterrupted() {
+      update(state => ({ ...state, isLoading: false, interrupted: true }));
+    },
     clearHistory() {
-      update(state => ({ ...state, chatHistory: [], lastResponse: null }));
+      update(state => ({ ...state, chatHistory: [], lastResponse: null, interrupted: false }));
     },
     getState() {
       return get({ subscribe });
@@ -290,13 +295,13 @@ export async function executeAICommand(
     return fullContent;
 
   } catch (error: any) {
-    if (error?.name === 'AbortError') {
-      // User-initiated abort: save partial content, don't show error
+    if (error?.name === 'AbortError' || signal.aborted) {
+      // User-initiated abort: save partial content, show interrupted indicator
       const partial = aiStore.getState().streamingContent;
       if (partial) {
         aiStore.addMessage({ role: 'assistant', content: partial, timestamp: Date.now() });
       }
-      aiStore.setLoading(false);
+      aiStore.setInterrupted();
       return partial;
     }
     const errMsg = error?.message || get(t)('errors.aiRequestFailed');
@@ -476,13 +481,13 @@ export async function sendChatMessage(message: string, documentContext?: string)
     return finalContent;
 
   } catch (error: any) {
-    if (error?.name === 'AbortError') {
-      // User-initiated abort: save partial content, don't show error
+    if (error?.name === 'AbortError' || signal.aborted) {
+      // User-initiated abort: save partial content, show interrupted indicator
       const partial = aiStore.getState().streamingContent;
       if (partial) {
         aiStore.addMessage({ role: 'assistant', content: partial, timestamp: Date.now() });
       }
-      aiStore.setLoading(false);
+      aiStore.setInterrupted();
       return partial;
     }
     console.error('[AI] sendChatMessage failed:', error);

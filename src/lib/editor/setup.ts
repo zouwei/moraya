@@ -1,23 +1,65 @@
 import { Editor, rootCtx, defaultValueCtx, editorViewOptionsCtx, editorViewCtx } from '@milkdown/core';
+// ── Tier 0: Core plugins (static imports, always available) ──
 import { commonmark } from '@milkdown/preset-commonmark';
 import { gfm } from '@milkdown/preset-gfm';
-import { math } from '@milkdown/plugin-math';
 import { history } from '@milkdown/plugin-history';
 import { clipboard } from '@milkdown/plugin-clipboard';
 import { cursor } from '@milkdown/plugin-cursor';
 import { listener, listenerCtx } from '@milkdown/plugin-listener';
-import { highlightPlugin } from './plugins/highlight';
 import { enterHandlerPlugin } from './plugins/enter-handler';
-import { emojiPlugin } from './plugins/emoji';
-import {
-  defListRemarkPlugin,
-  defListSchema,
-  defListTermSchema,
-  defListDescriptionSchema,
-  defListInputRule,
-} from './plugins/definition-list';
 
-import 'katex/dist/katex.min.css';
+// ── Tier 1: Enhancement plugins (dynamic imports, loaded in parallel) ──
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type MilkdownPlugin = any;
+
+interface Tier1Plugins {
+  highlight?: MilkdownPlugin;
+  emoji?: MilkdownPlugin;
+  math?: MilkdownPlugin;
+  defList?: MilkdownPlugin[];
+}
+
+let tier1Cache: Tier1Plugins | null = null;
+let tier1Loading: Promise<Tier1Plugins> | null = null;
+
+/**
+ * Preload Tier 1 enhancement plugins via dynamic import().
+ * Each plugin becomes a separate Vite chunk (automatic code splitting).
+ * Can be called early (e.g. in +page.svelte onMount) to warm the cache.
+ */
+export function preloadEnhancementPlugins(): Promise<Tier1Plugins> {
+  if (tier1Cache) return Promise.resolve(tier1Cache);
+  if (tier1Loading) return tier1Loading;
+
+  tier1Loading = Promise.allSettled([
+    import('./plugins/highlight'),
+    import('./plugins/emoji'),
+    import('./plugins/definition-list'),
+    import('@milkdown/plugin-math'),
+  ]).then(([hl, em, dl, ma]) => {
+    const plugins: Tier1Plugins = {};
+    if (hl.status === 'fulfilled') plugins.highlight = hl.value.highlightPlugin;
+    if (em.status === 'fulfilled') plugins.emoji = em.value.emojiPlugin;
+    if (dl.status === 'fulfilled') {
+      const m = dl.value;
+      plugins.defList = [
+        m.defListRemarkPlugin, m.defListSchema,
+        m.defListTermSchema, m.defListDescriptionSchema, m.defListInputRule,
+      ];
+    }
+    if (ma.status === 'fulfilled') {
+      plugins.math = ma.value.math;
+      // Load KaTeX CSS only when math plugin is available
+      import('katex/dist/katex.min.css');
+    }
+    tier1Cache = plugins;
+    tier1Loading = null;
+    return plugins;
+  });
+
+  return tier1Loading;
+}
 
 export interface EditorOptions {
   root: HTMLElement;
@@ -30,7 +72,10 @@ export interface EditorOptions {
 export async function createEditor(options: EditorOptions): Promise<Editor> {
   const { root, defaultValue = '', onChange, onFocus, onBlur } = options;
 
-  const editor = await Editor.make()
+  // Load Tier 1 plugins (uses cache if already preloaded)
+  const tier1 = await preloadEnhancementPlugins();
+
+  let builder = Editor.make()
     .config((ctx) => {
       ctx.set(rootCtx, root);
       ctx.set(defaultValueCtx, defaultValue);
@@ -47,22 +92,24 @@ export async function createEditor(options: EditorOptions): Promise<Editor> {
         });
       }
     })
+    // Tier 0: Core plugins
     .use(commonmark)
     .use(gfm)
-    .use(math)
     .use(history)
     .use(clipboard)
     .use(cursor)
     .use(listener)
-    .use(highlightPlugin)
-    .use(enterHandlerPlugin)
-    .use(emojiPlugin)
-    .use(defListRemarkPlugin)
-    .use(defListSchema)
-    .use(defListTermSchema)
-    .use(defListDescriptionSchema)
-    .use(defListInputRule)
-    .create();
+    .use(enterHandlerPlugin);
+
+  // Tier 1: Enhancement plugins (only attach successfully loaded ones)
+  if (tier1.highlight) builder = builder.use(tier1.highlight);
+  if (tier1.emoji) builder = builder.use(tier1.emoji);
+  if (tier1.math) builder = builder.use(tier1.math);
+  if (tier1.defList) {
+    for (const p of tier1.defList) builder = builder.use(p);
+  }
+
+  const editor = await builder.create();
 
   // Handle focus/blur events on the editor DOM
   if (onFocus || onBlur) {

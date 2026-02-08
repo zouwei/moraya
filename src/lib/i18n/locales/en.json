@@ -106,6 +106,7 @@
     "placeholderSelection": "Ask about selection... (/ for commands)",
     "send": "Send (Enter)",
     "stop": "Stop (Esc)",
+    "interrupted": "Interrupted",
     "insertToEditor": "Insert into editor",
     "replaceSelection": "Replace selection",
     "config": {

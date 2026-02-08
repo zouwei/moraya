@@ -872,13 +872,12 @@
     flex: 1;
     overflow-y: auto;
     padding: 2rem 3rem;
-    opacity: 0;
-    transition: opacity 0.2s ease;
+    visibility: hidden;
     cursor: text;
   }
 
   .editor-wrapper.ready {
-    opacity: 1;
+    visibility: visible;
   }
 
   .editor-root {

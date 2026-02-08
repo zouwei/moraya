@@ -14,6 +14,14 @@ interface EditorState {
   cursorOffset: number;
 }
 
+// requestIdleCallback with fallback for older WebKit
+const scheduleIdle = typeof requestIdleCallback === 'function'
+  ? requestIdleCallback
+  : (cb: () => void) => setTimeout(cb, 16) as unknown as number;
+const cancelIdle = typeof cancelIdleCallback === 'function'
+  ? cancelIdleCallback
+  : (id: number) => clearTimeout(id);
+
 function createEditorStore() {
   const { subscribe, set, update } = writable<EditorState>({
     currentFilePath: null,
@@ -37,15 +45,29 @@ function createEditorStore() {
     return cjkChars + latinWords;
   }
 
+  // Deferred word count: runs in idle frame to avoid blocking editor transactions
+  let wordCountTimer: number | null = null;
+
+  function scheduleWordCount(text: string) {
+    if (wordCountTimer !== null) {
+      cancelIdle(wordCountTimer);
+    }
+    wordCountTimer = scheduleIdle(() => {
+      const wc = countWords(text);
+      update(state => ({
+        ...state,
+        wordCount: wc,
+        charCount: text.length,
+      }));
+      wordCountTimer = null;
+    });
+  }
+
   return {
     subscribe,
     setContent(content: string) {
-      update(state => ({
-        ...state,
-        content,
-        wordCount: countWords(content),
-        charCount: content.length,
-      }));
+      update(state => ({ ...state, content }));
+      scheduleWordCount(content);
     },
     setDirty(isDirty: boolean) {
       update(state => ({ ...state, isDirty }));
