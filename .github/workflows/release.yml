@@ -62,6 +62,13 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Apple Developer signing (optional — set these secrets to enable)
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Moraya ${{ github.ref_name }}'
@@ -70,18 +77,16 @@ jobs:
 
             ### macOS
 
-            The app is not code-signed with an Apple Developer certificate. After installing, if you see "Moraya is damaged and can't be opened", run the following command in Terminal:
-
-            ```
-            xattr -cr /Applications/Moraya.app
-            ```
-
-            Then open the app again.
+            > If you see **"Moraya is damaged"**, open Terminal and run:
+            > ```
+            > xattr -cr /Applications/Moraya.app
+            > ```
+            > Or download the `fix-macos-gatekeeper.command` script below, double-click to run it.
 
             ### Linux
 
-            - **.deb** — For Debian / Ubuntu: `sudo dpkg -i moraya_*.deb`
-            - **.AppImage** — Universal: `chmod +x Moraya_*.AppImage && ./Moraya_*.AppImage`
+            - **.deb** — `sudo dpkg -i moraya_*.deb`
+            - **.AppImage** — `chmod +x Moraya_*.AppImage && ./Moraya_*.AppImage`
 
             ### Windows
 
@@ -89,3 +94,33 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+
+      # Generate macOS fix script as release asset
+      - name: Create macOS Gatekeeper fix script
+        if: matrix.platform == 'macos-latest' && contains(matrix.args, 'aarch64')
+        run: |
+          cat > fix-macos-gatekeeper.command << 'SCRIPT'
+          #!/bin/bash
+          # Moraya — Fix macOS Gatekeeper "damaged app" error
+          # Double-click this file or run in Terminal.
+
+          echo "Fixing Moraya Gatekeeper issue..."
+          if [ -d "/Applications/Moraya.app" ]; then
+            xattr -cr /Applications/Moraya.app
+            echo "✅ Fixed! Opening Moraya..."
+            open /Applications/Moraya.app
+          else
+            echo "❌ Moraya.app not found in /Applications."
+            echo "   Please drag Moraya.app to /Applications first."
+          fi
+          SCRIPT
+          chmod +x fix-macos-gatekeeper.command
+
+      - name: Upload macOS fix script
+        if: matrix.platform == 'macos-latest' && contains(matrix.args, 'aarch64')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: fix-macos-gatekeeper.command
+          tag_name: ${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
