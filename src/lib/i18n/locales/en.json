@@ -202,6 +202,7 @@
       "command": "Command",
       "commandPlaceholder": "Command (e.g., npx, node, python)",
       "argsPlaceholder": "Arguments (e.g., -y @modelcontextprotocol/server-filesystem /path)",
+      "envPlaceholder": "ENV_KEY=value (one per line)",
       "presets": "Quick Add",
       "presetsHint": "One-click add popular MCP servers",
       "formMode": "Form",

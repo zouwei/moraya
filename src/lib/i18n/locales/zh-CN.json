@@ -202,6 +202,7 @@
       "command": "命令",
       "commandPlaceholder": "命令（如：npx、node、python）",
       "argsPlaceholder": "参数（如：-y @modelcontextprotocol/server-filesystem /path）",
+      "envPlaceholder": "环境变量 KEY=VALUE（每行一个）",
       "presets": "快速添加",
       "presetsHint": "一键添加常用 MCP 服务器",
       "formMode": "表单",

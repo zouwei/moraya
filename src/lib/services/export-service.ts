@@ -85,7 +85,7 @@ export function markdownToHtml(markdown: string, includeStyles: boolean = true):
 /**
  * Convert markdown to HTML body content with KaTeX math and proper code blocks.
  */
-function markdownToHtmlBody(md: string): string {
+export function markdownToHtmlBody(md: string): string {
   // Use a placeholder system to protect already-processed content
   const placeholders: string[] = [];
   function ph(content: string): string {
@@ -150,11 +150,13 @@ function markdownToHtmlBody(md: string): string {
   // 7. Strikethrough
   html = html.replace(/~~(.+?)~~/g, '<del>$1</del>');
 
-  // 8. Links
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+  // 8. Images (must be before links, so ![alt](url) isn't consumed by link regex)
+  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, alt, src) => {
+    return ph(`<img src="${src}" alt="${escapeHtml(alt)}">`);
+  });
 
-  // 9. Images
-  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1">');
+  // 9. Links
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
 
   // 10. Horizontal rules
   html = html.replace(/^---$/gm, '<hr>');

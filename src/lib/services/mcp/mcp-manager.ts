@@ -207,7 +207,7 @@ export async function connectServer(config: MCPServerConfig): Promise<void> {
     mcpStore.setError(null);
   } catch (error: any) {
     console.error(`[MCP] Failed to connect to ${config.name}:`, error);
-    mcpStore.setError(`Failed to connect to ${config.name}: ${error.message}`);
+    mcpStore.setError(`Failed to connect to ${config.name}: ${error?.message || error}`);
     throw error;
   } finally {
     mcpStore.setLoading(false);

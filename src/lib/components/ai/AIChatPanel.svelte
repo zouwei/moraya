@@ -10,6 +10,8 @@
     type AIProviderConfig,
   } from '$lib/services/ai';
   import { mcpStore } from '$lib/services/mcp';
+  import { markdownToHtmlBody } from '$lib/services/export-service';
+  import { openUrl } from '@tauri-apps/plugin-opener';
   import { t } from '$lib/i18n';
 
   let {
@@ -41,11 +43,14 @@
     mcpToolCount = state.tools.length;
   });
 
-  // Resizable width
-  let panelWidth = $state(340);
-  let isResizing = $state(false);
+  // Resizable width — default to golden ratio (smaller portion ≈ 38.2%)
+  const GOLDEN_RATIO = 1.618;
   const MIN_WIDTH = 280;
   const MAX_WIDTH = 800;
+  let panelWidth = $state(Math.round(
+    Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, window.innerWidth / (1 + GOLDEN_RATIO)))
+  ));
+  let isResizing = $state(false);
 
   function handleResizeStart(e: MouseEvent) {
     e.preventDefault();
@@ -179,11 +184,25 @@
   function formatTime(timestamp: number): string {
     return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
+
+  /** Intercept link clicks in rendered markdown — open in external browser */
+  function handleContentClick(e: MouseEvent) {
+    const anchor = (e.target as HTMLElement).closest('a');
+    if (anchor) {
+      e.preventDefault();
+      const href = anchor.getAttribute('href');
+      if (href) openUrl(href);
+    }
+  }
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="ai-panel no-select" class:resizing={isResizing} style="width:{panelWidth}px">
-  <div class="resize-handle" onmousedown={handleResizeStart}></div>
+  <div class="resize-handle" onmousedown={handleResizeStart}>
+    {#if isResizing}
+      <span class="width-indicator">{panelWidth}</span>
+    {/if}
+  </div>
   <div class="ai-header">
     <div class="ai-header-left">
       <span class="ai-title">{$t('ai.title')}</span>
@@ -242,7 +261,9 @@
         {:else if msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0}
           <div class="message assistant tool-calling">
             {#if msg.content}
-              <div class="message-content">{msg.content}</div>
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <div class="message-content" onclick={handleContentClick}>{@html markdownToHtmlBody(msg.content)}</div>
             {/if}
             {#each msg.toolCalls as tc}
               <details class="tool-call-block">
@@ -258,7 +279,13 @@
             <div class="message-header">
               <span class="message-role">{msg.role === 'user' ? $t('ai.you') : $t('ai.assistant')}</span>
             </div>
-            <div class="message-content">{msg.content}</div>
+            {#if msg.role === 'assistant'}
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <div class="message-content" onclick={handleContentClick}>{@html markdownToHtmlBody(msg.content)}</div>
+            {:else}
+              <div class="message-content">{msg.content}</div>
+            {/if}
             <span class="message-time">{formatTime(msg.timestamp)}</span>
             <div class="message-actions">
               {#if msg.role === 'assistant'}
@@ -284,7 +311,9 @@
           <div class="message-header">
             <span class="message-role">{$t('ai.assistant')}</span>
           </div>
-          <div class="message-content">{streamingContent}</div>
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div class="message-content" onclick={handleContentClick}>{@html markdownToHtmlBody(streamingContent)}</div>
           <span class="typing-indicator">{$t('ai.typing')}</span>
         </div>
       {:else if isLoading}
@@ -379,6 +408,21 @@
   .resize-handle:hover,
   .ai-panel.resizing .resize-handle {
     background: var(--accent-color);
+  }
+
+  .width-indicator {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 10px;
+    color: white;
+    background: var(--accent-color);
+    padding: 0.1rem 0.4rem;
+    border-radius: 3px;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 11;
   }
 
   .ai-header {
@@ -674,12 +718,87 @@
   }
 
   .message-content {
-    white-space: pre-wrap;
     word-break: break-word;
     padding-bottom: 1.25rem;
     -webkit-user-select: text;
     user-select: text;
     cursor: text;
+  }
+
+  /* User messages stay pre-wrap (plain text) */
+  .message.user .message-content {
+    white-space: pre-wrap;
+  }
+
+  /* Markdown rendered content for assistant messages */
+  .message-content :global(p) { margin: 0.4em 0; }
+  .message-content :global(p:first-child) { margin-top: 0; }
+  .message-content :global(p:last-child) { margin-bottom: 0; }
+
+  .message-content :global(h1),
+  .message-content :global(h2),
+  .message-content :global(h3),
+  .message-content :global(h4),
+  .message-content :global(h5),
+  .message-content :global(h6) { margin: 0.5em 0 0.3em; font-weight: 600; }
+  .message-content :global(h1) { font-size: 1.3em; }
+  .message-content :global(h2) { font-size: 1.15em; }
+  .message-content :global(h3) { font-size: 1.05em; }
+
+  .message-content :global(img) {
+    max-width: 100%;
+    height: auto;
+    border-radius: 4px;
+    margin: 0.5em 0;
+    display: block;
+  }
+
+  .message-content :global(code) {
+    background: var(--bg-hover);
+    padding: 0.1em 0.3em;
+    border-radius: 3px;
+    font-size: 0.85em;
+    font-family: var(--font-mono, monospace);
+  }
+
+  .message-content :global(pre) {
+    background: var(--bg-hover);
+    padding: 0.6rem;
+    border-radius: 4px;
+    overflow-x: auto;
+    margin: 0.5em 0;
+    font-size: 0.85em;
+  }
+  .message-content :global(pre code) { background: none; padding: 0; }
+
+  .message-content :global(a) {
+    color: var(--accent-color);
+    text-decoration: underline;
+  }
+
+  .message-content :global(ul),
+  .message-content :global(ol) {
+    margin: 0.4em 0;
+    padding-left: 1.5em;
+  }
+
+  .message-content :global(blockquote) {
+    border-left: 3px solid var(--accent-color);
+    padding-left: 0.6em;
+    margin: 0.4em 0;
+    color: var(--text-secondary);
+  }
+
+  .message-content :global(hr) {
+    border: none;
+    border-top: 1px solid var(--border-color);
+    margin: 0.8em 0;
+  }
+
+  .message-content :global(.math-block) {
+    text-align: center;
+    margin: 0.5em 0;
+    overflow-x: auto;
   }
 
   /* Action buttons: hidden by default, shown on hover, inside message */

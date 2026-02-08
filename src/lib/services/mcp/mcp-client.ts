@@ -189,6 +189,9 @@ class MCPClient {
         serverId: this.serverConfig.id,
         request: JSON.stringify(request),
       });
+      if (!responseStr || !responseStr.trim()) {
+        throw new Error('MCP server returned empty response');
+      }
       const response: JSONRPCResponse = JSON.parse(responseStr);
       if (response.error) {
         throw new Error(response.error.message);

@@ -39,6 +39,7 @@
   let newServerUrl = $state('');
   let newServerCommand = $state('');
   let newServerArgs = $state('');
+  let newServerEnv = $state('');
   let newServerTransport = $state<'http' | 'sse' | 'stdio'>('stdio');
   let showAddServer = $state(false);
   let addMode = $state<'form' | 'json'>('form');
@@ -52,6 +53,7 @@
   let editCommand = $state('');
   let editArgs = $state('');
   let editUrl = $state('');
+  let editEnv = $state('');
 
   mcpStore.subscribe(state => {
     servers = state.servers;
@@ -75,6 +77,26 @@
     await disconnectServer(serverId);
   }
 
+  /** Parse "KEY=VALUE" lines into a Record, returns undefined if empty */
+  function parseEnvString(envStr: string): Record<string, string> | undefined {
+    const lines = envStr.trim().split('\n').filter(l => l.trim());
+    if (lines.length === 0) return undefined;
+    const env: Record<string, string> = {};
+    for (const line of lines) {
+      const idx = line.indexOf('=');
+      if (idx > 0) {
+        env[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+      }
+    }
+    return Object.keys(env).length > 0 ? env : undefined;
+  }
+
+  /** Serialize env Record to "KEY=VALUE" lines */
+  function envToString(env?: Record<string, string>): string {
+    if (!env) return '';
+    return Object.entries(env).map(([k, v]) => `${k}=${v}`).join('\n');
+  }
+
   function handleAddServer() {
     if (!newServerName.trim()) return;
 
@@ -82,7 +104,7 @@
     if (newServerTransport === 'stdio') {
       if (!newServerCommand.trim()) return;
       const args = newServerArgs.trim() ? newServerArgs.trim().split(/\s+/) : [];
-      transport = { type: 'stdio', command: newServerCommand.trim(), args };
+      transport = { type: 'stdio', command: newServerCommand.trim(), args, env: parseEnvString(newServerEnv) };
     } else {
       if (!newServerUrl.trim()) return;
       transport = { type: newServerTransport, url: newServerUrl.trim() };
@@ -100,6 +122,7 @@
     newServerUrl = '';
     newServerCommand = '';
     newServerArgs = '';
+    newServerEnv = '';
     showAddServer = false;
   }
 
@@ -196,10 +219,12 @@
     if (server.transport.type === 'stdio') {
       editCommand = server.transport.command;
       editArgs = (server.transport.args || []).join(' ');
+      editEnv = envToString(server.transport.env);
       editUrl = '';
     } else {
       editCommand = '';
       editArgs = '';
+      editEnv = '';
       editUrl = server.transport.url;
     }
   }
@@ -215,7 +240,7 @@
     if (editTransport === 'stdio') {
       if (!editCommand.trim()) return;
       const args = editArgs.trim() ? editArgs.trim().split(/\s+/) : [];
-      transport = { type: 'stdio', command: editCommand.trim(), args };
+      transport = { type: 'stdio', command: editCommand.trim(), args, env: parseEnvString(editEnv) };
     } else {
       if (!editUrl.trim()) return;
       transport = { type: editTransport, url: editUrl.trim() };
@@ -391,6 +416,12 @@
                   bind:value={editArgs}
                   placeholder={$t('mcp.servers.argsPlaceholder')}
                 />
+                <textarea
+                  class="form-input env-input"
+                  bind:value={editEnv}
+                  placeholder={$t('mcp.servers.envPlaceholder')}
+                  rows="2"
+                ></textarea>
               {:else}
                 <input
                   type="text"
@@ -485,6 +516,12 @@
                 bind:value={newServerArgs}
                 placeholder={$t('mcp.servers.argsPlaceholder')}
               />
+              <textarea
+                class="form-input env-input"
+                bind:value={newServerEnv}
+                placeholder={$t('mcp.servers.envPlaceholder')}
+                rows="2"
+              ></textarea>
             {:else}
               <input
                 type="text"
@@ -891,6 +928,13 @@
   .mode-tab.active {
     color: var(--accent-color);
     border-bottom-color: var(--accent-color);
+  }
+
+  .env-input {
+    font-family: var(--font-mono, monospace);
+    font-size: 11px;
+    resize: vertical;
+    line-height: 1.4;
   }
 
   .json-input {

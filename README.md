@@ -255,6 +255,8 @@ Each AI response has action buttons below it:
 
 * [x] **Phase 5** — Publish Workflow: SEO assistant, AI image generation, multi-target publishing → [详细需求](docs/iterations/v0.2.0-publish-workflow.md)
 
+* [ ] **Phase 6** — MCP Ecosystem Enhancement: AI tool calling, stdio UI, presets, knowledge sync, conversational MCP config, editor content sync, multi-model management → [详细需求](docs/iterations/v0.3.0-mcp-ecosystem.md)
+
 ## Recommended IDE Setup
 
 [VS Code](https://code.visualstudio.com/) + [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
