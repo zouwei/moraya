@@ -4,6 +4,7 @@
     aiStore,
     sendChatMessage,
     executeAICommand,
+    abortAIRequest,
     AI_COMMANDS,
     type ChatMessage,
     type AICommand,
@@ -148,6 +149,9 @@
       showCommands = true;
     }
     if (event.key === 'Escape') {
+      if (isLoading) {
+        abortAIRequest();
+      }
       showCommands = false;
     }
   }
@@ -361,18 +365,29 @@
           onkeydown={handleKeydown}
           placeholder={selectedText ? $t('ai.placeholderSelection') : $t('ai.placeholder')}
           rows={1}
-          disabled={isLoading}
         ></textarea>
-        <button
-          class="send-btn"
-          onclick={handleSend}
-          disabled={!inputText.trim() || isLoading}
-          title={$t('ai.send')}
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M1 1l14 7-14 7V9l10-1-10-1V1z"/>
-          </svg>
-        </button>
+        {#if isLoading}
+          <button
+            class="send-btn stop"
+            onclick={abortAIRequest}
+            title={$t('ai.stop')}
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+              <rect x="2" y="2" width="10" height="10" rx="1.5"/>
+            </svg>
+          </button>
+        {:else}
+          <button
+            class="send-btn"
+            onclick={handleSend}
+            disabled={!inputText.trim()}
+            title={$t('ai.send')}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M1 1l14 7-14 7V9l10-1-10-1V1z"/>
+            </svg>
+          </button>
+        {/if}
       </div>
     </div>
   {/if}
@@ -801,6 +816,37 @@
     overflow-x: auto;
   }
 
+  /* Task list checkboxes */
+  .message-content :global(.task-item) {
+    list-style: none;
+    position: relative;
+    margin-left: -1.2em;
+  }
+  .message-content :global(.task-checkbox) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    height: 15px;
+    border: 1.5px solid var(--text-secondary);
+    border-radius: 3px;
+    margin-right: 0.4em;
+    vertical-align: -0.2em;
+    font-size: 12px;
+    line-height: 1;
+  }
+  .message-content :global(.task-checkbox.checked) {
+    background: var(--accent-color);
+    border-color: var(--accent-color);
+    color: #fff;
+    font-weight: 700;
+    font-size: 13px;
+  }
+  .message-content :global(.task-item.checked) {
+    color: var(--text-secondary);
+    text-decoration: line-through;
+  }
+
   /* Action buttons: hidden by default, shown on hover, inside message */
   .message-actions {
     display: flex;
@@ -988,6 +1034,10 @@
     cursor: pointer;
     flex-shrink: 0;
     transition: opacity var(--transition-fast);
+  }
+
+  .send-btn.stop {
+    background: #dc3545;
   }
 
   .send-btn:disabled {

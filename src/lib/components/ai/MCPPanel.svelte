@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import {
     mcpStore,
     connectServer,
@@ -9,12 +10,19 @@
     removeSyncConfig,
     discoverPublishTargets,
     MCP_PRESETS,
+    searchMarketplace,
+    loadMarketplaceSource,
+    saveMarketplaceSource,
+    MARKETPLACE_SOURCES,
     type MCPServerConfig,
     type PublishTarget,
     type SyncConfig,
     type SyncStatus,
+    type MarketplaceServer,
+    type MarketplaceSource,
   } from '$lib/services/mcp';
   import { t } from '$lib/i18n';
+  import { openUrl } from '@tauri-apps/plugin-opener';
 
   let {
     documentTitle = 'Untitled',
@@ -32,7 +40,19 @@
   let isLoading = $state(false);
   let error = $state<string | null>(null);
   let publishStatus = $state<string | null>(null);
-  let activeTab = $state<'servers' | 'publish' | 'sync'>('servers');
+  let activeTab = $state<'servers' | 'publish' | 'sync' | 'marketplace'>('servers');
+
+  // Marketplace state
+  let mpSource = $state<MarketplaceSource>('official');
+  let mpQuery = $state('');
+  let mpResults = $state<MarketplaceServer[]>([]);
+  let mpLoading = $state(false);
+  let mpHasMore = $state(false);
+  let mpPage = $state(1);
+  let mpError = $state<string | null>(null);
+  let mpInstalling = $state<MarketplaceServer | null>(null);
+  let mpEnvValues = $state<Record<string, string>>({});
+  let mpSearchTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Add server form
   let newServerName = $state('');
@@ -340,6 +360,115 @@
     removeSyncConfig(configId);
   }
 
+  // ── Marketplace functions ──
+
+  onMount(async () => {
+    mpSource = await loadMarketplaceSource();
+  });
+
+  async function mpSearch(page = 1) {
+    mpLoading = true;
+    mpError = null;
+    try {
+      const result = await searchMarketplace(mpSource, {
+        query: mpQuery,
+        page,
+        pageSize: 20,
+      });
+      if (page === 1) {
+        mpResults = result.servers;
+      } else {
+        mpResults = [...mpResults, ...result.servers];
+      }
+      mpPage = page;
+      mpHasMore = result.hasMore;
+    } catch (e: any) {
+      mpError = e.message || String(e);
+    } finally {
+      mpLoading = false;
+    }
+  }
+
+  function mpOnQueryInput() {
+    if (mpSearchTimer) clearTimeout(mpSearchTimer);
+    mpSearchTimer = setTimeout(() => mpSearch(1), 400);
+  }
+
+  async function mpChangeSource(source: MarketplaceSource) {
+    mpSource = source;
+    await saveMarketplaceSource(source);
+    mpResults = [];
+    mpPage = 1;
+    mpHasMore = false;
+    mpSearch(1);
+  }
+
+  function mpStartInstall(server: MarketplaceServer) {
+    mpInstalling = server;
+    mpEnvValues = {};
+    if (server.install?.envVars) {
+      for (const ev of server.install.envVars) {
+        mpEnvValues[ev.name] = '';
+      }
+    }
+  }
+
+  function mpCancelInstall() {
+    mpInstalling = null;
+    mpEnvValues = {};
+  }
+
+  async function mpConfirmInstall() {
+    if (!mpInstalling?.install) return;
+    const inst = mpInstalling.install;
+    const serverName = mpInstalling.name;
+    let transport: MCPServerConfig['transport'];
+    if (inst.transport === 'stdio') {
+      const env: Record<string, string> = {};
+      for (const [k, v] of Object.entries(mpEnvValues)) {
+        if (v.trim()) env[k] = v.trim();
+      }
+      transport = {
+        type: 'stdio',
+        command: inst.command || 'npx',
+        args: inst.args || [],
+        env: Object.keys(env).length > 0 ? env : undefined,
+      };
+    } else {
+      transport = { type: inst.transport as 'http' | 'sse', url: inst.url || '' };
+    }
+
+    const config: MCPServerConfig = {
+      id: `mcp-${Date.now()}`,
+      name: serverName,
+      transport,
+      enabled: true,
+    };
+    mcpStore.addServer(config);
+    mpInstalling = null;
+    mpEnvValues = {};
+
+    // Switch to servers tab so user can see the new server
+    activeTab = 'servers';
+
+    try {
+      await connectServer(config);
+    } catch {
+      // Server is added but connection failed — user can retry from servers tab
+    }
+  }
+
+  function mpIsInstalled(serverName: string): boolean {
+    return servers.some(s => s.name === serverName);
+  }
+
+  /** Format large numbers: 1234 → "1.2K", 1234567 → "1.2M" */
+  function formatCount(n: number): string {
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+    if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+    return String(n);
+  }
+
   // Publish target form
   let newTargetName = $state('');
   let newTargetServerId = $state('');
@@ -356,6 +485,9 @@
     </button>
     <button class="tab" class:active={activeTab === 'sync'} onclick={() => activeTab = 'sync'}>
       {$t('mcp.tabs.sync')}
+    </button>
+    <button class="tab" class:active={activeTab === 'marketplace'} onclick={() => { activeTab = 'marketplace'; if (mpResults.length === 0 && !mpLoading) mpSearch(1); }}>
+      {$t('mcp.tabs.marketplace')}
     </button>
   </div>
 
@@ -638,6 +770,143 @@
             <button class="btn-sm primary" onclick={handleAddSync}>{$t('common.add')}</button>
           </div>
         </div>
+      {/if}
+    </div>
+
+  {:else if activeTab === 'marketplace'}
+    <div class="tab-content">
+      <!-- Source selector + search -->
+      <div class="mp-toolbar">
+        <select class="form-input mp-source-select" value={mpSource} onchange={(e) => mpChangeSource((e.target as HTMLSelectElement).value as MarketplaceSource)}>
+          {#each MARKETPLACE_SOURCES as src}
+            <option value={src.value}>{$t(src.labelKey)}</option>
+          {/each}
+        </select>
+        <input
+          type="text"
+          class="form-input mp-search-input"
+          placeholder={$t('mcp.marketplace.search')}
+          bind:value={mpQuery}
+          oninput={mpOnQueryInput}
+          onkeydown={(e) => { if (e.key === 'Enter') { if (mpSearchTimer) clearTimeout(mpSearchTimer); mpSearch(1); } }}
+        />
+      </div>
+
+      <!-- Install panel (overlay on card click) -->
+      {#if mpInstalling}
+        <div class="mp-install-panel">
+          <div class="mp-install-header">
+            <span class="mp-install-name">{mpInstalling.name}</span>
+            <!-- svelte-ignore a11y_missing_attribute -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <span class="mp-install-close" onclick={mpCancelInstall} onkeydown={() => {}}>×</span>
+          </div>
+          <p class="mp-install-desc">{mpInstalling.description}</p>
+
+          {#if mpInstalling.install?.envVars && mpInstalling.install.envVars.length > 0}
+            <div class="mp-env-section">
+              <div class="section-label">{$t('mcp.marketplace.envVars')}</div>
+              {#each mpInstalling.install.envVars as ev}
+                <div class="mp-env-row">
+                  <label class="mp-env-label">
+                    {ev.name}
+                    {#if ev.isSecret}<span class="mp-env-secret">*</span>{/if}
+                  </label>
+                  <input
+                    type={ev.isSecret ? 'password' : 'text'}
+                    class="form-input"
+                    placeholder={ev.description}
+                    value={mpEnvValues[ev.name] || ''}
+                    oninput={(e) => { mpEnvValues[ev.name] = (e.target as HTMLInputElement).value; mpEnvValues = mpEnvValues; }}
+                  />
+                </div>
+              {/each}
+            </div>
+          {/if}
+
+          <div class="form-actions">
+            <button class="btn-sm" onclick={mpCancelInstall}>{$t('mcp.marketplace.cancel')}</button>
+            <button class="btn-sm primary" onclick={mpConfirmInstall}>
+              {$t('mcp.marketplace.installAndConnect')}
+            </button>
+          </div>
+        </div>
+      {/if}
+
+      <!-- Results -->
+      {#if mpError}
+        <div class="mp-error">
+          <span>{$t('mcp.marketplace.networkError')}: {mpError}</span>
+          <button class="btn-sm" onclick={() => mpSearch(mpPage)}>{$t('mcp.marketplace.retry')}</button>
+        </div>
+      {/if}
+
+      {#if mpResults.length === 0 && !mpLoading && !mpError}
+        <div class="empty-state">
+          <p>{$t('mcp.marketplace.noResults')}</p>
+        </div>
+      {/if}
+
+      <div class="mp-grid">
+        {#each mpResults as server}
+          <div class="mp-card">
+            <div class="mp-card-header">
+              {#if server.icon}
+                <img class="mp-card-icon" src={server.icon} alt="" />
+              {:else}
+                <div class="mp-card-icon-placeholder">M</div>
+              {/if}
+              <div class="mp-card-title-area">
+                <span class="mp-card-name">{server.name}</span>
+                {#if server.author}<span class="mp-card-author">{server.author}</span>{/if}
+              </div>
+            </div>
+            <p class="mp-card-desc">{server.description}</p>
+            <div class="mp-card-footer">
+              <div class="mp-card-meta">
+                {#if server.popularity != null && server.popularity > 0}
+                  <span class="mp-card-stat" title={$t('mcp.marketplace.installs')}>
+                    <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 110 16A8 8 0 018 0zm.5 4.5v5.793l2.146-2.147a.5.5 0 01.708.708l-3 3a.5.5 0 01-.708 0l-3-3a.5.5 0 01.708-.708L7.5 10.293V4.5a.5.5 0 011 0z"/></svg>
+                    {formatCount(server.popularity)}
+                  </span>
+                {/if}
+                {#if server.stars != null && server.stars > 0}
+                  <span class="mp-card-stat" title="GitHub Stars">
+                    <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M8 .25a.75.75 0 01.673.418l1.882 3.815 4.21.612a.75.75 0 01.416 1.279l-3.046 2.97.719 4.192a.75.75 0 01-1.088.791L8 12.347l-3.766 1.98a.75.75 0 01-1.088-.79l.72-4.194L.818 6.374a.75.75 0 01.416-1.28l4.21-.611L7.327.668A.75.75 0 018 .25z"/></svg>
+                    {formatCount(server.stars)}
+                  </span>
+                {/if}
+                {#if server.verified}
+                  <span class="mp-card-verified">{$t('mcp.marketplace.verified')}</span>
+                {/if}
+              </div>
+              <div class="mp-card-actions">
+                {#if server.homepage}
+                  <!-- svelte-ignore a11y_missing_attribute -->
+                  <!-- svelte-ignore a11y_no_static_element_interactions -->
+                  <span class="mp-link" onclick={() => server.homepage && openUrl(server.homepage)} onkeydown={() => {}}>{$t('mcp.marketplace.viewDetails')}</span>
+                {/if}
+                {#if mpIsInstalled(server.name)}
+                  <span class="mp-installed-badge">{$t('mcp.marketplace.installed')}</span>
+                {:else if server.install}
+                  <button class="btn-sm primary" onclick={() => mpStartInstall(server)}>
+                    {$t('mcp.marketplace.install')}
+                  </button>
+                {/if}
+              </div>
+            </div>
+          </div>
+        {/each}
+      </div>
+
+      {#if mpLoading}
+        <div class="mp-loading">{$t('mcp.marketplace.search')}...</div>
+      {/if}
+
+      {#if mpHasMore && !mpLoading}
+        <button class="add-btn" onclick={() => mpSearch(mpPage + 1)}>
+          {$t('mcp.marketplace.loadMore')}
+        </button>
       {/if}
     </div>
   {/if}
@@ -957,5 +1226,245 @@
     border-top: 1px solid #fcc;
     color: #c33;
     font-size: var(--font-size-xs);
+  }
+
+  /* ── Marketplace ── */
+
+  .mp-toolbar {
+    display: flex;
+    gap: 0.35rem;
+  }
+
+  .mp-source-select {
+    width: 90px;
+    flex-shrink: 0;
+    font-size: 11px;
+  }
+
+  .mp-search-input {
+    flex: 1;
+  }
+
+  .mp-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .mp-card {
+    border: 1px solid var(--border-light);
+    border-radius: 6px;
+    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+
+  .mp-card:hover {
+    border-color: var(--border-color);
+  }
+
+  .mp-card-header {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .mp-card-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+    object-fit: contain;
+    flex-shrink: 0;
+  }
+
+  .mp-card-icon-placeholder {
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+    background: var(--bg-hover);
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  .mp-card-title-area {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .mp-card-name {
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mp-card-author {
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+
+  .mp-card-desc {
+    font-size: var(--font-size-xs);
+    color: var(--text-secondary);
+    margin: 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    line-height: 1.4;
+  }
+
+  .mp-card-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.3rem;
+  }
+
+  .mp-card-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+
+  .mp-card-stat {
+    font-size: 10px;
+    color: var(--text-muted);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.15rem;
+  }
+
+  .mp-card-verified {
+    font-size: 10px;
+    padding: 0 0.3rem;
+    border-radius: 3px;
+    background: #e6f7e6;
+    color: #28a745;
+  }
+
+  :global([data-theme="dark"]) .mp-card-verified {
+    background: rgba(40, 167, 69, 0.15);
+  }
+
+  .mp-card-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    flex-shrink: 0;
+  }
+
+  .mp-link {
+    font-size: 11px;
+    color: var(--accent-color);
+    cursor: pointer;
+    text-decoration: underline;
+  }
+
+  .mp-link:hover {
+    opacity: 0.8;
+  }
+
+  .mp-installed-badge {
+    font-size: 10px;
+    padding: 0.1rem 0.4rem;
+    border-radius: 3px;
+    background: var(--bg-hover);
+    color: var(--text-muted);
+  }
+
+  .mp-loading {
+    text-align: center;
+    padding: 0.75rem;
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+  }
+
+  .mp-error {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.4rem 0.5rem;
+    background: #fee;
+    border: 1px solid #fcc;
+    border-radius: 4px;
+    color: #c33;
+    font-size: var(--font-size-xs);
+  }
+
+  :global([data-theme="dark"]) .mp-error {
+    background: rgba(220, 53, 69, 0.1);
+    border-color: rgba(220, 53, 69, 0.25);
+  }
+
+  .mp-install-panel {
+    border: 1px solid var(--accent-color);
+    border-radius: 6px;
+    padding: 0.6rem;
+    background: var(--bg-primary);
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .mp-install-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .mp-install-name {
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .mp-install-close {
+    cursor: pointer;
+    font-size: 1.1rem;
+    color: var(--text-muted);
+    line-height: 1;
+  }
+
+  .mp-install-close:hover { color: var(--text-primary); }
+
+  .mp-install-desc {
+    font-size: var(--font-size-xs);
+    color: var(--text-secondary);
+    margin: 0;
+  }
+
+  .mp-env-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+
+  .mp-env-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .mp-env-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    font-family: var(--font-mono, monospace);
+  }
+
+  .mp-env-secret {
+    color: #dc3545;
+    margin-left: 0.15rem;
   }
 </style>

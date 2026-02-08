@@ -19,14 +19,19 @@ const AI_FETCH_TIMEOUT_MS = 180_000;
  * Fetch via Tauri HTTP plugin (Rust backend) — bypasses WebKit's ~60s timeout.
  * Falls back to global fetch if Tauri plugin is unavailable.
  */
-function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = AI_FETCH_TIMEOUT_MS): Promise<Response> {
+function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = AI_FETCH_TIMEOUT_MS, externalSignal?: AbortSignal): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  if (externalSignal) {
+    if (externalSignal.aborted) controller.abort();
+    else externalSignal.addEventListener('abort', () => controller.abort(), { once: true });
+  }
   console.log(`[AI] fetch → ${url}`);
   const fetchFn = tauriFetch || fetch;
   return fetchFn(url, { ...init, signal: controller.signal }).catch((err: Error) => {
     console.error(`[AI] fetch failed: ${url}`, err.name, err.message);
     if (err.name === 'AbortError') {
+      if (externalSignal?.aborted) throw new DOMException('Aborted', 'AbortError');
       throw new Error(`AI 请求超时（${Math.round(timeoutMs / 1000)}s），请尝试简化请求或检查网络`);
     }
     throw new Error(`AI 服务连接失败 (${err.message})，请检查网络连接和 API 配置`);
@@ -36,7 +41,7 @@ function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = AI_FETCH_T
 /**
  * Send a request to Claude (Anthropic) API
  */
-async function callClaude(config: AIProviderConfig, request: AIRequest): Promise<AIResponse> {
+async function callClaude(config: AIProviderConfig, request: AIRequest, signal?: AbortSignal): Promise<AIResponse> {
   const baseUrl = config.baseUrl || 'https://api.anthropic.com';
 
   const systemMessages = request.messages.filter(m => m.role === 'system');
@@ -70,7 +75,7 @@ async function callClaude(config: AIProviderConfig, request: AIRequest): Promise
       'anthropic-dangerous-direct-browser-access': 'true',
     },
     body: JSON.stringify(body),
-  });
+  }, AI_FETCH_TIMEOUT_MS, signal);
 
   if (!response.ok) {
     const error = await response.text();
@@ -137,7 +142,7 @@ function buildClaudeMessages(messages: ChatMessage[]): Array<Record<string, unkn
 /**
  * Stream response from Claude API
  */
-async function* streamClaude(config: AIProviderConfig, request: AIRequest): AsyncGenerator<string> {
+async function* streamClaude(config: AIProviderConfig, request: AIRequest, signal?: AbortSignal): AsyncGenerator<string> {
   const baseUrl = config.baseUrl || 'https://api.anthropic.com';
 
   const systemMessages = request.messages.filter(m => m.role === 'system');
@@ -163,7 +168,7 @@ async function* streamClaude(config: AIProviderConfig, request: AIRequest): Asyn
       'anthropic-dangerous-direct-browser-access': 'true',
     },
     body: JSON.stringify(body),
-  });
+  }, AI_FETCH_TIMEOUT_MS, signal);
 
   if (!response.ok) {
     const error = await response.text();
@@ -176,35 +181,40 @@ async function* streamClaude(config: AIProviderConfig, request: AIRequest): Asyn
   const decoder = new TextDecoder();
   let buffer = '';
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  try {
+    while (true) {
+      if (signal?.aborted) break;
+      const { done, value } = await reader.read();
+      if (done) break;
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
 
-    for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        const data = line.slice(6);
-        if (data === '[DONE]') return;
-        try {
-          const parsed = JSON.parse(data);
-          if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
-            yield parsed.delta.text;
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6);
+          if (data === '[DONE]') return;
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+              yield parsed.delta.text;
+            }
+          } catch {
+            // Skip malformed JSON
           }
-        } catch {
-          // Skip malformed JSON
         }
       }
     }
+  } finally {
+    reader.cancel().catch(() => {});
   }
 }
 
 /**
  * Send a request to OpenAI-compatible API (OpenAI, DeepSeek, local models)
  */
-async function callOpenAICompatible(config: AIProviderConfig, request: AIRequest): Promise<AIResponse> {
+async function callOpenAICompatible(config: AIProviderConfig, request: AIRequest, signal?: AbortSignal): Promise<AIResponse> {
   const baseUrl = config.baseUrl || 'https://api.openai.com';
 
   const body: Record<string, unknown> = {
@@ -226,7 +236,7 @@ async function callOpenAICompatible(config: AIProviderConfig, request: AIRequest
       'Authorization': `Bearer ${config.apiKey}`,
     },
     body: JSON.stringify(body),
-  });
+  }, AI_FETCH_TIMEOUT_MS, signal);
 
   if (!response.ok) {
     const error = await response.text();
@@ -277,7 +287,7 @@ function buildOpenAIMessages(messages: ChatMessage[]): Array<Record<string, unkn
 /**
  * Stream response from OpenAI-compatible API
  */
-async function* streamOpenAICompatible(config: AIProviderConfig, request: AIRequest): AsyncGenerator<string> {
+async function* streamOpenAICompatible(config: AIProviderConfig, request: AIRequest, signal?: AbortSignal): AsyncGenerator<string> {
   const baseUrl = config.baseUrl || 'https://api.openai.com';
 
   const body = {
@@ -295,7 +305,7 @@ async function* streamOpenAICompatible(config: AIProviderConfig, request: AIRequ
       'Authorization': `Bearer ${config.apiKey}`,
     },
     body: JSON.stringify(body),
-  });
+  }, AI_FETCH_TIMEOUT_MS, signal);
 
   if (!response.ok) {
     const error = await response.text();
@@ -308,34 +318,39 @@ async function* streamOpenAICompatible(config: AIProviderConfig, request: AIRequ
   const decoder = new TextDecoder();
   let buffer = '';
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  try {
+    while (true) {
+      if (signal?.aborted) break;
+      const { done, value } = await reader.read();
+      if (done) break;
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
 
-    for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        const data = line.slice(6);
-        if (data === '[DONE]') return;
-        try {
-          const parsed = JSON.parse(data);
-          const content = parsed.choices?.[0]?.delta?.content;
-          if (content) yield content;
-        } catch {
-          // Skip malformed JSON
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6);
+          if (data === '[DONE]') return;
+          try {
+            const parsed = JSON.parse(data);
+            const content = parsed.choices?.[0]?.delta?.content;
+            if (content) yield content;
+          } catch {
+            // Skip malformed JSON
+          }
         }
       }
     }
+  } finally {
+    reader.cancel().catch(() => {});
   }
 }
 
 /**
  * Send a request to Google Gemini API
  */
-async function callGemini(config: AIProviderConfig, request: AIRequest): Promise<AIResponse> {
+async function callGemini(config: AIProviderConfig, request: AIRequest, signal?: AbortSignal): Promise<AIResponse> {
   const baseUrl = config.baseUrl || 'https://generativelanguage.googleapis.com';
 
   const systemMessages = request.messages.filter(m => m.role === 'system');
@@ -366,7 +381,9 @@ async function callGemini(config: AIProviderConfig, request: AIRequest): Promise
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    }
+    },
+    AI_FETCH_TIMEOUT_MS,
+    signal,
   );
 
   if (!response.ok) {
@@ -422,7 +439,7 @@ function buildGeminiContents(messages: ChatMessage[]): Array<Record<string, unkn
 /**
  * Send a request to Ollama (local models)
  */
-async function callOllama(config: AIProviderConfig, request: AIRequest): Promise<AIResponse> {
+async function callOllama(config: AIProviderConfig, request: AIRequest, signal?: AbortSignal): Promise<AIResponse> {
   const baseUrl = config.baseUrl || 'http://localhost:11434';
 
   const body: Record<string, unknown> = {
@@ -444,7 +461,7 @@ async function callOllama(config: AIProviderConfig, request: AIRequest): Promise
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  });
+  }, AI_FETCH_TIMEOUT_MS, signal);
 
   if (!response.ok) {
     const error = await response.text();
@@ -482,32 +499,32 @@ async function callOllama(config: AIProviderConfig, request: AIRequest): Promise
 
 // ── Public API ──
 
-export async function sendAIRequest(config: AIProviderConfig, request: AIRequest): Promise<AIResponse> {
+export async function sendAIRequest(config: AIProviderConfig, request: AIRequest, signal?: AbortSignal): Promise<AIResponse> {
   switch (config.provider) {
     case 'claude':
-      return callClaude(config, request);
+      return callClaude(config, request, signal);
     case 'openai':
     case 'deepseek':
     case 'custom':
-      return callOpenAICompatible(config, request);
+      return callOpenAICompatible(config, request, signal);
     case 'gemini':
-      return callGemini(config, request);
+      return callGemini(config, request, signal);
     case 'ollama':
-      return callOllama(config, request);
+      return callOllama(config, request, signal);
     default:
       throw new Error(`Unsupported provider: ${config.provider}`);
   }
 }
 
-export async function* streamAIRequest(config: AIProviderConfig, request: AIRequest): AsyncGenerator<string> {
+export async function* streamAIRequest(config: AIProviderConfig, request: AIRequest, signal?: AbortSignal): AsyncGenerator<string> {
   switch (config.provider) {
     case 'claude':
-      yield* streamClaude(config, request);
+      yield* streamClaude(config, request, signal);
       break;
     case 'openai':
     case 'deepseek':
     case 'custom':
-      yield* streamOpenAICompatible(config, request);
+      yield* streamOpenAICompatible(config, request, signal);
       break;
     default:
       // Fallback: non-streaming

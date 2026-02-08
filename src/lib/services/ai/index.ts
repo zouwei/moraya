@@ -1,4 +1,4 @@
-export { aiStore, executeAICommand, sendChatMessage, testAIConnection, initAIStore } from './ai-service';
+export { aiStore, executeAICommand, sendChatMessage, abortAIRequest, testAIConnection, initAIStore } from './ai-service';
 export { sendAIRequest, streamAIRequest } from './providers';
 export type {
   AIProvider,

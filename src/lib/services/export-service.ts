@@ -165,8 +165,16 @@ export function markdownToHtmlBody(md: string): string {
   // 11. Blockquotes
   html = html.replace(/^>\s+(.+)$/gm, '<blockquote><p>$1</p></blockquote>');
 
-  // 12. Unordered lists
-  html = html.replace(/^(\s*)-\s+(.+)$/gm, '<li>$2</li>');
+  // 12a. Task list checkboxes (must come before generic list items)
+  html = html.replace(/^(\s*)[-*]\s+\[x\]\s+(.+)$/gm, (_m, _indent, text) => {
+    return ph(`<li class="task-item checked"><span class="task-checkbox checked">✓</span>${text}</li>`);
+  });
+  html = html.replace(/^(\s*)[-*]\s+\[ \]\s+(.+)$/gm, (_m, _indent, text) => {
+    return ph(`<li class="task-item"><span class="task-checkbox"></span>${text}</li>`);
+  });
+
+  // 12b. Unordered lists
+  html = html.replace(/^(\s*)[-*]\s+(.+)$/gm, '<li>$2</li>');
   html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
 
   // 13. Paragraphs — wrap remaining plain text lines

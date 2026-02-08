@@ -28,3 +28,13 @@ export type {
   SyncStatus,
 } from './types';
 export { MCP_PRESETS, type MCPPreset } from './presets';
+export {
+  searchMarketplace,
+  loadMarketplaceSource,
+  saveMarketplaceSource,
+  MARKETPLACE_SOURCES,
+  type MarketplaceServer,
+  type MarketplaceInstallInfo,
+  type MarketplaceSource,
+  type MarketplaceSearchResult,
+} from './marketplace';

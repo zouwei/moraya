@@ -169,6 +169,18 @@ function createAIStore() {
 
 export const aiStore = createAIStore();
 
+// ── Abort controller ──
+
+let currentAbortController: AbortController | null = null;
+
+/** Abort the currently running AI request (streaming or non-streaming). */
+export function abortAIRequest(): void {
+  if (currentAbortController) {
+    currentAbortController.abort();
+    currentAbortController = null;
+  }
+}
+
 // ── AI Operations ──
 
 /**
@@ -197,6 +209,9 @@ export async function executeAICommand(
 
   aiStore.setLoading(true);
   aiStore.resetStream();
+
+  currentAbortController = new AbortController();
+  const signal = currentAbortController.signal;
 
   try {
     const messages: ChatMessage[] = [];
@@ -255,27 +270,40 @@ export async function executeAICommand(
 
     // Stream the response
     let fullContent = '';
-    const stream = streamAIRequest(activeConfig, { messages, stream: true });
+    const stream = streamAIRequest(activeConfig, { messages, stream: true }, signal);
 
     for await (const chunk of stream) {
       fullContent += chunk;
       aiStore.appendStreamContent(chunk);
     }
 
-    // Record assistant response
-    aiStore.addMessage({
-      role: 'assistant',
-      content: fullContent,
-      timestamp: Date.now(),
-    });
+    // Record assistant response (only if we got content)
+    if (fullContent) {
+      aiStore.addMessage({
+        role: 'assistant',
+        content: fullContent,
+        timestamp: Date.now(),
+      });
+    }
 
     aiStore.setLastResponse(fullContent);
     return fullContent;
 
   } catch (error: any) {
+    if (error?.name === 'AbortError') {
+      // User-initiated abort: save partial content, don't show error
+      const partial = aiStore.getState().streamingContent;
+      if (partial) {
+        aiStore.addMessage({ role: 'assistant', content: partial, timestamp: Date.now() });
+      }
+      aiStore.setLoading(false);
+      return partial;
+    }
     const errMsg = error?.message || get(t)('errors.aiRequestFailed');
     aiStore.setError(errMsg);
     throw error;
+  } finally {
+    currentAbortController = null;
   }
 }
 
@@ -292,6 +320,9 @@ export async function sendChatMessage(message: string, documentContext?: string)
 
   aiStore.setLoading(true);
   aiStore.resetStream();
+
+  currentAbortController = new AbortController();
+  const signal = currentAbortController.signal;
 
   try {
     // Collect MCP tools + internal tools
@@ -332,6 +363,7 @@ export async function sendChatMessage(message: string, documentContext?: string)
     let finalContent = '';
 
     while (round < MAX_TOOL_ROUNDS) {
+      if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
       round++;
 
       console.log(`[AI] Tool round ${round}/${MAX_TOOL_ROUNDS}, messages: ${messages.length}, tools: ${toolDefs.length}`);
@@ -340,7 +372,7 @@ export async function sendChatMessage(message: string, documentContext?: string)
       const response = await sendAIRequest(activeConfig, {
         messages,
         tools: toolDefs.length > 0 ? toolDefs : undefined,
-      });
+      }, signal);
 
       console.log(`[AI] Response: stopReason=${response.stopReason}, toolCalls=${response.toolCalls?.length || 0}, content=${response.content?.length || 0} chars`);
 
@@ -351,7 +383,7 @@ export async function sendChatMessage(message: string, documentContext?: string)
           // Re-do as streaming for better UX when no tools
           aiStore.resetStream();
           let streamContent = '';
-          const stream = streamAIRequest(activeConfig, { messages, stream: true });
+          const stream = streamAIRequest(activeConfig, { messages, stream: true }, signal);
           for await (const chunk of stream) {
             streamContent += chunk;
             aiStore.appendStreamContent(chunk);
@@ -432,20 +464,33 @@ export async function sendChatMessage(message: string, documentContext?: string)
     }
 
     // Record final assistant response
-    aiStore.addMessage({
-      role: 'assistant',
-      content: finalContent,
-      timestamp: Date.now(),
-    });
+    if (finalContent) {
+      aiStore.addMessage({
+        role: 'assistant',
+        content: finalContent,
+        timestamp: Date.now(),
+      });
+    }
 
     aiStore.setLastResponse(finalContent);
     return finalContent;
 
   } catch (error: any) {
+    if (error?.name === 'AbortError') {
+      // User-initiated abort: save partial content, don't show error
+      const partial = aiStore.getState().streamingContent;
+      if (partial) {
+        aiStore.addMessage({ role: 'assistant', content: partial, timestamp: Date.now() });
+      }
+      aiStore.setLoading(false);
+      return partial;
+    }
     console.error('[AI] sendChatMessage failed:', error);
     const errMsg = error?.message || get(t)('errors.chatRequestFailed');
     aiStore.setError(errMsg);
     throw error;
+  } finally {
+    currentAbortController = null;
   }
 }
 

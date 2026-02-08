@@ -105,6 +105,7 @@
     "placeholder": "Ask AI anything... (/ for commands)",
     "placeholderSelection": "Ask about selection... (/ for commands)",
     "send": "Send (Enter)",
+    "stop": "Stop (Esc)",
     "insertToEditor": "Insert into editor",
     "replaceSelection": "Replace selection",
     "config": {
@@ -186,7 +187,8 @@
     "tabs": {
       "servers": "Servers",
       "publish": "Publish",
-      "sync": "Sync"
+      "sync": "Sync",
+      "marketplace": "Market"
     },
     "servers": {
       "empty": "No MCP servers configured",
@@ -237,6 +239,29 @@
       "syncing": "Syncing...",
       "success": "Sync complete",
       "error": "Sync error: {message}"
+    },
+    "marketplace": {
+      "title": "Market",
+      "search": "Search MCP servers...",
+      "source": "Source",
+      "sourceOfficial": "Official",
+      "sourceLobehub": "LobeHub",
+      "sourceSmithery": "Smithery",
+      "install": "Install",
+      "installAndConnect": "Install & Connect",
+      "installing": "Installing...",
+      "installed": "Installed",
+      "viewDetails": "Details",
+      "loadMore": "Load More",
+      "noResults": "No MCP servers found",
+      "networkError": "Failed to load, check network",
+      "retry": "Retry",
+      "envVars": "Environment Variables",
+      "envRequired": "(required)",
+      "popularity": "uses",
+      "installs": "Installs / Uses",
+      "verified": "Verified",
+      "cancel": "Cancel"
     }
   },
   "imageDialog": {

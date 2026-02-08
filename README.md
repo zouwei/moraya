@@ -8,7 +8,7 @@ A minimal, open-source WYSIWYG Markdown editor built with Rust + Tauri v2. Inspi
 
 ## Features
 
-* **Minimalist-style WYSIWYG** — type `# `   and it renders as a heading instantly, powered by [Milkdown](https://milkdown.dev/) (ProseMirror-based)
+* **Minimalist-style WYSIWYG** — type `# `    and it renders as a heading instantly, powered by [Milkdown](https://milkdown.dev/) (ProseMirror-based)
 
 * **Three editor modes** — Visual, Source (raw Markdown), and Split (side-by-side with scroll sync). Toggle with `Cmd+/` and `Cmd+Shift+/`
 
@@ -255,7 +255,7 @@ Each AI response has action buttons below it:
 
 * [x] **Phase 5** — Publish Workflow: SEO assistant, AI image generation, multi-target publishing → [详细需求](docs/iterations/v0.2.0-publish-workflow.md)
 
-* [ ] **Phase 6** — MCP Ecosystem Enhancement: AI tool calling, stdio UI, presets, knowledge sync, conversational MCP config, editor content sync, multi-model management → [详细需求](docs/iterations/v0.3.0-mcp-ecosystem.md)
+* [x] **Phase 6** — MCP Ecosystem Enhancement: AI tool calling, stdio UI, presets, knowledge sync, conversational MCP config, editor content sync, multi-model management → [详细需求](docs/iterations/v0.3.0-mcp-ecosystem.md)
 
 ## Recommended IDE Setup
 

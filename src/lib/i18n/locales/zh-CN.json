@@ -105,6 +105,7 @@
     "placeholder": "向 AI 提问...（/ 查看命令）",
     "placeholderSelection": "询问选中内容...（/ 查看命令）",
     "send": "发送（Enter）",
+    "stop": "停止（Esc）",
     "insertToEditor": "插入到编辑器",
     "replaceSelection": "替换选中内容",
     "config": {
@@ -186,7 +187,8 @@
     "tabs": {
       "servers": "服务器",
       "publish": "发布",
-      "sync": "同步"
+      "sync": "同步",
+      "marketplace": "市场"
     },
     "servers": {
       "empty": "未配置 MCP 服务器",
@@ -237,6 +239,29 @@
       "syncing": "同步中...",
       "success": "同步完成",
       "error": "同步错误：{message}"
+    },
+    "marketplace": {
+      "title": "市场",
+      "search": "搜索 MCP 服务...",
+      "source": "数据源",
+      "sourceOfficial": "Official",
+      "sourceLobehub": "LobeHub",
+      "sourceSmithery": "Smithery",
+      "install": "安装",
+      "installAndConnect": "安装并连接",
+      "installing": "安装中...",
+      "installed": "已安装",
+      "viewDetails": "详情",
+      "loadMore": "加载更多",
+      "noResults": "未找到 MCP 服务",
+      "networkError": "加载失败，请检查网络",
+      "retry": "重试",
+      "envVars": "环境变量",
+      "envRequired": "（必填）",
+      "popularity": "次使用",
+      "installs": "安装 / 使用次数",
+      "verified": "已验证",
+      "cancel": "取消"
     }
   },
   "imageDialog": {

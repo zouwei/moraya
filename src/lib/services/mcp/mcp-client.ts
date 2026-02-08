@@ -4,6 +4,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import type {
   MCPServerConfig,
   MCPTool,
@@ -118,14 +119,18 @@ class MCPClient {
         notification: JSON.stringify(notification),
       });
     } else if (transport.type === 'http') {
-      await fetch(transport.url, {
+      await tauriFetch(transport.url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(transport.headers || {}) },
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json, text/event-stream',
+          ...(transport.headers || {}),
+        },
         body: JSON.stringify(notification),
       });
     } else if (transport.type === 'sse') {
       const postUrl = transport.url.replace('/sse', '/message');
-      await fetch(postUrl, {
+      await tauriFetch(postUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(transport.headers || {}) },
         body: JSON.stringify(notification),
@@ -148,10 +153,11 @@ class MCPClient {
     const transport = this.serverConfig.transport;
 
     if (transport.type === 'http') {
-      const response = await fetch(transport.url, {
+      const response = await tauriFetch(transport.url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Accept': 'application/json, text/event-stream',
           ...(transport.headers || {}),
         },
         body: JSON.stringify(request),
@@ -159,6 +165,14 @@ class MCPClient {
 
       if (!response.ok) {
         throw new Error(`MCP HTTP error: ${response.status}`);
+      }
+
+      const contentType = response.headers.get('content-type') || '';
+
+      if (contentType.includes('text/event-stream')) {
+        // Streamable HTTP: parse SSE to extract JSON-RPC response
+        const result = await this.parseSSEResponse(response, id);
+        return result;
       }
 
       const result: JSONRPCResponse = await response.json();
@@ -173,7 +187,7 @@ class MCPClient {
         this.pendingRequests.set(id, { resolve, reject });
         // Send request via companion POST endpoint
         const postUrl = transport.url.replace('/sse', '/message');
-        fetch(postUrl, {
+        tauriFetch(postUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -198,6 +212,36 @@ class MCPClient {
       }
       return response.result;
     }
+  }
+
+  /**
+   * Parse SSE response from Streamable HTTP transport
+   */
+  private async parseSSEResponse(response: Response, requestId: number | string): Promise<unknown> {
+    const text = await response.text();
+    const lines = text.split('\n');
+
+    for (const line of lines) {
+      if (line.startsWith('data:')) {
+        const data = line.slice(5).trim();
+        if (!data || data === '[DONE]') continue;
+        try {
+          const parsed: JSONRPCResponse = JSON.parse(data);
+          // Match by request id, or accept if it's the only response
+          if (parsed.id === requestId || parsed.result !== undefined || parsed.error !== undefined) {
+            if (parsed.error) {
+              throw new Error(parsed.error.message);
+            }
+            return parsed.result;
+          }
+        } catch (e) {
+          if (e instanceof Error && e.message && !e.message.includes('JSON')) throw e;
+          // Skip non-JSON data lines
+        }
+      }
+    }
+
+    throw new Error('No JSON-RPC response found in SSE stream');
   }
 
   /**
