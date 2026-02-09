@@ -11,12 +11,12 @@
 
 /* Headings */
 .moraya-editor h1 {
-  font-size: 2em;
+  font-size: 2.5em;
   font-weight: 700;
   margin: 1.5em 0 0.5em;
-  line-height: 1.3;
-  border-bottom: 1px solid var(--border-light);
-  padding-bottom: 0.3em;
+  line-height: 1.25;
+  border-bottom: 2px solid var(--border-color);
+  padding-bottom: 0.4em;
 }
 
 .moraya-editor h2 {
@@ -221,6 +221,7 @@
   border-collapse: collapse;
   width: 100%;
   margin: 1em 0;
+  table-layout: auto;
 }
 
 .moraya-editor th,
@@ -228,6 +229,10 @@
   border: 1px solid var(--border-color);
   padding: 0.5em 0.8em;
   text-align: left;
+  word-wrap: break-word;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  max-width: 300px;
 }
 
 .moraya-editor th {

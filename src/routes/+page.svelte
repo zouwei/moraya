@@ -154,7 +154,7 @@ ${tr('welcome.tip')}
 `;
   }
 
-  let content = $state(import.meta.env.DEV ? getDefaultContent() : '');
+  let content = $state('');
   let showSidebar = $state(false);
   let showSettings = $state(false);
   let showAIPanel = $state(false);
@@ -541,6 +541,7 @@ ${tr('welcome.tip')}
     const fileContent = await openFile();
     if (fileContent !== null) {
       content = fileContent;
+      editorStore.setContent(fileContent);
       resetWorkflowState();
     }
   }
@@ -554,7 +555,12 @@ ${tr('welcome.tip')}
   async function handleFileSelect(path: string) {
     const fileContent = await loadFile(path);
     content = fileContent;
+    editorStore.setContent(fileContent);
     resetWorkflowState();
+  }
+
+  function handleContentChange(newContent: string) {
+    content = newContent;
   }
 
   function handleAIInsert(text: string) {
@@ -852,7 +858,7 @@ ${tr('welcome.tip')}
 
     setupAutoSave();
 
-    // Initialize word count for default content
+    // Initialize word count
     editorStore.setContent(content);
 
     // Listen for native menu events from Tauri
@@ -1028,17 +1034,17 @@ ${tr('welcome.tip')}
 
     <main class="editor-area">
       {#if editorMode === 'visual'}
-        <Editor bind:this={visualEditorRef} bind:content onEditorReady={handleEditorReady} />
+        <Editor bind:this={visualEditorRef} bind:content onEditorReady={handleEditorReady} onContentChange={handleContentChange} />
       {:else if editorMode === 'source'}
-        <SourceEditor bind:this={sourceEditorRef} bind:content />
+        <SourceEditor bind:this={sourceEditorRef} bind:content onContentChange={handleContentChange} />
       {:else if editorMode === 'split'}
         <div class="split-container">
           <div class="split-source" bind:this={splitSourceEl}>
-            <SourceEditor bind:this={splitSourceRef} bind:content hideScrollbar />
+            <SourceEditor bind:this={splitSourceRef} bind:content onContentChange={handleContentChange} hideScrollbar />
           </div>
           <div class="split-divider"></div>
           <div class="split-visual" bind:this={splitVisualEl}>
-            <Editor bind:this={splitVisualRef} bind:content onEditorReady={handleEditorReady} />
+            <Editor bind:this={splitVisualRef} bind:content onEditorReady={handleEditorReady} onContentChange={handleContentChange} />
           </div>
         </div>
       {/if}

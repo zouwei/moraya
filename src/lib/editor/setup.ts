@@ -1,4 +1,4 @@
-import { Editor, rootCtx, defaultValueCtx, editorViewOptionsCtx, editorViewCtx } from '@milkdown/core';
+import { Editor, rootCtx, defaultValueCtx, editorViewOptionsCtx, editorViewCtx, serializerCtx } from '@milkdown/core';
 // ── Tier 0: Core plugins (static imports, always available) ──
 import { commonmark } from '@milkdown/preset-commonmark';
 import { gfm } from '@milkdown/preset-gfm';
@@ -82,7 +82,7 @@ function createLazyChangePlugin(onChange: (markdown: string) => void) {
           // can preempt pending serialization after heavy operations like undo.
           changeTimer = setTimeout(() => {
             try {
-              const serializer = ctx.get('serializerCtx' as any) as unknown as (node: any) => string;
+              const serializer = ctx.get(serializerCtx);
               const markdown = serializer(view.state.doc);
               onChange(markdown);
             } catch { /* editor might be destroyed */ }
@@ -164,13 +164,9 @@ export async function createEditor(options: EditorOptions): Promise<Editor> {
 }
 
 export function getMarkdown(editor: Editor): string {
-  // Access the editor's action to get markdown content
   return editor.action((ctx) => {
-    const serializer = ctx.get('serializerCtx' as any) as unknown as (node: any) => string;
-    const view = ctx.get('editorViewCtx' as any) as unknown as { state: { doc: any } };
-    if (serializer && view) {
-      return serializer(view.state.doc);
-    }
-    return '';
+    const serializer = ctx.get(serializerCtx);
+    const view = ctx.get(editorViewCtx);
+    return serializer(view.state.doc);
   });
 }

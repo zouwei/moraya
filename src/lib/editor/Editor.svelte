@@ -18,7 +18,7 @@
   } from '@milkdown/preset-gfm';
   import { getCurrentWebview } from '@tauri-apps/api/webview';
   import type { UnlistenFn } from '@tauri-apps/api/event';
-  import { createEditor } from './setup';
+  import { createEditor, getMarkdown } from './setup';
   import { editorStore } from '../stores/editor-store';
   import { settingsStore } from '../stores/settings-store';
   import { readImageAsBlobUrl } from '../services/file-service';
@@ -41,9 +41,11 @@
   let {
     content = $bindable(''),
     onEditorReady,
+    onContentChange,
   }: {
     content?: string;
     onEditorReady?: (editor: MilkdownEditor) => void;
+    onContentChange?: (content: string) => void;
   } = $props();
 
   let isReady = $state(false);
@@ -519,6 +521,7 @@
       defaultValue: content,
       onChange: (markdown) => {
         content = markdown;
+        onContentChange?.(markdown);
         editorStore.setDirty(true);
         editorStore.setContent(markdown);
       },
@@ -781,14 +784,26 @@
   }
 
   onDestroy(() => {
-    // Save cursor position before destroying the editor
     if (editor) {
+      // Flush content: sync ProseMirror doc to parent before destruction.
+      // The lazy change plugin debounces onChange by 100ms, so if the user
+      // types then immediately switches mode, the last edits haven't been
+      // synced yet. This ensures no content is lost.
+      try {
+        const markdown = getMarkdown(editor);
+        content = markdown;
+        onContentChange?.(markdown);
+        editorStore.setContent(markdown);
+      } catch {
+        // Serialization may fail if editor is partially destroyed
+      }
+
+      // Save cursor position
       try {
         editor.action((ctx) => {
           const view = ctx.get(editorViewCtx);
           const { from } = view.state.selection;
           const docSize = view.state.doc.content.size;
-          // Map ProseMirror position to markdown offset using fraction
           const fraction = docSize > 0 ? from / docSize : 0;
           const markdownOffset = Math.round(fraction * content.length);
           editorStore.setCursorOffset(markdownOffset);
@@ -796,11 +811,10 @@
       } catch {
         // Ignore errors during position save
       }
-    }
-    dragDropUnlisten?.();
-    if (editor) {
+
       editor.destroy();
     }
+    dragDropUnlisten?.();
   });
 </script>
 
@@ -871,6 +885,8 @@
   .editor-wrapper {
     flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
+    min-width: 0;
     padding: 2rem 3rem;
     visibility: hidden;
     cursor: text;
@@ -881,8 +897,23 @@
   }
 
   .editor-root {
-    max-width: 800px;
+    max-width: min(800px, 100%);
     margin: 0 auto;
     min-height: 100%;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+  }
+
+  /* Reduce padding when viewport is narrow (e.g., AI panel open) */
+  @media (max-width: 900px) {
+    .editor-wrapper {
+      padding: 1.5rem 1.5rem;
+    }
+  }
+
+  @media (max-width: 600px) {
+    .editor-wrapper {
+      padding: 1rem 1rem;
+    }
   }
 </style>

@@ -6,9 +6,11 @@
   let {
     content = $bindable(''),
     hideScrollbar = false,
+    onContentChange,
   }: {
     content?: string;
     hideScrollbar?: boolean;
+    onContentChange?: (content: string) => void;
   } = $props();
 
   let showLineNumbers = $state(false);
@@ -33,6 +35,7 @@
   function handleInput(event: Event) {
     const textarea = event.target as HTMLTextAreaElement;
     content = textarea.value;
+    onContentChange?.(content);
     editorStore.setDirty(true);
     editorStore.setContent(content);
     autoResize();
@@ -162,7 +165,7 @@
 </script>
 
 <div class="source-editor-outer" class:hide-scrollbar={hideScrollbar}>
-  <div class="source-editor-inner" style="max-width: {editorLineWidth}px">
+  <div class="source-editor-inner" style="max-width: min({editorLineWidth}px, 100%)">
     {#if showLineNumbers}
       <div class="line-numbers">
         {#each Array(lineCount) as _, i}
@@ -186,6 +189,8 @@
   .source-editor-outer {
     flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
+    min-width: 0;
     padding: 2rem 3rem;
     background: var(--bg-primary);
   }
@@ -203,6 +208,21 @@
     margin: 0 auto;
     min-height: 100%;
     display: flex;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+  }
+
+  /* Reduce padding when viewport is narrow (e.g., AI panel open) */
+  @media (max-width: 900px) {
+    .source-editor-outer {
+      padding: 1.5rem 1.5rem;
+    }
+  }
+
+  @media (max-width: 600px) {
+    .source-editor-outer {
+      padding: 1rem 1rem;
+    }
   }
 
   .line-numbers {

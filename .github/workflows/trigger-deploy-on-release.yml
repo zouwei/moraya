@@ -1,0 +1,19 @@
+name: Trigger Cloudflare Deploy on Release
+
+on:
+  release:
+    types: [published]  # 当发布新版本时触发
+
+jobs:
+  trigger-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Cloudflare Pages Deploy
+        run: |
+          curl -X POST -d "" "${{ secrets.CLOUDFLARE_DEPLOY_HOOK_URL }}"
+      
+      - name: Wait for deploy to start
+        run: sleep 5
+      
+      - name: Notify success
+        run: echo "Cloudflare Pages deploy triggered for release ${{ github.event.release.tag_name }}"
