@@ -3,6 +3,7 @@ name: Trigger Cloudflare Deploy on Release
 on:
   release:
     types: [published]  # 当发布新版本时触发
+  workflow_dispatch:  # 添加手动触发
 
 jobs:
   trigger-deploy:
