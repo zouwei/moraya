@@ -10,10 +10,9 @@ jobs:
     steps:
       - name: Trigger Cloudflare Pages Deploy
         run: |
-          curl -X POST -d "" "${{ secrets.CLOUDFLARE_DEPLOY_HOOK_URL }}"
-      
-      - name: Wait for deploy to start
-        run: sleep 5
+          curl -X POST "${{ secrets.CLOUDFLARE_DEPLOY_HOOK_URL }}"
       
       - name: Notify success
-        run: echo "Cloudflare Pages deploy triggered for release ${{ github.event.release.tag_name }}"
+        run: |
+          echo "✅ Cloudflare Pages deploy triggered for release ${{ github.event.release.tag_name }}"
+          echo "Release URL: ${{ github.event.release.html_url }}"
