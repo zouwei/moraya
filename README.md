@@ -34,7 +34,7 @@ A minimal, open-source WYSIWYG Markdown editor built with Rust + Tauri v2. Inspi
 
 * **Frameless window** — custom title bar with macOS traffic light integration
 
-* **Tiny footprint** — DMG \~2.8MB, binary \~4.6MB, app bundle \~4.7MB
+* **Tiny footprint** — DMG \~5MB, binary \~4.6MB, app bundle \~4.7MB
 
 * **Export** — HTML and LaTeX built-in; PDF, DOCX, EPUB planned (pandoc integration)
 

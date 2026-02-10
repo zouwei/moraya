@@ -15,6 +15,14 @@ import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 /** Default timeout for AI API requests (3 minutes) */
 const AI_FETCH_TIMEOUT_MS = 180_000;
 
+/** Build OpenAI-compatible endpoint URL, avoiding double version prefix (e.g., /v3/v1/...) */
+export function openaiEndpoint(baseUrl: string, path: string): string {
+  const clean = baseUrl.replace(/\/+$/, '');
+  // Base URL already ends with a version segment like /v1, /v2, /v3 → don't add /v1
+  if (/\/v\d+$/.test(clean)) return `${clean}${path}`;
+  return `${clean}/v1${path}`;
+}
+
 /**
  * Fetch via Tauri HTTP plugin (Rust backend) — bypasses WebKit's ~60s timeout.
  * Falls back to global fetch if Tauri plugin is unavailable.
@@ -232,7 +240,7 @@ async function callOpenAICompatible(config: AIProviderConfig, request: AIRequest
     Object.assign(body, formatToolsForProvider(config.provider, request.tools));
   }
 
-  const response = await fetchWithTimeout(`${baseUrl}/v1/chat/completions`, {
+  const response = await fetchWithTimeout(openaiEndpoint(baseUrl, '/chat/completions'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -301,7 +309,7 @@ async function* streamOpenAICompatible(config: AIProviderConfig, request: AIRequ
     messages: request.messages.map(m => ({ role: m.role, content: m.content })),
   };
 
-  const response = await fetchWithTimeout(`${baseUrl}/v1/chat/completions`, {
+  const response = await fetchWithTimeout(openaiEndpoint(baseUrl, '/chat/completions'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

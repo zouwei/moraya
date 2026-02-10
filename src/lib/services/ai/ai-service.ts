@@ -556,6 +556,41 @@ export async function testAIConnection(config?: AIProviderConfig): Promise<boole
   }
 }
 
+/**
+ * Generate base URL candidates by progressively stripping path segments.
+ * e.g. https://host/api/v3/responses → [.../api/v3/responses, .../api/v3, .../api, https://host]
+ */
+export function generateBaseUrlCandidates(baseUrl?: string): string[] {
+  if (!baseUrl) return [''];
+  const clean = baseUrl.replace(/\/+$/, '');
+  const candidates = [clean];
+  try {
+    const parsed = new URL(clean);
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    while (segments.length > 0) {
+      segments.pop();
+      const path = segments.length > 0 ? '/' + segments.join('/') : '';
+      candidates.push(`${parsed.origin}${path}`);
+    }
+  } catch { /* invalid URL, return original only */ }
+  return candidates;
+}
+
+/**
+ * Test AI connection with auto-resolution: progressively strip the base URL path
+ * until a working endpoint is found. Returns the resolved URL on success.
+ */
+export async function testAIConnectionWithResolve(
+  config: AIProviderConfig,
+): Promise<{ success: boolean; resolvedBaseUrl?: string }> {
+  const candidates = generateBaseUrlCandidates(config.baseUrl);
+  for (const url of candidates) {
+    const ok = await testAIConnection({ ...config, baseUrl: url || undefined });
+    if (ok) return { success: true, resolvedBaseUrl: url };
+  }
+  return { success: false };
+}
+
 /** Load persisted AI config from disk. Call once at app startup. */
 export async function initAIStore() {
   try {

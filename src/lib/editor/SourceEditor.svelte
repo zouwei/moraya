@@ -69,6 +69,12 @@
       textareaEl.selectionStart = clamped;
       textareaEl.selectionEnd = clamped;
       textareaEl.focus();
+
+      // Scroll to top for new files (cursorOffset === 0)
+      if (offset === 0) {
+        const outer = textareaEl.closest('.source-editor-outer') as HTMLElement | null;
+        if (outer) outer.scrollTop = 0;
+      }
     }
   });
 

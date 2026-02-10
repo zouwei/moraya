@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import type { Editor as MilkdownEditor } from '@milkdown/core';
   import { editorViewCtx } from '@milkdown/core';
+  import { TextSelection } from '@milkdown/prose/state';
   import { callCommand, replaceAll, insert } from '@milkdown/utils';
   import {
     wrapInHeadingCommand,
@@ -213,6 +214,33 @@ ${tr('welcome.tip')}
 
   function handleEditorReady(editor: MilkdownEditor) {
     milkdownEditor = editor;
+  }
+
+  /** Scroll the editor scroll container to the top (works for both visual and source modes). */
+  async function scrollEditorToTop() {
+    await tick();
+    document.querySelector('.editor-wrapper')?.scrollTo(0, 0);
+    document.querySelector('.source-editor-outer')?.scrollTo(0, 0);
+  }
+
+  /** Replace editor content and scroll to the top for a newly opened file. */
+  async function replaceContentAndScrollToTop(newContent: string) {
+    editorStore.setCursorOffset(0);
+    if (milkdownEditor && editorStore.getState().editorMode !== 'source') {
+      try {
+        milkdownEditor.action(replaceAll(newContent));
+        milkdownEditor.action((ctx) => {
+          const view = ctx.get(editorViewCtx);
+          const tr = view.state.tr.setSelection(
+            TextSelection.create(view.state.doc, 1)
+          );
+          view.dispatch(tr);
+        });
+      } catch {
+        // Editor may not be fully ready yet
+      }
+    }
+    await scrollEditorToTop();
   }
 
   function runEditorCommand(cmd: any, payload?: any) {
@@ -544,13 +572,15 @@ ${tr('welcome.tip')}
       content = fileContent;
       editorStore.setContent(fileContent);
       resetWorkflowState();
+      await replaceContentAndScrollToTop(content);
     }
   }
 
-  function handleNewFile() {
+  async function handleNewFile() {
     content = '';
     editorStore.reset();
     resetWorkflowState();
+    await replaceContentAndScrollToTop(content);
   }
 
   async function handleFileSelect(path: string) {
@@ -558,6 +588,7 @@ ${tr('welcome.tip')}
     content = fileContent;
     editorStore.setContent(fileContent);
     resetWorkflowState();
+    await replaceContentAndScrollToTop(content);
   }
 
   function handleContentChange(newContent: string) {
@@ -973,14 +1004,7 @@ ${tr('welcome.tip')}
       const fileContent = await loadFile(filePath);
       content = fileContent;
       resetWorkflowState();
-      // Sync into Milkdown if it's already mounted (visual/split mode)
-      if (milkdownEditor && editorStore.getState().editorMode !== 'source') {
-        try {
-          milkdownEditor.action(replaceAll(content));
-        } catch {
-          // Editor may not be fully ready yet
-        }
-      }
+      await replaceContentAndScrollToTop(content);
     }
 
     // Listen for file open events from OS file association (while app is running)

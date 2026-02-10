@@ -6,7 +6,8 @@
 
 import type { ImageProviderConfig, AIProviderConfig } from './types';
 import { resolveImageSize } from './types';
-import { sendAIRequest } from './providers';
+import { sendAIRequest, openaiEndpoint } from './providers';
+import { generateBaseUrlCandidates } from './ai-service';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 
 export interface ImageGenerationResult {
@@ -110,7 +111,7 @@ export async function generateImage(
   }
 
   // Standard OpenAI-compatible path
-  const url = `${config.baseURL.replace(/\/$/, '')}/images/generations`;
+  const url = openaiEndpoint(config.baseURL, '/images/generations');
 
   const res = await fetch(url, {
     method: 'POST',
@@ -172,7 +173,7 @@ export async function testImageConnection(config: ImageProviderConfig): Promise<
     }
 
     // Standard: check /models endpoint
-    const url = `${config.baseURL.replace(/\/$/, '')}/models`;
+    const url = openaiEndpoint(config.baseURL, '/models');
     const res = await fetch(url, {
       method: 'GET',
       headers: {
@@ -183,6 +184,21 @@ export async function testImageConnection(config: ImageProviderConfig): Promise<
   } catch {
     return false;
   }
+}
+
+/**
+ * Test image connection with auto-resolution: progressively strip the base URL path
+ * until a working endpoint is found. Returns the resolved URL on success.
+ */
+export async function testImageConnectionWithResolve(
+  config: ImageProviderConfig,
+): Promise<{ success: boolean; resolvedBaseUrl?: string }> {
+  const candidates = generateBaseUrlCandidates(config.baseURL);
+  for (const url of candidates) {
+    const ok = await testImageConnection({ ...config, baseURL: url || config.baseURL });
+    if (ok) return { success: true, resolvedBaseUrl: url };
+  }
+  return { success: false };
 }
 
 export type ImageGenMode = 'article' | 'design' | 'storyboard' | 'product' | 'moodboard';

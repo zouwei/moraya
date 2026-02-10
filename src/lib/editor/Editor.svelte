@@ -537,11 +537,11 @@
 
     // Restore cursor position from store and focus
     const proseMirrorEl = editorEl.querySelector('.ProseMirror') as HTMLElement | null;
+    const savedOffset = editorStore.getState().cursorOffset;
     try {
       editor.action((ctx) => {
         const view = ctx.get(editorViewCtx);
         const docSize = view.state.doc.content.size;
-        const savedOffset = editorStore.getState().cursorOffset;
         // Map markdown offset to ProseMirror position using fraction
         const fraction = content.length > 0 ? savedOffset / content.length : 0;
         let pmPos = Math.round(fraction * docSize);
@@ -557,6 +557,12 @@
     } catch {
       // Fallback: just focus
       if (proseMirrorEl) proseMirrorEl.focus();
+    }
+
+    // Scroll to top for new files (cursorOffset === 0)
+    if (savedOffset === 0) {
+      const wrapper = editorEl.closest('.editor-wrapper') as HTMLElement | null;
+      if (wrapper) wrapper.scrollTop = 0;
     }
 
     // ── Fast AllSelection deletion ──────────────────────────────────

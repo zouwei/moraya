@@ -1,7 +1,7 @@
 <script lang="ts">
   import {
     aiStore,
-    testAIConnection,
+    testAIConnectionWithResolve,
     DEFAULT_MODELS,
     PROVIDER_BASE_URLS,
     type AIProvider,
@@ -14,7 +14,7 @@
     IMAGE_SIZE_MAP,
     resolveImageSize,
   } from '$lib/services/ai';
-  import { testImageConnection } from '$lib/services/ai/image-service';
+  import { testImageConnectionWithResolve } from '$lib/services/ai/image-service';
   import { settingsStore } from '$lib/stores/settings-store';
   import { t } from '$lib/i18n';
 
@@ -144,8 +144,11 @@
       maxTokens: formMaxTokens,
       temperature: formTemperature,
     };
-    const success = await testAIConnection(config);
-    formTestStatus = success ? 'success' : 'failed';
+    const result = await testAIConnectionWithResolve(config);
+    if (result.success && result.resolvedBaseUrl !== undefined && result.resolvedBaseUrl !== (formBaseUrl || '')) {
+      formBaseUrl = result.resolvedBaseUrl;
+    }
+    formTestStatus = result.success ? 'success' : 'failed';
     setTimeout(() => { formTestStatus = 'idle'; }, 3000);
   }
 
@@ -232,8 +235,11 @@
       defaultRatio: imgFormRatio,
       defaultSizeLevel: imgFormSizeLevel,
     };
-    const success = await testImageConnection(config);
-    imgFormTestStatus = success ? 'success' : 'failed';
+    const result = await testImageConnectionWithResolve(config);
+    if (result.success && result.resolvedBaseUrl !== undefined && result.resolvedBaseUrl !== imgFormBaseUrl) {
+      imgFormBaseUrl = result.resolvedBaseUrl;
+    }
+    imgFormTestStatus = result.success ? 'success' : 'failed';
     setTimeout(() => { imgFormTestStatus = 'idle'; }, 3000);
   }
 </script>

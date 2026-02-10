@@ -1,6 +1,6 @@
 [package]
 name = "moraya"
-version = "0.5.3"
+version = "0.5.4"
 description = "A minimal, AI-ready Markdown editor"
 authors = ["Moraya Contributors"]
 edition = "2021"
@@ -13,7 +13,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = ">=2.9,<2.10", features = [] }
+tauri = { version = ">=2.9,<2.10", features = ["tray-icon"] }
 tauri-plugin-fs = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-store = "2"
@@ -26,6 +26,7 @@ tokio = { version = "1", features = ["fs", "io-util"] }
 futures-util = "0.3"
 dirs = "6"
 open = "5"
+fix-path-env = { git = "https://github.com/tauri-apps/fix-path-env-rs" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = "0.2"

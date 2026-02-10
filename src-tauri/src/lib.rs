@@ -7,6 +7,8 @@ mod commands;
 #[cfg(target_os = "macos")]
 mod dock;
 mod menu;
+#[cfg(not(target_os = "macos"))]
+mod tray;
 
 /// Holds file paths requested to be opened via OS file association or CLI args.
 pub struct OpenedFiles(pub Mutex<Vec<String>>);
@@ -155,6 +157,9 @@ fn file_paths_from_args() -> Vec<String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Fix PATH for macOS GUI apps (Dock/Finder don't inherit shell PATH)
+    let _ = fix_path_env::fix();
+
     // Collect file paths from CLI args (Windows file association)
     let initial_files = file_paths_from_args();
 
@@ -208,6 +213,10 @@ pub fn run() {
             // Set up macOS Dock right-click menu with "New Window"
             #[cfg(target_os = "macos")]
             dock::setup_dock_menu(&app_handle);
+
+            // Set up system tray for Windows/Linux
+            #[cfg(not(target_os = "macos"))]
+            tray::setup_tray(app)?;
 
             // Handle menu events — emit to the main window
             let app_handle_for_events = app.handle().clone();

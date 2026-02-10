@@ -5,6 +5,7 @@
   "windows": ["main", "moraya-*"],
   "permissions": [
     "core:default",
+    "core:tray:default",
     "core:window:allow-start-dragging",
     "core:window:allow-minimize",
     "core:window:allow-maximize",
