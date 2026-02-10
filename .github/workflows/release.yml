@@ -127,3 +127,17 @@ jobs:
           tag_name: ${{ github.ref_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+
+  # 新增：等待所有构建完成后触发部署
+  trigger-deploy:
+    needs: release  # 等待所有平台构建完成
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Cloudflare Pages Deploy
+        run: |
+          curl -X POST "${{ secrets.CLOUDFLARE_DEPLOY_HOOK_URL }}"
+      
+      - name: Notify success
+        run: |
+          echo "✅ Cloudflare Pages deploy triggered for ${{ github.ref_name }}"
