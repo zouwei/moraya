@@ -19,6 +19,7 @@
   let inputEl: HTMLInputElement | undefined = $state();
 
   function handleKeydown(e: KeyboardEvent) {
+    if (e.isComposing) return;
     if (e.key === 'Enter') {
       e.preventDefault();
       onSave(value);

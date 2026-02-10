@@ -2128,7 +2128,7 @@ dependencies = [
 
 [[package]]
 name = "moraya"
-version = "0.3.4"
+version = "0.5.0"
 dependencies = [
  "dirs",
  "futures-util",

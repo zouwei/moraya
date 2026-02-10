@@ -188,8 +188,8 @@
   content: '';
   position: absolute;
   left: -1.5em;
-  top: 50%;
-  transform: translateY(-50%);
+  /* Align with first line center: (line-height 1.75 - box 1em) / 2 ≈ 0.65em in ::before em */
+  top: 0.65em;
   width: 1em;
   height: 1em;
   border: 1.5px solid var(--text-muted);

@@ -3,6 +3,31 @@
  * Supports GitHub Repository and Custom API publishing targets.
  */
 
+/** RSS feed configuration for a publish target */
+export interface RSSConfig {
+  enabled: boolean;
+  feedPath: string;           // e.g., "feed.xml"
+  siteUrl: string;            // e.g., "https://myblog.com"
+  feedTitle: string;
+  feedDescription: string;
+  language: string;           // e.g., "en" or "zh-CN"
+  authorName: string;
+  maxItems: number;           // default: 20
+  includeFullContent: boolean; // include content:encoded in feed
+}
+
+export const DEFAULT_RSS_CONFIG: RSSConfig = {
+  enabled: false,
+  feedPath: 'feed.xml',
+  siteUrl: '',
+  feedTitle: '',
+  feedDescription: '',
+  language: 'en',
+  authorName: '',
+  maxItems: 20,
+  includeFullContent: true,
+};
+
 export interface GitHubTarget {
   type: 'github';
   id: string;
@@ -15,6 +40,12 @@ export interface GitHubTarget {
   frontMatterPreset: string; // 'hugo' | 'hexo' | 'astro' | 'custom'
   frontMatterTemplate: string;
   fileNamePattern: string;  // e.g. '{{date}}-{{slug}}'
+  rss?: RSSConfig;
+}
+
+export interface CustomAPIRSSConfig {
+  enabled: boolean;
+  feedEndpoint: string;     // POST endpoint for RSS update
 }
 
 export interface CustomAPITarget {
@@ -26,6 +57,7 @@ export interface CustomAPITarget {
   headers: Record<string, string>;
   bodyTemplate: string;     // JSON template with {{variables}}
   fileNamePattern: string;  // e.g. '{{date}}-{{slug}}'
+  rss?: CustomAPIRSSConfig;
 }
 
 export type PublishTarget = GitHubTarget | CustomAPITarget;
@@ -163,6 +195,7 @@ export function createDefaultGitHubTarget(): GitHubTarget {
     frontMatterPreset: 'hugo',
     frontMatterTemplate: FRONT_MATTER_PRESETS.hugo,
     fileNamePattern: DEFAULT_FILE_NAME_PATTERN,
+    rss: { ...DEFAULT_RSS_CONFIG },
   };
 }
 
@@ -179,5 +212,6 @@ export function createDefaultCustomAPITarget(): CustomAPITarget {
     headers: { 'Content-Type': 'application/json' },
     bodyTemplate: '{\n  "title": "{{title}}",\n  "content": "{{content}}",\n  "tags": "{{tags}}"\n}',
     fileNamePattern: DEFAULT_FILE_NAME_PATTERN,
+    rss: { enabled: false, feedEndpoint: '' },
   };
 }

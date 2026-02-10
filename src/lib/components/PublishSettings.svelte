@@ -7,12 +7,13 @@
     type CustomAPITarget,
     FRONT_MATTER_PRESETS,
     FILE_NAME_PRESETS,
+    DEFAULT_RSS_CONFIG,
     resolveFileName,
     createDefaultGitHubTarget,
     createDefaultCustomAPITarget,
-    testGitHubConnection,
-    testCustomAPIConnection,
-  } from '$lib/services/publish';
+  } from '$lib/services/publish/types';
+  import { testGitHubConnection } from '$lib/services/publish/github-publisher';
+  import { testCustomAPIConnection } from '$lib/services/publish/api-publisher';
 
   let targets = $state<PublishTarget[]>([]);
   let editingTarget = $state<PublishTarget | null>(null);
@@ -20,8 +21,11 @@
   let testStatus = $state<Record<string, 'idle' | 'testing' | 'success' | 'failed'>>({});
   let headersText = $state('');
 
-  settingsStore.subscribe(state => {
-    targets = state.publishTargets || [];
+  $effect(() => {
+    const unsubscribe = settingsStore.subscribe(state => {
+      targets = state.publishTargets || [];
+    });
+    return unsubscribe;
   });
 
   function addGitHubTarget() {
@@ -38,6 +42,12 @@
 
   function editTarget(target: PublishTarget) {
     const cloned = JSON.parse(JSON.stringify(target));
+    // Ensure rss config exists for backward compatibility
+    if (cloned.type === 'github' && !cloned.rss) {
+      cloned.rss = { ...DEFAULT_RSS_CONFIG };
+    } else if (cloned.type === 'custom-api' && !cloned.rss) {
+      cloned.rss = { enabled: false, feedEndpoint: '' };
+    }
     editingTarget = cloned;
     if (cloned.type === 'custom-api') {
       headersText = JSON.stringify((cloned as CustomAPITarget).headers, null, 2);
@@ -288,6 +298,146 @@
         <span class="setting-hint filename-preview">{$t('publish.fileNamePreview')}：{fileNamePreview}</span>
         <span class="setting-hint">{$t('publish.fileNameVariables')}</span>
       </div>
+
+      <!-- RSS Feed Configuration -->
+      {#if editingTarget.type === 'github'}
+        {@const gh = editingTarget as GitHubTarget}
+        <div class="section-divider">
+          <span class="section-title">{$t('publish.rssSection')}</span>
+        </div>
+
+        <div class="setting-group">
+          <label class="checkbox-label">
+            <input
+              type="checkbox"
+              checked={gh.rss?.enabled ?? false}
+              onchange={() => { if (gh.rss) gh.rss.enabled = !gh.rss.enabled; }}
+            />
+            <span>{$t('publish.rssEnable')}</span>
+          </label>
+          <span class="setting-hint">{$t('publish.rssEnableHint')}</span>
+        </div>
+
+        {#if gh.rss?.enabled}
+          <div class="setting-group">
+            <label class="setting-label" for="rss-site-url">{$t('publish.rssSiteUrl')}</label>
+            <input
+              id="rss-site-url"
+              type="text"
+              class="setting-input"
+              bind:value={gh.rss.siteUrl}
+              placeholder={$t('publish.rssSiteUrlPlaceholder')}
+            />
+          </div>
+
+          <div class="setting-group">
+            <label class="setting-label" for="rss-feed-title">{$t('publish.rssFeedTitle')}</label>
+            <input
+              id="rss-feed-title"
+              type="text"
+              class="setting-input"
+              bind:value={gh.rss.feedTitle}
+              placeholder={$t('publish.rssFeedTitlePlaceholder')}
+            />
+          </div>
+
+          <div class="setting-group">
+            <label class="setting-label" for="rss-feed-desc">{$t('publish.rssFeedDescription')}</label>
+            <input
+              id="rss-feed-desc"
+              type="text"
+              class="setting-input"
+              bind:value={gh.rss.feedDescription}
+              placeholder={$t('publish.rssFeedDescriptionPlaceholder')}
+            />
+          </div>
+
+          <div class="setting-group">
+            <label class="setting-label" for="rss-author">{$t('publish.rssAuthorName')}</label>
+            <input
+              id="rss-author"
+              type="text"
+              class="setting-input"
+              bind:value={gh.rss.authorName}
+              placeholder={$t('publish.rssAuthorNamePlaceholder')}
+            />
+          </div>
+
+          <div class="setting-group">
+            <label class="setting-label" for="rss-language">{$t('publish.rssLanguage')}</label>
+            <input
+              id="rss-language"
+              type="text"
+              class="setting-input"
+              bind:value={gh.rss.language}
+              placeholder="en"
+            />
+          </div>
+
+          <div class="setting-group">
+            <label class="setting-label" for="rss-feed-path">{$t('publish.rssFeedPath')}</label>
+            <input
+              id="rss-feed-path"
+              type="text"
+              class="setting-input"
+              bind:value={gh.rss.feedPath}
+              placeholder={$t('publish.rssFeedPathPlaceholder')}
+            />
+          </div>
+
+          <div class="setting-group">
+            <label class="setting-label" for="rss-max-items">{$t('publish.rssMaxItems')}: {gh.rss.maxItems}</label>
+            <input
+              id="rss-max-items"
+              type="range"
+              min="5"
+              max="100"
+              step="5"
+              bind:value={gh.rss.maxItems}
+            />
+          </div>
+
+          <div class="setting-group">
+            <label class="checkbox-label">
+              <input
+                type="checkbox"
+                checked={gh.rss.includeFullContent}
+                onchange={() => { if (gh.rss) gh.rss.includeFullContent = !gh.rss.includeFullContent; }}
+              />
+              <span>{$t('publish.rssIncludeFullContent')}</span>
+            </label>
+          </div>
+        {/if}
+      {:else if editingTarget.type === 'custom-api'}
+        {@const api = editingTarget as CustomAPITarget}
+        <div class="section-divider">
+          <span class="section-title">{$t('publish.rssSection')}</span>
+        </div>
+
+        <div class="setting-group">
+          <label class="checkbox-label">
+            <input
+              type="checkbox"
+              checked={api.rss?.enabled ?? false}
+              onchange={() => { if (api.rss) api.rss.enabled = !api.rss.enabled; }}
+            />
+            <span>{$t('publish.rssEnable')}</span>
+          </label>
+        </div>
+
+        {#if api.rss?.enabled}
+          <div class="setting-group">
+            <label class="setting-label" for="rss-endpoint">{$t('publish.rssFeedEndpoint')}</label>
+            <input
+              id="rss-endpoint"
+              type="text"
+              class="setting-input"
+              bind:value={api.rss.feedEndpoint}
+              placeholder={$t('publish.rssFeedEndpointPlaceholder')}
+            />
+          </div>
+        {/if}
+      {/if}
 
       <div class="form-actions">
         <button class="btn btn-secondary" onclick={cancelEdit}>{$t('common.cancel')}</button>
@@ -641,5 +791,41 @@
 
   .filename-preview {
     color: var(--accent-color);
+  }
+
+  /* Section divider */
+  .section-divider {
+    margin-top: 0.5rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border-light);
+  }
+
+  .section-title {
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  /* Checkbox label */
+  .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: var(--font-size-sm);
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+
+  .checkbox-label input[type="checkbox"] {
+    margin: 0;
+    cursor: pointer;
+  }
+
+  /* Range slider */
+  input[type="range"] {
+    width: 100%;
+    cursor: pointer;
   }
 </style>

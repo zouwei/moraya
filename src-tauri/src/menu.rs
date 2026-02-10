@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use tauri::{
-    menu::{CheckMenuItem, Menu, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu},
+    menu::{AboutMetadata, CheckMenuItem, Menu, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu},
     AppHandle, Wry,
 };
 
@@ -185,12 +185,25 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
 
     #[cfg(target_os = "macos")]
     {
+        let about_metadata = AboutMetadata {
+            copyright: Some("© 2024 Moraya Contributors".into()),
+            credits: Some(
+                "A minimal, AI-ready Markdown editor\n\n\
+                 Tech Stack\n\
+                 Rust + Tauri v2 · Svelte 5 · TypeScript\n\
+                 Milkdown v7 · ProseMirror · KaTeX\n\n\
+                 https://moraya.app"
+                    .into(),
+            ),
+            ..Default::default()
+        };
+
         let app_menu = Submenu::with_items(
             app,
             "Moraya",
             true,
             &[
-                &PredefinedMenuItem::about(app, Some("About Moraya"), None)?,
+                &PredefinedMenuItem::about(app, Some("About Moraya"), Some(about_metadata))?,
                 &PredefinedMenuItem::separator(app)?,
                 &MenuItem::with_id(app, "preferences", "Settings...", true, Some("CmdOrCtrl+,"))?,
                 &PredefinedMenuItem::separator(app)?,

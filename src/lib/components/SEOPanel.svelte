@@ -64,7 +64,7 @@
   }
 
   function addTag(event: KeyboardEvent) {
-    if (event.key !== 'Enter' || !seoData) return;
+    if (event.isComposing || event.key !== 'Enter' || !seoData) return;
     const input = event.target as HTMLInputElement;
     const tag = input.value.trim();
     if (tag && !seoData.tags.includes(tag)) {

@@ -34,6 +34,7 @@
   import { settingsStore, initSettingsStore } from '$lib/stores/settings-store';
   import { initAIStore } from '$lib/services/ai';
   import { initMCPStore, connectAllServers } from '$lib/services/mcp';
+  import { initContainerManager, cleanupTempServices } from '$lib/services/mcp/container-manager';
   import { preloadEnhancementPlugins } from '$lib/editor/setup';
   import { openFile, saveFile, saveFileAs, loadFile, getFileNameFromPath, readImageAsBlobUrl } from '$lib/services/file-service';
   import { exportDocument, type ExportFormat } from '$lib/services/export-service';
@@ -762,6 +763,19 @@ ${tr('welcome.tip')}
 
       if (result.success) {
         showToast(`${tr('workflow.publishSuccess')} → ${result.targetName}`, 'success');
+
+        // Update RSS feed if enabled (non-fatal)
+        try {
+          if (target.type === 'github' && target.rss?.enabled) {
+            const { updateGitHubRSSFeed } = await import('$lib/services/publish/rss-publisher');
+            await updateGitHubRSSFeed(target, variables, content);
+          } else if (target.type === 'custom-api' && target.rss?.enabled) {
+            const { updateCustomAPIRSSFeed } = await import('$lib/services/publish/rss-publisher');
+            await updateCustomAPIRSSFeed(target, variables, content);
+          }
+        } catch (rssErr) {
+          showToast(`${tr('publish.rssUpdateFailed')}: ${rssErr instanceof Error ? rssErr.message : ''}`, 'error');
+        }
       } else {
         showToast(`${tr('workflow.publishFailed')} → ${result.targetName}: ${result.message}`, 'error');
       }
@@ -843,6 +857,9 @@ ${tr('welcome.tip')}
       .then(() => {
         // Auto-connect all enabled MCP servers
         connectAllServers().catch(() => {});
+
+        // Initialize dynamic service container (checks Node.js, reconnects saved services)
+        initContainerManager().catch(() => {});
 
         // Auto-check for updates (once daily)
         const settings = settingsStore.getState();
@@ -994,6 +1011,15 @@ ${tr('welcome.tip')}
     }
     window.addEventListener('moraya:file-synced', handleFileSynced);
 
+    // Dynamic MCP service creation notification
+    function handleDynamicServiceCreated(e: Event) {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.name) {
+        showToast(`AI: ${detail.name} (${detail.tools?.length || 0} tools)`, 'success');
+      }
+    }
+    window.addEventListener('moraya:dynamic-service-created', handleDynamicServiceCreated);
+
     // Drag-drop: open MD files in new windows
     const MD_EXTENSIONS = new Set(['md', 'markdown', 'mdown', 'mkd', 'mkdn', 'mdwn', 'mdx', 'txt']);
     let dragDropUnlisten: UnlistenFn | undefined;
@@ -1018,6 +1044,8 @@ ${tr('welcome.tip')}
       openFileUnlisten?.();
       dragDropUnlisten?.();
       window.removeEventListener('moraya:file-synced', handleFileSynced);
+      window.removeEventListener('moraya:dynamic-service-created', handleDynamicServiceCreated);
+      cleanupTempServices().catch(() => {});
     };
   });
 </script>

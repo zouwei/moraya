@@ -19,6 +19,7 @@ import { getAllTools, callTool } from '$lib/services/mcp';
 import { mcpToolsToToolDefs } from './tool-bridge';
 import { INTERNAL_TOOLS, isInternalTool, executeInternalTool } from './internal-tools';
 import { editorStore } from '$lib/stores/editor-store';
+import { containerStore } from '$lib/services/mcp/container-store';
 import { documentDir } from '@tauri-apps/api/path';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -312,6 +313,43 @@ export async function executeAICommand(
   }
 }
 
+function buildSystemPrompt(
+  config: AIProviderConfig,
+  toolCount: number,
+  currentDir: string | null,
+  currentFilePath: string | null,
+  documentContext?: string,
+): string {
+  let prompt = `You are Moraya AI, a helpful writing assistant integrated into a Markdown editor. You are powered by ${config.model} (${config.provider}). Help the user with writing, editing, and content creation. Always respond in Markdown format when producing content.`;
+
+  if (toolCount > 0) {
+    prompt += ' You have access to tools. Use them when they can help answer the user\'s question. You can use add_mcp_server to help users install and configure new MCP servers.';
+  }
+
+  // Dynamic service creation capability
+  const nodeState = containerStore.getState();
+  if (nodeState.nodeAvailable) {
+    prompt +=
+      '\n\nYou can create dynamic MCP services on-the-fly using create_mcp_service. Use this when:' +
+      '\n- The user needs data from an HTTP API (REST, GraphQL) and no existing tool covers it' +
+      '\n- You need to fetch or process data from a web service' +
+      '\n- A temporary automation would help the user' +
+      '\n\nWhen creating services:' +
+      '\n- Write handler code using Node.js built-in fetch() for HTTP calls' +
+      '\n- Pass API keys as env variables, never hardcode them in handler code' +
+      '\n- Keep handlers focused and include proper error handling' +
+      '\n- The service tools become immediately available for subsequent tool calls';
+  }
+
+  if (currentDir) prompt += `\n\nCurrent working directory: ${currentDir}`;
+  if (currentFilePath) prompt += `\nCurrent file: ${currentFilePath}`;
+  if (documentContext) {
+    prompt += `\n\n${documentContext ? `Current document context (last 1000 chars):\n${documentContext.slice(-1000)}` : ''}`;
+  }
+
+  return prompt;
+}
+
 /**
  * Send a free-form chat message to the AI.
  * If MCP tools are available, enables tool calling with an execution loop.
@@ -344,7 +382,7 @@ export async function sendChatMessage(message: string, documentContext?: string)
     const messages: ChatMessage[] = [
       {
         role: 'system',
-        content: `You are Moraya AI, a helpful writing assistant integrated into a Markdown editor. You are powered by ${activeConfig.model} (${activeConfig.provider}). Help the user with writing, editing, and content creation. Always respond in Markdown format when producing content.${toolDefs.length > 0 ? ' You have access to tools. Use them when they can help answer the user\'s question. You can use add_mcp_server to help users install and configure new MCP servers.' : ''}${currentDir ? `\n\nCurrent working directory: ${currentDir}` : ''}${currentFilePath ? `\nCurrent file: ${currentFilePath}` : ''}\n\n${documentContext ? `Current document context (last 1000 chars):\n${documentContext.slice(-1000)}` : ''}`,
+        content: buildSystemPrompt(activeConfig, toolDefs.length, currentDir, currentFilePath, documentContext),
         timestamp: Date.now(),
       },
       // Include recent chat history for context (preserve tool call/result pairs)

@@ -23,6 +23,9 @@
   } from '$lib/services/mcp';
   import { t } from '$lib/i18n';
   import { openUrl } from '@tauri-apps/plugin-opener';
+  import { containerStore, type DynamicService } from '$lib/services/mcp/container-store';
+  import { saveService, removeService } from '$lib/services/mcp/container-manager';
+  import { invoke } from '@tauri-apps/api/core';
 
   let {
     documentTitle = 'Untitled',
@@ -41,6 +44,12 @@
   let error = $state<string | null>(null);
   let publishStatus = $state<string | null>(null);
   let activeTab = $state<'servers' | 'publish' | 'sync' | 'marketplace'>('servers');
+
+  // Dynamic AI services state
+  let dynamicServices = $state<DynamicService[]>([]);
+  let nodeAvailable = $state<boolean | null>(null);
+  let nodeVersion = $state<string | null>(null);
+  let expandedServiceId = $state<string | null>(null);
 
   // Marketplace state
   let mpSource = $state<MarketplaceSource>('official');
@@ -83,6 +92,12 @@
     syncStatuses = state.syncStatuses;
     isLoading = state.isLoading;
     error = state.error;
+  });
+
+  containerStore.subscribe(state => {
+    dynamicServices = state.services;
+    nodeAvailable = state.nodeAvailable;
+    nodeVersion = state.nodeVersion;
   });
 
   async function handleConnect(server: MCPServerConfig) {
@@ -473,6 +488,41 @@
   let newTargetName = $state('');
   let newTargetServerId = $state('');
   let showAddTarget = $state(false);
+
+  // ── Dynamic AI service handlers ──
+  let serviceCodeCache = $state<Record<string, string>>({});
+
+  async function toggleServiceCode(serviceId: string) {
+    if (expandedServiceId === serviceId) {
+      expandedServiceId = null;
+      return;
+    }
+    expandedServiceId = serviceId;
+    if (!serviceCodeCache[serviceId]) {
+      const svc = dynamicServices.find(s => s.id === serviceId);
+      if (svc) {
+        try {
+          const code = await invoke<string>('read_file', { path: `${svc.serviceDir}/handlers.js` });
+          serviceCodeCache = { ...serviceCodeCache, [serviceId]: code };
+        } catch {
+          serviceCodeCache = { ...serviceCodeCache, [serviceId]: '// Failed to load code' };
+        }
+      }
+    }
+  }
+
+  async function handleSaveService(serviceId: string) {
+    try {
+      await saveService(serviceId);
+    } catch { /* handled by store */ }
+  }
+
+  async function handleRemoveService(serviceId: string) {
+    try {
+      await removeService(serviceId);
+      if (expandedServiceId === serviceId) expandedServiceId = null;
+    } catch { /* handled by store */ }
+  }
 </script>
 
 <div class="mcp-panel">
@@ -669,6 +719,67 @@
           {/if}
         </div>
       {/if}
+
+      <!-- Local MCP (AI-created dynamic services) -->
+      <div class="local-mcp-section">
+        <div class="section-label">{$t('mcp.servers.localMcp')}</div>
+        <div class="node-status">
+          <span class="node-dot" class:available={nodeAvailable === true} class:unavailable={nodeAvailable === false}></span>
+          {#if nodeAvailable === true}
+            <span class="node-label">Node.js {nodeVersion}</span>
+          {:else if nodeAvailable === false}
+            <span class="node-label node-missing">{$t('mcp.aiServices.nodeRequired')}</span>
+          {:else}
+            <span class="node-label">{$t('mcp.aiServices.checkingNode')}</span>
+          {/if}
+        </div>
+
+        {#if dynamicServices.length === 0}
+          <div class="empty-state local-mcp-empty">
+            <p>{$t('mcp.aiServices.empty')}</p>
+            <p class="hint">{$t('mcp.aiServices.hint')}</p>
+          </div>
+        {:else}
+          {#each dynamicServices as service}
+            <div class="server-item dyn-service-item">
+              <div class="server-info">
+                <div class="dyn-service-header">
+                  <span class="server-name">{service.name}</span>
+                  <span class="lifecycle-badge" class:temp={service.lifecycle === 'temp'} class:saved={service.lifecycle === 'saved'}>
+                    {service.lifecycle === 'temp' ? $t('mcp.aiServices.temp') : $t('mcp.aiServices.saved')}
+                  </span>
+                </div>
+                <span class="dyn-service-desc">{service.description}</span>
+                <div class="server-meta">
+                  <span class="server-status" class:connected={service.status === 'running'} class:dyn-error={service.status === 'error'}>
+                    {service.status}
+                  </span>
+                  <span class="dyn-tool-count">{service.tools.length} tools</span>
+                </div>
+                {#if service.error}
+                  <span class="dyn-error-msg">{service.error}</span>
+                {/if}
+              </div>
+              <div class="server-actions">
+                <button class="btn-sm" onclick={() => toggleServiceCode(service.id)}>
+                  {$t('mcp.aiServices.viewCode')}
+                </button>
+                {#if service.lifecycle === 'temp'}
+                  <button class="btn-sm primary" onclick={() => handleSaveService(service.id)}>
+                    {$t('common.save')}
+                  </button>
+                {/if}
+                <button class="btn-sm danger" onclick={() => handleRemoveService(service.id)}>
+                  {$t('common.remove')}
+                </button>
+              </div>
+            </div>
+            {#if expandedServiceId === service.id}
+              <pre class="service-code">{serviceCodeCache[service.id] || '...'}</pre>
+            {/if}
+          {/each}
+        {/if}
+      </div>
     </div>
 
   {:else if activeTab === 'publish'}
@@ -788,7 +899,7 @@
           placeholder={$t('mcp.marketplace.search')}
           bind:value={mpQuery}
           oninput={mpOnQueryInput}
-          onkeydown={(e) => { if (e.key === 'Enter') { if (mpSearchTimer) clearTimeout(mpSearchTimer); mpSearch(1); } }}
+          onkeydown={(e) => { if (!e.isComposing && e.key === 'Enter') { if (mpSearchTimer) clearTimeout(mpSearchTimer); mpSearch(1); } }}
         />
       </div>
 
@@ -909,6 +1020,7 @@
         </button>
       {/if}
     </div>
+
   {/if}
 
   {#if error}
@@ -1466,5 +1578,133 @@
   .mp-env-secret {
     color: #dc3545;
     margin-left: 0.15rem;
+  }
+
+  /* ── Local MCP section ── */
+
+  .local-mcp-section {
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border-light);
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .local-mcp-empty {
+    padding: 0.75rem 0.5rem;
+  }
+
+  /* ── AI Services ── */
+
+  .node-status {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.3rem 0;
+  }
+
+  .node-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    flex-shrink: 0;
+  }
+
+  .node-dot.available { background: #28a745; }
+  .node-dot.unavailable { background: #dc3545; }
+
+  .node-label {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+  }
+
+  .node-label.node-missing { color: #dc3545; }
+
+  .dyn-service-item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.35rem;
+  }
+
+  .dyn-service-item .server-info {
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .dyn-service-item .server-actions {
+    justify-content: flex-end;
+  }
+
+  .dyn-service-header {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
+  .lifecycle-badge {
+    font-size: 10px;
+    padding: 0 0.3rem;
+    border-radius: 3px;
+    font-weight: 500;
+  }
+
+  .lifecycle-badge.temp {
+    background: #fff3cd;
+    color: #856404;
+  }
+
+  .lifecycle-badge.saved {
+    background: #cce5ff;
+    color: #004085;
+  }
+
+  :global([data-theme="dark"]) .lifecycle-badge.temp {
+    background: rgba(255, 193, 7, 0.15);
+    color: #ffc107;
+  }
+
+  :global([data-theme="dark"]) .lifecycle-badge.saved {
+    background: rgba(0, 123, 255, 0.15);
+    color: #5ba3f5;
+  }
+
+  .dyn-service-desc {
+    font-size: var(--font-size-xs);
+    color: var(--text-secondary);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .dyn-tool-count {
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+
+  .dyn-error-msg {
+    font-size: 10px;
+    color: #dc3545;
+  }
+
+  .server-status.dyn-error { color: #dc3545; }
+
+  .service-code {
+    font-family: var(--font-mono, monospace);
+    font-size: 11px;
+    line-height: 1.4;
+    padding: 0.5rem;
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    margin: 0;
+    max-height: 200px;
+    overflow-y: auto;
   }
 </style>

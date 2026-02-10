@@ -17,7 +17,7 @@ interface GitHubContentsResponse {
  * Parse owner and repo from a GitHub URL.
  * Supports: https://github.com/owner/repo, github.com/owner/repo
  */
-function parseGitHubUrl(repoUrl: string): { owner: string; repo: string } {
+export function parseGitHubUrl(repoUrl: string): { owner: string; repo: string } {
   const cleaned = repoUrl.replace(/\.git$/, '').replace(/\/$/, '');
   const match = cleaned.match(/github\.com\/([^/]+)\/([^/]+)/);
   if (!match) throw new Error(`Invalid GitHub URL: ${repoUrl}`);
@@ -27,7 +27,7 @@ function parseGitHubUrl(repoUrl: string): { owner: string; repo: string } {
 /**
  * Get the SHA of an existing file (needed for updates).
  */
-async function getFileSha(
+export async function getFileSha(
   owner: string,
   repo: string,
   path: string,
@@ -48,9 +48,36 @@ async function getFileSha(
 }
 
 /**
+ * Get the text content of a file from a GitHub repository.
+ * Returns null if the file does not exist.
+ */
+export async function getFileContent(
+  owner: string,
+  repo: string,
+  path: string,
+  branch: string,
+  token: string,
+): Promise<string | null> {
+  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}`;
+  const res = await tauriFetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github.v3+json',
+    },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) return null;
+  const data = await res.json();
+  if (!data.content) return null;
+  // GitHub returns base64-encoded content with possible newlines
+  const base64 = (data.content as string).replace(/\n/g, '');
+  return decodeURIComponent(escape(atob(base64)));
+}
+
+/**
  * Create or update a file in a GitHub repository.
  */
-async function putFile(
+export async function putFile(
   owner: string,
   repo: string,
   path: string,

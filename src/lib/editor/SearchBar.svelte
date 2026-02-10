@@ -38,6 +38,7 @@
   }
 
   function handleSearchKeydown(event: KeyboardEvent) {
+    if (event.isComposing) return;
     if (event.key === 'Enter') {
       event.preventDefault();
       if (event.shiftKey) {
@@ -53,6 +54,7 @@
   }
 
   function handleReplaceKeydown(event: KeyboardEvent) {
+    if (event.isComposing) return;
     if (event.key === 'Enter') {
       event.preventDefault();
       onReplace(replaceText);

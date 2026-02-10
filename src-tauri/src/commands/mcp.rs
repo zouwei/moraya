@@ -171,3 +171,22 @@ pub fn mcp_disconnect(
 
     Ok(())
 }
+
+/// Check if an external command exists and return its --version output
+#[tauri::command]
+pub fn check_command_exists(command: String) -> Result<String, String> {
+    let output = Command::new(&command)
+        .arg("--version")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| format!("Command '{}' not found: {}", command, e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    Ok(if !stdout.is_empty() {
+        stdout
+    } else {
+        String::from_utf8_lossy(&output.stderr).trim().to_string()
+    })
+}

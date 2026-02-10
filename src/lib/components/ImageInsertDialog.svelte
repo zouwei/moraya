@@ -34,6 +34,7 @@
   }
 
   function handleKeydown(event: KeyboardEvent) {
+    if (event.isComposing) return;
     if (event.key === 'Escape') {
       onClose();
     } else if (event.key === 'Enter' && canInsert) {

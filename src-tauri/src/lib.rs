@@ -178,6 +178,7 @@ pub fn run() {
             commands::mcp::mcp_send_request,
             commands::mcp::mcp_send_notification,
             commands::mcp::mcp_disconnect,
+            commands::mcp::check_command_exists,
             commands::update::get_platform_info,
             commands::update::exit_app,
             commands::update::download_update,
