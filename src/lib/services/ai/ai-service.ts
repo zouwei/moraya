@@ -24,11 +24,46 @@ import { documentDir } from '@tauri-apps/api/path';
 import { invoke } from '@tauri-apps/api/core';
 
 const AI_STORE_FILE = 'ai-config.json';
+const KEYCHAIN_AI_PREFIX = 'ai-key:';
+
+async function saveKeyToKeychain(configId: string, apiKey: string): Promise<boolean> {
+  try {
+    await invoke('keychain_set', { key: `${KEYCHAIN_AI_PREFIX}${configId}`, value: apiKey });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function getKeyFromKeychain(configId: string): Promise<string | null> {
+  try {
+    return await invoke<string | null>('keychain_get', { key: `${KEYCHAIN_AI_PREFIX}${configId}` });
+  } catch {
+    return null;
+  }
+}
+
+async function deleteKeyFromKeychain(configId: string): Promise<void> {
+  try {
+    await invoke('keychain_delete', { key: `${KEYCHAIN_AI_PREFIX}${configId}` });
+  } catch { /* ignore */ }
+}
 
 async function persistAIConfigs(configs: AIProviderConfig[], activeConfigId: string | null) {
   try {
+    // Save API keys to OS keychain, store "***" placeholder on disk
+    const diskConfigs = [];
+    for (const c of configs) {
+      if (c.apiKey && c.apiKey !== '***') {
+        const saved = await saveKeyToKeychain(c.id, c.apiKey);
+        diskConfigs.push({ ...c, apiKey: saved ? '***' : c.apiKey });
+      } else {
+        diskConfigs.push({ ...c });
+      }
+    }
+
     const store = await load(AI_STORE_FILE);
-    await store.set('providerConfigs', configs);
+    await store.set('providerConfigs', diskConfigs);
     await store.set('activeConfigId', activeConfigId);
     await store.save();
   } catch { /* ignore */ }
@@ -114,6 +149,7 @@ function createAIStore() {
         if (activeId === id) {
           activeId = configs[0]?.id || null;
         }
+        deleteKeyFromKeychain(id);
         persistAIConfigs(configs, activeId);
         return {
           ...state,
@@ -605,15 +641,39 @@ export async function initAIStore() {
       for (const c of configs) {
         if (!c.id) c.id = crypto.randomUUID();
       }
+
+      // Restore API keys from keychain / migrate plaintext keys
+      let needsMigration = false;
+      for (const c of configs) {
+        if (c.apiKey === '***') {
+          // Restore from keychain
+          const key = await getKeyFromKeychain(c.id);
+          c.apiKey = key || '';
+        } else if (c.apiKey && c.apiKey !== '') {
+          // Legacy plaintext key — migrate to keychain
+          needsMigration = true;
+          await saveKeyToKeychain(c.id, c.apiKey);
+        }
+      }
+
       aiStore._load(configs, activeId || configs[0].id);
+
+      // Persist migration (replace plaintext keys with "***" on disk)
+      if (needsMigration) {
+        persistAIConfigs(configs, activeId || configs[0].id);
+      }
     } else {
       // Try old single-config format (migration)
       const saved = await store.get<any>('providerConfig');
       if (saved) {
         saved.id = saved.id || crypto.randomUUID();
+        // Migrate key to keychain
+        if (saved.apiKey && saved.apiKey !== '***') {
+          await saveKeyToKeychain(saved.id, saved.apiKey);
+        }
         aiStore._load([saved], saved.id);
-        // Persist in new format and clean up old key
-        await store.set('providerConfigs', [saved]);
+        // Persist in new format with key placeholder
+        await store.set('providerConfigs', [{ ...saved, apiKey: saved.apiKey ? '***' : '' }]);
         await store.set('activeConfigId', saved.id);
         await store.delete('providerConfig');
         await store.save();

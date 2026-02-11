@@ -1,6 +1,7 @@
 /**
- * LLM API adapters for multiple providers
- * Each provider normalizes to the same AIResponse interface
+ * LLM API adapters for multiple providers.
+ * All requests are proxied through the Rust backend (ai_proxy) to keep
+ * API keys out of WebView memory and network requests.
  */
 
 import type { AIProviderConfig, AIRequest, AIResponse, ChatMessage, ToolCallRequest } from './types';
@@ -10,10 +11,7 @@ import {
   parseOpenAIToolCalls,
   parseGeminiToolCalls,
 } from './tool-bridge';
-import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
-
-/** Default timeout for AI API requests (3 minutes) */
-const AI_FETCH_TIMEOUT_MS = 180_000;
+import { invoke, Channel } from '@tauri-apps/api/core';
 
 /** Build OpenAI-compatible endpoint URL, avoiding double version prefix (e.g., /v3/v1/...) */
 export function openaiEndpoint(baseUrl: string, path: string): string {
@@ -24,35 +22,100 @@ export function openaiEndpoint(baseUrl: string, path: string): string {
 }
 
 /**
- * Fetch via Tauri HTTP plugin (Rust backend) — bypasses WebKit's ~60s timeout.
- * Falls back to global fetch if Tauri plugin is unavailable.
+ * Non-streaming proxy fetch: sends request through Rust backend which injects
+ * the API key from OS keychain and forwards to the AI provider.
  */
-function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = AI_FETCH_TIMEOUT_MS, externalSignal?: AbortSignal): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  if (externalSignal) {
-    if (externalSignal.aborted) controller.abort();
-    else externalSignal.addEventListener('abort', () => controller.abort(), { once: true });
-  }
-  console.log(`[AI] fetch → ${url}`);
-  const fetchFn = tauriFetch || fetch;
-  return fetchFn(url, { ...init, signal: controller.signal }).catch((err: Error) => {
-    console.error(`[AI] fetch failed: ${url}`, err.name, err.message);
-    // User-initiated abort: always propagate as AbortError
-    if (externalSignal?.aborted) {
-      throw new DOMException('Aborted', 'AbortError');
-    }
-    if (err.name === 'AbortError') {
-      throw new Error(`AI 请求超时（${Math.round(timeoutMs / 1000)}s），请尝试简化请求或检查网络`);
-    }
-    throw new Error(`AI 服务连接失败 (${err.message})，请检查网络连接和 API 配置`);
-  }).finally(() => clearTimeout(timer));
+async function proxyFetch(
+  config: AIProviderConfig,
+  provider: string,
+  url: string,
+  body: Record<string, unknown>,
+  extraHeaders?: Record<string, string>,
+): Promise<any> {
+  console.log(`[AI] proxy fetch → ${url}`);
+  const responseText = await invoke<string>('ai_proxy_fetch', {
+    configId: config.id,
+    apiKeyOverride: config.apiKey !== '***' ? config.apiKey : undefined,
+    provider,
+    url,
+    body: JSON.stringify(body),
+    headers: extraHeaders || undefined,
+  });
+  return JSON.parse(responseText);
 }
 
 /**
- * Send a request to Claude (Anthropic) API
+ * Streaming proxy: sends request through Rust backend, receives text chunks
+ * via Tauri Channel as they arrive from the AI provider's SSE stream.
  */
-async function callClaude(config: AIProviderConfig, request: AIRequest, signal?: AbortSignal): Promise<AIResponse> {
+async function* streamViaProxy(
+  config: AIProviderConfig,
+  provider: string,
+  url: string,
+  body: Record<string, unknown>,
+  extraHeaders?: Record<string, string>,
+  signal?: AbortSignal,
+): AsyncGenerator<string> {
+  const requestId = crypto.randomUUID();
+  const chunks: string[] = [];
+  let streamDone = false;
+  let streamError: Error | null = null;
+  let waitResolve: (() => void) | null = null;
+
+  const channel = new Channel<string>();
+  channel.onmessage = (text: string) => {
+    chunks.push(text);
+    waitResolve?.();
+    waitResolve = null;
+  };
+
+  // Handle user abort
+  if (signal) {
+    signal.addEventListener('abort', () => {
+      invoke('ai_proxy_abort', { requestId }).catch(() => {});
+    }, { once: true });
+  }
+
+  console.log(`[AI] proxy stream → ${url}`);
+
+  // Start streaming (returns when stream completes)
+  const streamPromise = invoke('ai_proxy_stream', {
+    onEvent: channel,
+    requestId,
+    configId: config.id,
+    apiKeyOverride: config.apiKey !== '***' ? config.apiKey : undefined,
+    provider,
+    url,
+    body: JSON.stringify(body),
+    headers: extraHeaders || undefined,
+  }).then(() => {
+    streamDone = true;
+    waitResolve?.();
+  }).catch((err: unknown) => {
+    streamDone = true;
+    streamError = new Error(typeof err === 'string' ? err : 'Stream failed');
+    waitResolve?.();
+  });
+
+  // Yield chunks as they arrive
+  while (!streamDone || chunks.length > 0) {
+    if (signal?.aborted) {
+      throw new DOMException('Aborted', 'AbortError');
+    }
+    if (chunks.length > 0) {
+      yield chunks.shift()!;
+    } else if (!streamDone) {
+      await new Promise<void>(r => { waitResolve = r; });
+    }
+  }
+
+  if (streamError) throw streamError;
+  await streamPromise;
+}
+
+// ── Provider-specific request builders ──
+
+async function callClaude(config: AIProviderConfig, request: AIRequest): Promise<AIResponse> {
   const baseUrl = config.baseUrl || 'https://api.anthropic.com';
 
   const systemMessages = request.messages.filter(m => m.role === 'system');
@@ -72,28 +135,14 @@ async function callClaude(config: AIProviderConfig, request: AIRequest, signal?:
     body.temperature = config.temperature;
   }
 
-  // Add tools if available
   if (request.tools && request.tools.length > 0) {
     Object.assign(body, formatToolsForProvider('claude', request.tools));
   }
 
-  const response = await fetchWithTimeout(`${baseUrl}/v1/messages`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': config.apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify(body),
-  }, AI_FETCH_TIMEOUT_MS, signal);
+  const data = await proxyFetch(config, 'claude', `${baseUrl}/v1/messages`, body, {
+    'anthropic-version': '2023-06-01',
+  });
 
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Claude API error (${response.status}): ${error}`);
-  }
-
-  const data = await response.json();
   const parsed = parseClaudeToolCalls(data);
 
   return {
@@ -108,16 +157,11 @@ async function callClaude(config: AIProviderConfig, request: AIRequest, signal?:
   };
 }
 
-/**
- * Build Claude-format messages, handling tool call/result messages properly.
- * Claude expects tool_use in assistant content blocks and tool_result in user content blocks.
- */
 function buildClaudeMessages(messages: ChatMessage[]): Array<Record<string, unknown>> {
   const result: Array<Record<string, unknown>> = [];
 
   for (const msg of messages) {
     if (msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0) {
-      // Assistant message with tool calls: build content blocks
       const content: Array<Record<string, unknown>> = [];
       if (msg.content) {
         content.push({ type: 'text', text: msg.content });
@@ -127,8 +171,6 @@ function buildClaudeMessages(messages: ChatMessage[]): Array<Record<string, unkn
       }
       result.push({ role: 'assistant', content });
     } else if (msg.role === 'tool') {
-      // Tool result: Claude expects this as a user message with tool_result content
-      // Group consecutive tool results into one user message
       const lastMsg = result[result.length - 1];
       const toolResultBlock = {
         type: 'tool_result',
@@ -150,9 +192,6 @@ function buildClaudeMessages(messages: ChatMessage[]): Array<Record<string, unkn
   return result;
 }
 
-/**
- * Stream response from Claude API
- */
 async function* streamClaude(config: AIProviderConfig, request: AIRequest, signal?: AbortSignal): AsyncGenerator<string> {
   const baseUrl = config.baseUrl || 'https://api.anthropic.com';
 
@@ -170,62 +209,12 @@ async function* streamClaude(config: AIProviderConfig, request: AIRequest, signa
     body.system = systemMessages.map(m => m.content).join('\n');
   }
 
-  const response = await fetchWithTimeout(`${baseUrl}/v1/messages`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': config.apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify(body),
-  }, AI_FETCH_TIMEOUT_MS, signal);
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Claude API error (${response.status}): ${error}`);
-  }
-
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error('No response body');
-
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  try {
-    while (true) {
-      if (signal?.aborted) break;
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6);
-          if (data === '[DONE]') return;
-          try {
-            const parsed = JSON.parse(data);
-            if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
-              yield parsed.delta.text;
-            }
-          } catch {
-            // Skip malformed JSON
-          }
-        }
-      }
-    }
-  } finally {
-    reader.cancel().catch(() => {});
-  }
+  yield* streamViaProxy(config, 'claude', `${baseUrl}/v1/messages`, body, {
+    'anthropic-version': '2023-06-01',
+  }, signal);
 }
 
-/**
- * Send a request to OpenAI-compatible API (OpenAI, DeepSeek, local models)
- */
-async function callOpenAICompatible(config: AIProviderConfig, request: AIRequest, signal?: AbortSignal): Promise<AIResponse> {
+async function callOpenAICompatible(config: AIProviderConfig, request: AIRequest): Promise<AIResponse> {
   const baseUrl = config.baseUrl || 'https://api.openai.com';
 
   const body: Record<string, unknown> = {
@@ -235,26 +224,12 @@ async function callOpenAICompatible(config: AIProviderConfig, request: AIRequest
     messages: buildOpenAIMessages(request.messages),
   };
 
-  // Add tools if available
   if (request.tools && request.tools.length > 0) {
     Object.assign(body, formatToolsForProvider(config.provider, request.tools));
   }
 
-  const response = await fetchWithTimeout(openaiEndpoint(baseUrl, '/chat/completions'), {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${config.apiKey}`,
-    },
-    body: JSON.stringify(body),
-  }, AI_FETCH_TIMEOUT_MS, signal);
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`API error (${response.status}): ${error}`);
-  }
-
-  const data = await response.json();
+  const provider = config.provider === 'deepseek' ? 'deepseek' : 'openai';
+  const data = await proxyFetch(config, provider, openaiEndpoint(baseUrl, '/chat/completions'), body);
   const parsed = parseOpenAIToolCalls(data);
 
   return {
@@ -269,9 +244,6 @@ async function callOpenAICompatible(config: AIProviderConfig, request: AIRequest
   };
 }
 
-/**
- * Build OpenAI-format messages, handling tool call/result messages.
- */
 function buildOpenAIMessages(messages: ChatMessage[]): Array<Record<string, unknown>> {
   return messages.map(msg => {
     if (msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0) {
@@ -295,9 +267,6 @@ function buildOpenAIMessages(messages: ChatMessage[]): Array<Record<string, unkn
   });
 }
 
-/**
- * Stream response from OpenAI-compatible API
- */
 async function* streamOpenAICompatible(config: AIProviderConfig, request: AIRequest, signal?: AbortSignal): AsyncGenerator<string> {
   const baseUrl = config.baseUrl || 'https://api.openai.com';
 
@@ -309,59 +278,11 @@ async function* streamOpenAICompatible(config: AIProviderConfig, request: AIRequ
     messages: request.messages.map(m => ({ role: m.role, content: m.content })),
   };
 
-  const response = await fetchWithTimeout(openaiEndpoint(baseUrl, '/chat/completions'), {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${config.apiKey}`,
-    },
-    body: JSON.stringify(body),
-  }, AI_FETCH_TIMEOUT_MS, signal);
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`API error (${response.status}): ${error}`);
-  }
-
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error('No response body');
-
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  try {
-    while (true) {
-      if (signal?.aborted) break;
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6);
-          if (data === '[DONE]') return;
-          try {
-            const parsed = JSON.parse(data);
-            const content = parsed.choices?.[0]?.delta?.content;
-            if (content) yield content;
-          } catch {
-            // Skip malformed JSON
-          }
-        }
-      }
-    }
-  } finally {
-    reader.cancel().catch(() => {});
-  }
+  const provider = config.provider === 'deepseek' ? 'deepseek' : 'openai';
+  yield* streamViaProxy(config, provider, openaiEndpoint(baseUrl, '/chat/completions'), body, undefined, signal);
 }
 
-/**
- * Send a request to Google Gemini API
- */
-async function callGemini(config: AIProviderConfig, request: AIRequest, signal?: AbortSignal): Promise<AIResponse> {
+async function callGemini(config: AIProviderConfig, request: AIRequest): Promise<AIResponse> {
   const baseUrl = config.baseUrl || 'https://generativelanguage.googleapis.com';
 
   const systemMessages = request.messages.filter(m => m.role === 'system');
@@ -381,28 +302,13 @@ async function callGemini(config: AIProviderConfig, request: AIRequest, signal?:
     body.systemInstruction = { parts: [{ text: systemMessages.map(m => m.content).join('\n') }] };
   }
 
-  // Add tools if available
   if (request.tools && request.tools.length > 0) {
     Object.assign(body, formatToolsForProvider('gemini', request.tools));
   }
 
-  const response = await fetchWithTimeout(
-    `${baseUrl}/v1beta/models/${config.model}:generateContent?key=${config.apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    },
-    AI_FETCH_TIMEOUT_MS,
-    signal,
-  );
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Gemini API error (${response.status}): ${error}`);
-  }
-
-  const data = await response.json();
+  // Gemini: key is appended as query param by the Rust proxy
+  const url = `${baseUrl}/v1beta/models/${config.model}:generateContent`;
+  const data = await proxyFetch(config, 'gemini', url, body);
   const parsed = parseGeminiToolCalls(data);
 
   return {
@@ -417,9 +323,6 @@ async function callGemini(config: AIProviderConfig, request: AIRequest, signal?:
   };
 }
 
-/**
- * Build Gemini-format contents, handling tool call/result messages.
- */
 function buildGeminiContents(messages: ChatMessage[]): Array<Record<string, unknown>> {
   return messages.map(msg => {
     if (msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0) {
@@ -447,10 +350,7 @@ function buildGeminiContents(messages: ChatMessage[]): Array<Record<string, unkn
   });
 }
 
-/**
- * Send a request to Ollama (local models)
- */
-async function callOllama(config: AIProviderConfig, request: AIRequest, signal?: AbortSignal): Promise<AIResponse> {
+async function callOllama(config: AIProviderConfig, request: AIRequest): Promise<AIResponse> {
   const baseUrl = config.baseUrl || 'http://localhost:11434';
 
   const body: Record<string, unknown> = {
@@ -463,25 +363,12 @@ async function callOllama(config: AIProviderConfig, request: AIRequest, signal?:
     },
   };
 
-  // Add tools if available
   if (request.tools && request.tools.length > 0) {
     Object.assign(body, formatToolsForProvider('ollama', request.tools));
   }
 
-  const response = await fetchWithTimeout(`${baseUrl}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  }, AI_FETCH_TIMEOUT_MS, signal);
+  const data = await proxyFetch(config, 'ollama', `${baseUrl}/api/chat`, body);
 
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Ollama error (${response.status}): ${error}`);
-  }
-
-  const data = await response.json();
-
-  // Parse tool calls from Ollama response (same format as OpenAI)
   const message = data.message as Record<string, unknown> | undefined;
   const toolCalls: ToolCallRequest[] = [];
   const rawToolCalls = message?.tool_calls as Array<Record<string, unknown>> | undefined;
@@ -489,7 +376,7 @@ async function callOllama(config: AIProviderConfig, request: AIRequest, signal?:
     for (const tc of rawToolCalls) {
       const fn = tc.function as Record<string, unknown>;
       toolCalls.push({
-        id: `ollama-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        id: crypto.randomUUID(),
         name: fn.name as string,
         arguments: (fn.arguments as Record<string, unknown>) || {},
       });
@@ -511,17 +398,18 @@ async function callOllama(config: AIProviderConfig, request: AIRequest, signal?:
 // ── Public API ──
 
 export async function sendAIRequest(config: AIProviderConfig, request: AIRequest, signal?: AbortSignal): Promise<AIResponse> {
+  // signal is kept for interface compat but abort is handled by ai_proxy_abort
   switch (config.provider) {
     case 'claude':
-      return callClaude(config, request, signal);
+      return callClaude(config, request);
     case 'openai':
     case 'deepseek':
     case 'custom':
-      return callOpenAICompatible(config, request, signal);
+      return callOpenAICompatible(config, request);
     case 'gemini':
-      return callGemini(config, request, signal);
+      return callGemini(config, request);
     case 'ollama':
-      return callOllama(config, request, signal);
+      return callOllama(config, request);
     default:
       throw new Error(`Unsupported provider: ${config.provider}`);
   }

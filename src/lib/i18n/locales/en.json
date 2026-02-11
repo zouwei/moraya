@@ -202,7 +202,11 @@
       "tools": "{count} tools",
       "serviceCreated": "AI created service \"{name}\" with {count} tools",
       "serviceSaved": "Service \"{name}\" saved",
-      "serviceRemoved": "Service \"{name}\" removed"
+      "serviceRemoved": "Service \"{name}\" removed",
+      "launchConfirmTitle": "AI Service Security Warning",
+      "launchConfirmMsg": "AI has generated an MCP service that needs to run auto-generated code:\n  Service: {name}\n  Tools: {tools}\n\nThis code will run in a local Node.js process.\nPlease confirm you trust this AI-generated service code.",
+      "launchConfirmOk": "Run",
+      "launchConfirmCancel": "Cancel"
     },
     "servers": {
       "empty": "No MCP servers configured",
@@ -226,7 +230,11 @@
       "jsonMode": "JSON",
       "jsonPlaceholder": "Paste JSON config, e.g.:\n{\n  \"mcpServers\": {\n    \"name\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"@.../server-xxx\"]\n    }\n  }\n}",
       "jsonNoConfig": "No valid MCP server config found",
-      "jsonParseError": "parse error"
+      "jsonParseError": "parse error",
+      "launchConfirmTitle": "Security Warning",
+      "launchConfirmMsg": "About to launch external program:\n  Command: {command}\n  Arguments: {args}\n\nThis MCP server will run with your user permissions and can access local files and network.\nPlease confirm this MCP server is from a trusted source.",
+      "launchConfirmOk": "Launch",
+      "launchConfirmCancel": "Cancel"
     },
     "publish": {
       "empty": "No publish targets configured",

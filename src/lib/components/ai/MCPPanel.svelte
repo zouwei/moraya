@@ -22,6 +22,7 @@
     type MarketplaceSource,
   } from '$lib/services/mcp';
   import { t } from '$lib/i18n';
+  import { ask } from '@tauri-apps/plugin-dialog';
   import { openUrl } from '@tauri-apps/plugin-opener';
   import { containerStore, type DynamicService } from '$lib/services/mcp/container-store';
   import { saveService, removeService } from '$lib/services/mcp/container-manager';
@@ -102,6 +103,23 @@
 
   async function handleConnect(server: MCPServerConfig) {
     try {
+      // Show security confirmation for stdio servers (launching local processes)
+      if (server.transport.type === 'stdio') {
+        const args = server.transport.args?.join(' ') || '';
+        const confirmed = await ask(
+          $t('mcp.servers.launchConfirmMsg', {
+            command: server.transport.command,
+            args: args || '(none)',
+          }),
+          {
+            title: $t('mcp.servers.launchConfirmTitle'),
+            kind: 'warning',
+            okLabel: $t('mcp.servers.launchConfirmOk'),
+            cancelLabel: $t('mcp.servers.launchConfirmCancel'),
+          },
+        );
+        if (!confirmed) return;
+      }
       await connectServer(server);
     } catch {
       // Error handled by store

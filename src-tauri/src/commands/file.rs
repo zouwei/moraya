@@ -1,6 +1,6 @@
 use serde::Serialize;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Serialize)]
 pub struct FileEntry {
@@ -10,9 +10,45 @@ pub struct FileEntry {
     pub children: Option<Vec<FileEntry>>,
 }
 
+/// Sanitize IO errors to avoid leaking file system paths or OS error details.
+fn sanitize_io_error(e: std::io::Error) -> String {
+    match e.kind() {
+        std::io::ErrorKind::NotFound => "File not found".to_string(),
+        std::io::ErrorKind::PermissionDenied => "Permission denied".to_string(),
+        std::io::ErrorKind::AlreadyExists => "File already exists".to_string(),
+        _ => "Operation failed".to_string(),
+    }
+}
+
+/// Validate that a path is safe to access:
+/// 1. Canonicalize the path (resolve `..` and symlinks)
+/// 2. Ensure the resolved path is within the user's home directory
+fn validate_path(path: &str) -> Result<PathBuf, String> {
+    let canonical = std::fs::canonicalize(path)
+        .or_else(|_| {
+            // File may not exist yet (write scenario) — validate parent directory
+            let parent = Path::new(path)
+                .parent()
+                .ok_or_else(|| "Invalid path".to_string())?;
+            let canonical_parent =
+                std::fs::canonicalize(parent).map_err(|_| "Invalid path".to_string())?;
+            Ok(canonical_parent.join(Path::new(path).file_name().unwrap_or_default()))
+        })
+        .map_err(|e: String| e)?;
+
+    let home = dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
+
+    if !canonical.starts_with(&home) {
+        return Err("Access denied: path outside allowed directory".to_string());
+    }
+
+    Ok(canonical)
+}
+
 #[tauri::command]
 pub fn read_file(path: String) -> Result<String, String> {
-    fs::read_to_string(&path).map_err(|e| format!("Failed to read file: {}", e))
+    let safe_path = validate_path(&path)?;
+    fs::read_to_string(&safe_path).map_err(sanitize_io_error)
 }
 
 /// Return the embedded privacy policy content.
@@ -21,17 +57,17 @@ pub fn read_file(path: String) -> Result<String, String> {
 pub fn read_resource_file(name: String) -> Result<String, String> {
     match name.as_str() {
         "privacy-policy.md" => Ok(include_str!("../../resources/privacy-policy.md").to_string()),
-        _ => Err(format!("Unknown resource: {}", name)),
+        _ => Err("Unknown resource".to_string()),
     }
 }
 
 #[tauri::command]
 pub fn write_file(path: String, content: String) -> Result<(), String> {
-    // Ensure parent directory exists
-    if let Some(parent) = Path::new(&path).parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
+    let safe_path = validate_path(&path)?;
+    if let Some(parent) = safe_path.parent() {
+        fs::create_dir_all(parent).map_err(sanitize_io_error)?;
     }
-    fs::write(&path, content).map_err(|e| format!("Failed to write file: {}", e))
+    fs::write(&safe_path, content).map_err(sanitize_io_error)
 }
 
 /// Write binary data (base64-encoded) to a file.
@@ -40,9 +76,9 @@ pub fn write_file(path: String, content: String) -> Result<(), String> {
 pub fn write_file_binary(path: String, base64_data: String) -> Result<(), String> {
     use std::io::Write;
 
-    // Ensure parent directory exists
-    if let Some(parent) = Path::new(&path).parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
+    let safe_path = validate_path(&path)?;
+    if let Some(parent) = safe_path.parent() {
+        fs::create_dir_all(parent).map_err(sanitize_io_error)?;
     }
 
     // Strip optional data URL prefix (e.g. "data:image/png;base64,")
@@ -52,18 +88,16 @@ pub fn write_file_binary(path: String, base64_data: String) -> Result<(), String
         &base64_data
     };
 
-    // Decode base64
-    let bytes = base64_decode(raw).map_err(|e| format!("Failed to decode base64: {}", e))?;
+    let bytes = base64_decode(raw).map_err(|_| "Failed to decode data".to_string())?;
 
-    let mut file =
-        fs::File::create(&path).map_err(|e| format!("Failed to create file: {}", e))?;
-    file.write_all(&bytes)
-        .map_err(|e| format!("Failed to write file: {}", e))
+    let mut file = fs::File::create(&safe_path).map_err(sanitize_io_error)?;
+    file.write_all(&bytes).map_err(sanitize_io_error)
 }
 
 /// Simple base64 decoder (no external dependency needed).
 fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const TABLE: &[u8; 64] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
     let input = input.as_bytes();
     let mut buf: Vec<u8> = Vec::with_capacity(input.len() * 3 / 4);
@@ -80,7 +114,7 @@ fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
         let val = TABLE
             .iter()
             .position(|&c| c == b)
-            .ok_or_else(|| format!("Invalid base64 character: {}", b as char))?
+            .ok_or_else(|| "Invalid data".to_string())?
             as u32;
         acc = (acc << 6) | val;
         bits += 6;
@@ -94,19 +128,27 @@ fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
     Ok(buf)
 }
 
+/// Maximum directory recursion depth
+const MAX_DIR_DEPTH: u32 = 10;
+
 #[tauri::command]
 pub fn read_dir_recursive(path: String, depth: Option<u32>) -> Result<Vec<FileEntry>, String> {
-    let max_depth = depth.unwrap_or(3);
-    read_dir_inner(&path, 0, max_depth)
+    let safe_path = validate_path(&path)?;
+    let max_depth = depth.unwrap_or(3).min(MAX_DIR_DEPTH);
+    read_dir_inner(safe_path.to_str().unwrap_or(""), 0, max_depth)
 }
 
-fn read_dir_inner(path: &str, current_depth: u32, max_depth: u32) -> Result<Vec<FileEntry>, String> {
-    let entries = fs::read_dir(path).map_err(|e| format!("Failed to read directory: {}", e))?;
+fn read_dir_inner(
+    path: &str,
+    current_depth: u32,
+    max_depth: u32,
+) -> Result<Vec<FileEntry>, String> {
+    let entries = fs::read_dir(path).map_err(sanitize_io_error)?;
 
     let mut result: Vec<FileEntry> = Vec::new();
 
     for entry in entries {
-        let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
+        let entry = entry.map_err(sanitize_io_error)?;
         let file_name = entry.file_name().to_string_lossy().to_string();
 
         // Skip hidden files and common ignored directories
@@ -115,6 +157,16 @@ fn read_dir_inner(path: &str, current_depth: u32, max_depth: u32) -> Result<Vec<
         }
 
         let file_path = entry.path();
+
+        // Skip symlinks to prevent following links outside allowed directories
+        if file_path
+            .symlink_metadata()
+            .map(|m| m.is_symlink())
+            .unwrap_or(false)
+        {
+            continue;
+        }
+
         let is_dir = file_path.is_dir();
 
         let children = if is_dir && current_depth < max_depth {

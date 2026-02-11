@@ -8,7 +8,7 @@ import type { ImageProviderConfig, AIProviderConfig } from './types';
 import { resolveImageSize } from './types';
 import { sendAIRequest, openaiEndpoint } from './providers';
 import { generateBaseUrlCandidates } from './ai-service';
-import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
+import { invoke } from '@tauri-apps/api/core';
 
 export interface ImageGenerationResult {
   url: string;
@@ -58,34 +58,31 @@ async function generateImageDashScope(
   const resolvedSize = size || resolveImageSize(config.defaultRatio, config.defaultSizeLevel);
   const dsSize = resolvedSize.replace('x', '*');
 
-  // Use Tauri HTTP plugin to bypass CORS (DashScope native API has no CORS headers)
-  const res = await tauriFetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${config.apiKey}`,
+  const bodyPayload = JSON.stringify({
+    model: config.model,
+    input: {
+      messages: [{
+        role: 'user',
+        content: [{ text: prompt }],
+      }],
     },
-    body: JSON.stringify({
-      model: config.model,
-      input: {
-        messages: [{
-          role: 'user',
-          content: [{ text: prompt }],
-        }],
-      },
-      parameters: {
-        size: dsSize,
-        watermark: false,
-      },
-    }),
+    parameters: {
+      size: dsSize,
+      watermark: false,
+    },
   });
 
-  if (!res.ok) {
-    const errBody = await res.text();
-    throw new Error(`DashScope image generation failed (${res.status}): ${errBody}`);
-  }
+  // Route through Rust AI proxy (key injected from keychain)
+  const responseText = await invoke<string>('ai_proxy_fetch', {
+    configId: config.id,
+    keyPrefix: 'image-key:',
+    apiKeyOverride: config.apiKey !== '***' ? config.apiKey : undefined,
+    provider: 'dashscope',
+    url,
+    body: bodyPayload,
+  });
 
-  const data = await res.json();
+  const data = JSON.parse(responseText);
 
   // DashScope response: output.choices[0].message.content[0].image
   const imageUrl = data.output?.choices?.[0]?.message?.content?.[0]?.image;
@@ -110,30 +107,27 @@ export async function generateImage(
     return generateImageDashScope(config, prompt, size);
   }
 
-  // Standard OpenAI-compatible path
+  // Standard OpenAI-compatible path — via Rust proxy
   const url = openaiEndpoint(config.baseURL, '/images/generations');
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${config.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: config.model,
-      prompt,
-      n: 1,
-      size: size || resolveImageSize(config.defaultRatio, config.defaultSizeLevel),
-      response_format: 'url',
-    }),
+  const bodyPayload = JSON.stringify({
+    model: config.model,
+    prompt,
+    n: 1,
+    size: size || resolveImageSize(config.defaultRatio, config.defaultSizeLevel),
+    response_format: 'url',
   });
 
-  if (!res.ok) {
-    const errBody = await res.text();
-    throw new Error(`Image generation failed (${res.status}): ${errBody}`);
-  }
+  const responseText = await invoke<string>('ai_proxy_fetch', {
+    configId: config.id,
+    keyPrefix: 'image-key:',
+    apiKeyOverride: config.apiKey !== '***' ? config.apiKey : undefined,
+    provider: 'openai',
+    url,
+    body: bodyPayload,
+  });
 
-  const data = await res.json();
+  const data = JSON.parse(responseText);
   const item = data.data?.[0];
 
   if (!item?.url) {
@@ -153,34 +147,41 @@ export async function generateImage(
 export async function testImageConnection(config: ImageProviderConfig): Promise<boolean> {
   try {
     if (isDashScope(config.baseURL)) {
-      // DashScope: /models returns 503, so verify auth via native API POST with empty input.
-      // Valid key → 400 (bad input), invalid key → 401. Both confirm server is reachable.
+      // DashScope: verify auth via native API POST with test input
       const base = config.baseURL.replace(/\/+$/, '').replace(/\/compatible-mode\/v1$/, '');
       const url = `${base}/api/v1/services/aigc/multimodal-generation/generation`;
-      const res = await tauriFetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${config.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: config.model,
-          input: { messages: [{ role: 'user', content: [{ text: 'test' }] }] },
-        }),
-      });
-      // 401/403 = bad key, 5xx = server down, anything else (200/400) = connection OK
-      return res.status !== 401 && res.status !== 403 && res.status < 500;
+      try {
+        await invoke<string>('ai_proxy_fetch', {
+          configId: config.id,
+          keyPrefix: 'image-key:',
+          apiKeyOverride: config.apiKey !== '***' ? config.apiKey : undefined,
+          provider: 'dashscope',
+          url,
+          body: JSON.stringify({
+            model: config.model,
+            input: { messages: [{ role: 'user', content: [{ text: 'test' }] }] },
+          }),
+        });
+        return true; // 200 = OK
+      } catch (e: unknown) {
+        const msg = typeof e === 'string' ? e : '';
+        // 400 = bad input but key is valid, 401/403 = bad key
+        if (msg.includes('(400)')) return true;
+        return false;
+      }
     }
 
-    // Standard: check /models endpoint
+    // Standard: check /models endpoint via proxy
     const url = openaiEndpoint(config.baseURL, '/models');
-    const res = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${config.apiKey}`,
-      },
+    await invoke<string>('ai_proxy_fetch', {
+      configId: config.id,
+      keyPrefix: 'image-key:',
+      apiKeyOverride: config.apiKey !== '***' ? config.apiKey : undefined,
+      provider: 'openai',
+      url,
+      body: '{}',
     });
-    return res.ok;
+    return true;
   } catch {
     return false;
   }

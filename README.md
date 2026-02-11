@@ -14,7 +14,7 @@
 
 * **Ultra-Lightweight & Native Performance** — \~5MB installer, instant launch, tiny memory footprint.
 
-* **True Instant WYSIWYG** — Type `# `  and see a heading instantly (Milkdown/ProseMirror-powered).
+* **True Instant WYSIWYG** — Type `# `   and see a heading instantly (Milkdown/ProseMirror-powered).
 
 * **Most Powerful Local AI Integration** — Multi-provider streaming chat (Claude, OpenAI, Gemini, DeepSeek, Ollama, custom endpoints) with smart commands and AI image generation.
 
@@ -49,17 +49,17 @@
 ## Architecture Overview
 
 ```
-┌───────────────────────────────────────┐
-│         Tauri WebView (Frontend)      │
-│   Svelte 5 + Milkdown + TypeScript   │
-│                                       │
-│  ┌──────────┐ ┌───────┐ ┌──────────┐ │
-│  │  Editor   │ │  AI   │ │ Settings │ │
-│  │(Milkdown) │ │ Panel │ │  Panel   │ │
-│  │ + Source  │ │       │ │ (tabbed) │ │
-│  └─────┬─────┘ └──┬────┘ └────┬─────┘ │
-│        │          │            │       │
-│  ┌─────┴──────────┴────────────┴─────┐ │
+┌────────────────────────────────────────┐
+│         Tauri WebView (Frontend)       │
+│   Svelte 5 + Milkdown + TypeScript     │
+│                                        │
+│  ┌───────────┐ ┌───────┐ ┌──────────┐  │
+│  │  Editor   │ │  AI   │ │ Settings │  │
+│  │(Milkdown) │ │ Panel │ │  Panel   │  │
+│  │ + Source  │ │       │ │ (tabbed) │  │
+│  └─────┬─────┘ └──┬────┘ └────┬─────┘  │
+│        │          │           │        │
+│  ┌─────┴──────────┴───────────┴──────┐ │
 │  │       Services & Stores           │ │
 │  │  (file, AI, MCP, settings, i18n)  │ │
 │  └───────────────┬───────────────────┘ │
@@ -69,10 +69,10 @@
 ┌──────────────────┼─────────────────────┐
 │         Rust Backend (Tauri)           │
 │                                        │
-│  ┌────────────┐ ┌──────────┐ ┌──────┐ │
-│  │ File I/O   │ │ MCP Proc │ │ Menu │ │
-│  │ Commands   │ │ Manager  │ │      │ │
-│  └────────────┘ └──────────┘ └──────┘ │
+│  ┌────────────┐ ┌──────────┐ ┌──────┐  │
+│  │ File I/O   │ │ MCP Proc │ │ Menu │  │
+│  │ Commands   │ │ Manager  │ │      │  │
+│  └────────────┘ └──────────┘ └──────┘  │
 └────────────────────────────────────────┘
 ```
 
@@ -223,15 +223,15 @@ Each AI response has action buttons below it:
 
 * [x] **Phase 4** — Editor Enhancement: Source/Visual/Split modes, table toolbar, native menu, i18n, scroll sync
 
-* [x] **v0.2.0** — Publish Workflow: SEO assistant, AI image generation, multi-target publishing → [详细需求](docs/iterations/v0.2.0-publish-workflow.md)
+* [x] **v0.2.0** — Publish Workflow: SEO assistant, AI image generation, multi-target publishing → [Detailed Requirements](docs/iterations/v0.2.0-publish-workflow.md)
 
-* [x] **v0.3.0** — MCP Ecosystem Enhancement: AI tool calling, stdio UI, presets, knowledge sync, conversational MCP config, editor content sync, multi-model management → [详细需求](docs/iterations/v0.3.0-mcp-ecosystem.md)
+* [x] **v0.3.0** — MCP Ecosystem Enhancement: AI tool calling, stdio UI, presets, knowledge sync, conversational MCP config, editor content sync, multi-model management → [Detailed Requirements](docs/iterations/v0.3.0-mcp-ecosystem.md)
 
-* [x] **v0.3.1** — MCP Marketplace: Multi-source registry browsing, one-click install with auto-config, 3 data sources (Official, LobeHub, Smithery) → [详细需求](docs/iterations/v0.3.1-mcp-marketplace.md)
+* [x] **v0.3.1** — MCP Marketplace: Multi-source registry browsing, one-click install with auto-config, 3 data sources (Official, LobeHub, Smithery) → [Detailed Requirements](docs/iterations/v0.3.1-mcp-marketplace.md)
 
-* [x] **v0.4.0** — Dynamic MCP Container: AI-driven dynamic MCP service creation, lightweight Node.js runtime, 4 internal AI tools, hybrid lifecycle management → [详细需求](docs/iterations/v0.4.0-mcp-container.md)
+* [x] **v0.4.0** — Dynamic MCP Container: AI-driven dynamic MCP service creation, lightweight Node.js runtime, 4 internal AI tools, hybrid lifecycle management → [Detailed Requirements](docs/iterations/v0.4.0-mcp-container.md)
 
-* [x] **v0.5.0** — RSS Feed: Auto-update RSS feed when publishing articles, per-target RSS config, zero-dependency XML generation → [详细需求](docs/iterations/v0.5.0-rss-feed.md)
+* [x] **v0.5.0** — RSS Feed: Auto-update RSS feed when publishing articles, per-target RSS config, zero-dependency XML generation → [Detailed Requirements](docs/iterations/v0.5.0-rss-feed.md)
 
 ## Recommended IDE Setup
 

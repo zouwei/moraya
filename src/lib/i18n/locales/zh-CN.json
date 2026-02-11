@@ -202,7 +202,11 @@
       "tools": "{count} 个工具",
       "serviceCreated": "AI 创建了服务「{name}」，包含 {count} 个工具",
       "serviceSaved": "服务「{name}」已保存",
-      "serviceRemoved": "服务「{name}」已移除"
+      "serviceRemoved": "服务「{name}」已移除",
+      "launchConfirmTitle": "AI 服务安全提示",
+      "launchConfirmMsg": "AI 已生成一个 MCP 服务，需要执行自动生成的代码：\n  服务名：{name}\n  工具：{tools}\n\n此代码将在本地 Node.js 进程中运行。\n请确认是否信任此 AI 生成的服务代码。",
+      "launchConfirmOk": "确认运行",
+      "launchConfirmCancel": "取消"
     },
     "servers": {
       "empty": "未配置 MCP 服务器",
@@ -226,7 +230,11 @@
       "jsonMode": "JSON 导入",
       "jsonPlaceholder": "粘贴 JSON 配置，例如：\n{\n  \"mcpServers\": {\n    \"名称\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"@.../server-xxx\"]\n    }\n  }\n}",
       "jsonNoConfig": "未找到有效的 MCP 服务器配置",
-      "jsonParseError": "解析错误"
+      "jsonParseError": "解析错误",
+      "launchConfirmTitle": "安全提示",
+      "launchConfirmMsg": "即将启动外部程序：\n  命令：{command}\n  参数：{args}\n\nMCP 服务器将以当前用户权限运行，可以访问本地文件和网络。\n请确认此 MCP 服务器来自可信来源。",
+      "launchConfirmOk": "确认启动",
+      "launchConfirmCancel": "取消"
     },
     "publish": {
       "empty": "未配置发布目标",

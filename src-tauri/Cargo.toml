@@ -25,6 +25,7 @@ reqwest = { version = "0.12", features = ["stream"] }
 tokio = { version = "1", features = ["fs", "io-util"] }
 futures-util = "0.3"
 dirs = "6"
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 open = "5"
 fix-path-env = { git = "https://github.com/tauri-apps/fix-path-env-rs" }
 

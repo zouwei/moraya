@@ -16,6 +16,7 @@
   } from '$lib/services/ai';
   import { testImageConnectionWithResolve } from '$lib/services/ai/image-service';
   import { settingsStore } from '$lib/stores/settings-store';
+  import { invoke } from '@tauri-apps/api/core';
   import { t } from '$lib/i18n';
 
   // ── AI Chat Model State ──
@@ -217,6 +218,7 @@
     const configs = imageConfigs.filter(c => c.id !== id);
     let activeId = activeImageConfigId;
     if (activeId === id) activeId = configs[0]?.id || null;
+    invoke('keychain_delete', { key: `image-key:${id}` }).catch(() => {});
     settingsStore.update({ imageProviderConfigs: configs, activeImageConfigId: activeId });
   }
 

@@ -6,6 +6,7 @@
 import { writable, get } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 
 // --- Types ---
 
@@ -154,7 +155,7 @@ export async function checkForUpdate(): Promise<UpdateInfo> {
   update(s => ({ ...s, checkStatus: 'checking', downloadStatus: 'idle', downloadProgress: 0, error: null }));
 
   try {
-    const res = await fetch(RELEASES_API, {
+    const res = await tauriFetch(RELEASES_API, {
       headers: { Accept: 'application/vnd.github.v3+json' },
     });
 

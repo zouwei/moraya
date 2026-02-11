@@ -35,7 +35,7 @@ export const exportOptions: ExportOption[] = [
  * Uses KaTeX for math rendering and proper code block handling.
  */
 export function markdownToHtml(markdown: string, includeStyles: boolean = true): string {
-  const bodyHtml = markdownToHtmlBody(markdown);
+  const bodyHtml = sanitizeHtml(markdownToHtmlBody(markdown));
 
   if (!includeStyles) {
     return `<!DOCTYPE html>
@@ -152,11 +152,15 @@ export function markdownToHtmlBody(md: string): string {
 
   // 8. Images (must be before links, so ![alt](url) isn't consumed by link regex)
   html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, alt, src) => {
-    return ph(`<img src="${src}" alt="${escapeHtml(alt)}">`);
+    if (DANGEROUS_PROTOCOLS.test(src)) return '';
+    return ph(`<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}">`);
   });
 
   // 9. Links
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, text, href) => {
+    if (DANGEROUS_PROTOCOLS.test(href)) return escapeHtml(text);
+    return `<a href="${escapeHtml(href)}">${text}</a>`;
+  });
 
   // 10. Horizontal rules
   html = html.replace(/^---$/gm, '<hr>');
@@ -202,7 +206,51 @@ function escapeHtml(str: string): string {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+/** Dangerous URL protocols that must be rejected in href/src attributes */
+const DANGEROUS_PROTOCOLS = /^\s*(javascript|vbscript|data\s*:\s*text\/html)/i;
+
+/** Event handler attributes that could execute scripts */
+const EVENT_ATTRS = /^on/i;
+
+/**
+ * Sanitize an HTML string by removing dangerous elements and attributes.
+ * Used on export output to prevent XSS in exported HTML files.
+ */
+function sanitizeHtml(html: string): string {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+
+  // Remove <script> and <iframe> elements
+  doc.querySelectorAll('script, iframe, object, embed, applet').forEach(el => el.remove());
+
+  // Clean all elements
+  const allElements = doc.body.querySelectorAll('*');
+  for (const el of allElements) {
+    // Remove event handler attributes (onclick, onerror, onload, etc.)
+    const attrsToRemove: string[] = [];
+    for (const attr of el.attributes) {
+      if (EVENT_ATTRS.test(attr.name)) {
+        attrsToRemove.push(attr.name);
+      }
+    }
+    for (const name of attrsToRemove) {
+      el.removeAttribute(name);
+    }
+
+    // Validate src/href protocols
+    for (const attrName of ['src', 'href']) {
+      const val = el.getAttribute(attrName);
+      if (val && DANGEROUS_PROTOCOLS.test(val)) {
+        el.removeAttribute(attrName);
+      }
+    }
+  }
+
+  return doc.body.innerHTML;
 }
 
 /**
@@ -260,7 +308,7 @@ async function renderHtmlToCanvas(htmlContent: string): Promise<HTMLCanvasElemen
   });
 
   const contentDiv = document.createElement('div');
-  contentDiv.innerHTML = doc.body.innerHTML;
+  contentDiv.innerHTML = sanitizeHtml(doc.body.innerHTML);
   container.appendChild(contentDiv);
 
   document.body.appendChild(container);

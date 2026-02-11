@@ -9,6 +9,9 @@ import { invoke } from '@tauri-apps/api/core';
 import { appDataDir } from '@tauri-apps/api/path';
 import { load } from '@tauri-apps/plugin-store';
 import { exists, remove, mkdir } from '@tauri-apps/plugin-fs';
+import { ask } from '@tauri-apps/plugin-dialog';
+import { get } from 'svelte/store';
+import { t } from '$lib/i18n';
 import { mcpStore, connectServer, disconnectServer } from './mcp-manager';
 import { containerStore, type DynamicService } from './container-store';
 import { MCP_RUNTIME_JS } from './mcp-runtime';
@@ -154,6 +157,25 @@ export async function createService(params: CreateServiceParams): Promise<Dynami
   };
   containerStore.addService(service);
 
+  // Security confirmation before running AI-generated code
+  const tr = get(t);
+  const confirmed = await ask(
+    tr('mcp.aiServices.launchConfirmMsg', {
+      name,
+      tools: tools.map((t) => t.name).join(', '),
+    }),
+    {
+      title: tr('mcp.aiServices.launchConfirmTitle'),
+      kind: 'warning',
+      okLabel: tr('mcp.aiServices.launchConfirmOk'),
+      cancelLabel: tr('mcp.aiServices.launchConfirmCancel'),
+    },
+  );
+  if (!confirmed) {
+    containerStore.updateService(serviceId, { status: 'error', error: 'Cancelled by user' });
+    throw new Error('Service launch cancelled by user');
+  }
+
   // Connect using existing MCP infrastructure
   try {
     mcpStore.addServer(config);
@@ -293,6 +315,25 @@ async function reconnectSavedService(svc: DynamicService): Promise<void> {
     },
     enabled: true,
   };
+
+  // Security confirmation before reconnecting AI-generated service
+  const tr = get(t);
+  const confirmed = await ask(
+    tr('mcp.aiServices.launchConfirmMsg', {
+      name: svc.name,
+      tools: svc.tools.join(', '),
+    }),
+    {
+      title: tr('mcp.aiServices.launchConfirmTitle'),
+      kind: 'warning',
+      okLabel: tr('mcp.aiServices.launchConfirmOk'),
+      cancelLabel: tr('mcp.aiServices.launchConfirmCancel'),
+    },
+  );
+  if (!confirmed) {
+    containerStore.updateService(svc.id, { status: 'error', error: 'Cancelled by user' });
+    return;
+  }
 
   mcpStore.addServer(config);
   await connectServer(config);

@@ -170,6 +170,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_http::init())
         .manage(commands::mcp::MCPProcessManager::new())
+        .manage(commands::ai_proxy::AIProxyState::new())
         .manage(OpenedFiles(Mutex::new(initial_files)))
         .manage(PendingFiles(Mutex::new(HashMap::new())))
         .manage(MainWindowReady(AtomicBool::new(false)))
@@ -184,6 +185,12 @@ pub fn run() {
             commands::mcp::mcp_send_notification,
             commands::mcp::mcp_disconnect,
             commands::mcp::check_command_exists,
+            commands::keychain::keychain_set,
+            commands::keychain::keychain_get,
+            commands::keychain::keychain_delete,
+            commands::ai_proxy::ai_proxy_fetch,
+            commands::ai_proxy::ai_proxy_stream,
+            commands::ai_proxy::ai_proxy_abort,
             commands::update::get_platform_info,
             commands::update::exit_app,
             commands::update::download_update,

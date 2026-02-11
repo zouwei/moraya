@@ -1,5 +1,6 @@
 import { writable, get } from 'svelte/store';
 import { load } from '@tauri-apps/plugin-store';
+import { invoke } from '@tauri-apps/api/core';
 import { setLocale, detectSystemLocale, type SupportedLocale, type LocaleSelection } from '$lib/i18n';
 import { getThemeById } from '$lib/styles/themes';
 import { type ImageHostConfig, type ImageHostTarget, DEFAULT_IMAGE_HOST_CONFIG, generateImageHostTargetId } from '$lib/services/image-hosting';
@@ -7,6 +8,7 @@ import type { ImageProviderConfig } from '$lib/services/ai/types';
 import type { PublishTarget } from '$lib/services/publish/types';
 
 const SETTINGS_STORE_FILE = 'settings.json';
+const KEYCHAIN_IMAGE_PREFIX = 'image-key:';
 
 export type Theme = 'light' | 'dark' | 'system';
 
@@ -116,8 +118,26 @@ function schedulePersist(state: Settings) {
   if (persistTimer) clearTimeout(persistTimer);
   persistTimer = setTimeout(async () => {
     try {
+      // Sanitize image provider API keys for disk storage
+      const diskState = { ...state };
+      if (state.imageProviderConfigs?.length > 0) {
+        diskState.imageProviderConfigs = [];
+        for (const c of state.imageProviderConfigs) {
+          if (c.apiKey && c.apiKey !== '***') {
+            try {
+              await invoke('keychain_set', { key: `${KEYCHAIN_IMAGE_PREFIX}${c.id}`, value: c.apiKey });
+              diskState.imageProviderConfigs.push({ ...c, apiKey: '***' });
+            } catch {
+              diskState.imageProviderConfigs.push({ ...c }); // fallback: keep plaintext
+            }
+          } else {
+            diskState.imageProviderConfigs.push({ ...c });
+          }
+        }
+      }
+
       const store = await load(SETTINGS_STORE_FILE);
-      await store.set('data', state);
+      await store.set('data', diskState);
       await store.save();
     } catch { /* ignore persist errors */ }
   }, 300);
@@ -255,6 +275,31 @@ export async function initSettingsStore() {
             activeImageConfigId: old.id,
           });
         }
+      }
+
+      // Restore image provider API keys from keychain (before initialization flag)
+      const finalState = settingsStore.getState();
+      if (finalState.imageProviderConfigs?.length > 0) {
+        const restoredImageConfigs = [];
+        for (const c of finalState.imageProviderConfigs) {
+          if (c.apiKey === '***') {
+            try {
+              const key = await invoke<string | null>('keychain_get', { key: `${KEYCHAIN_IMAGE_PREFIX}${c.id}` });
+              restoredImageConfigs.push({ ...c, apiKey: key || '' });
+            } catch {
+              restoredImageConfigs.push({ ...c, apiKey: '' });
+            }
+          } else if (c.apiKey && c.apiKey !== '') {
+            // Legacy plaintext key — migrate to keychain
+            try {
+              await invoke('keychain_set', { key: `${KEYCHAIN_IMAGE_PREFIX}${c.id}`, value: c.apiKey });
+            } catch { /* ignore */ }
+            restoredImageConfigs.push({ ...c });
+          } else {
+            restoredImageConfigs.push({ ...c });
+          }
+        }
+        settingsStore.update({ imageProviderConfigs: restoredImageConfigs });
       }
 
       const state = settingsStore.getState();
