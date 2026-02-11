@@ -1,44 +1,52 @@
-# Moraya
+# Moraya — The Local AI-Era Minimalist Markdown Editor
 
-A minimal, open-source WYSIWYG Markdown editor built with Rust + Tauri v2. Inspired by Minimalist style seamless editing experience — small (\~5MB DMG), elegant, and AI-ready.
+**Moraya** is a free, open-source, ultra-lightweight (~5MB) WYSIWYG Markdown editor built with Rust + Tauri v2. Inspired by minimalist seamless editing, it delivers an elegant writing experience while integrating **the most advanced local AI ecosystem and MCP (Model Context Protocol) capabilities** — turning your editor into a powerful, privacy-first AI agent platform.
 
-> **mora** (Latin, "a moment") + **ya** (Chinese, "elegance") = **Moraya**
+> **mora** (Latin: "a moment") + **ya** (Chinese: "elegance") = **Moraya**\
+> Privacy-first • Fully local • Infinitely extensible AI
 
-![](https://raw.githubusercontent.com/zouwei/resource/master/images/moraya/20260208-143332.-image.png)
+![Visual Editor](https://raw.githubusercontent.com/zouwei/resource/master/images/moraya/20260208-143332.-image.png)
+![AI Chat Panel](https://raw.githubusercontent.com/zouwei/resource/master/images/moraya/20260208-143226.-image.png)
+![AI Image Generation](https://raw.githubusercontent.com/zouwei/resource/master/images/moraya/20260208-143342.-image.png)
+![MCP Marketplace](https://raw.githubusercontent.com/zouwei/resource/master/images/moraya/20260208-143349.-image.png)
 
-![](https://raw.githubusercontent.com/zouwei/resource/master/images/moraya/20260208-143226.-image.png)
+## Why Moraya? Key Advantages
 
-![](https://raw.githubusercontent.com/zouwei/resource/master/images/moraya/20260208-143342.-image.png)
+* **Ultra-Lightweight & Native Performance** — \~5MB installer, instant launch, tiny memory footprint.
 
-![](https://raw.githubusercontent.com/zouwei/resource/master/images/moraya/20260208-143349.-image.png)
+* **True Instant WYSIWYG** — Type `# `  and see a heading instantly (Milkdown/ProseMirror-powered).
+
+* **Most Powerful Local AI Integration** — Multi-provider streaming chat (Claude, OpenAI, Gemini, DeepSeek, Ollama, custom endpoints) with smart commands and AI image generation.
+
+* **Leading MCP Ecosystem** — Dynamic MCP container, one-click Marketplace (Official, LobeHub, Smithery), autonomous local AI services, tool calling, and custom agent workflows — all fully self-hosted.
+
+* **Complete Modern Workflow** — Visual/Source/Split modes, publishing tools, SEO assistant, AI images, and automatic RSS feeds.
+
+* **Privacy by Design** — Everything can run offline with local models; your data never leaves your machine.
 
 ## Features
 
-* **Minimalist-style WYSIWYG** — type `# `       and it renders as a heading instantly, powered by [Milkdown](https://milkdown.dev/) (ProseMirror-based)
+* **Three Editor Modes** — Visual (WYSIWYG), Source (raw Markdown), Split (synced side-by-side). Toggle with `Cmd+/` or `Ctrl+/`.
 
-* **Three editor modes** — Visual, Source (raw Markdown), and Split (side-by-side with scroll sync). Toggle with `Cmd+/` and `Cmd+Shift+/`
+* **Full Math Support** — Inline and block LaTeX via KaTeX.
 
-* **Math support** — inline and block LaTeX via KaTeX
+* **GFM Extensions** — Tables with floating toolbar, task lists, strikethrough, and more.
 
-* **GFM** — tables (with floating toolbar), strikethrough, task lists, and more
+* **AI-Powered Writing** — Streaming chat panel, quick commands (`/write`, `/continue`, `/summarize`, etc.), insert/replace/copy actions.
 
-* **AI integration** — multi-provider LLM chat panel supporting Claude, OpenAI, Gemini, DeepSeek, Ollama, and custom OpenAI-compatible endpoints with streaming
+* **MCP Protocol** — stdio/SSE/HTTP transports, dynamic container, marketplace browsing, one-click server installation.
 
-* **MCP protocol** — stdio, SSE, and HTTP transports for Model Context Protocol servers
+* **Internationalization** — English & Simplified Chinese (auto-detect).
 
-* **i18n** — English and Simplified Chinese, with system locale auto-detection
+* **Native Menus & Shortcuts** — Full macOS/Windows/Linux menus and minimalist keyboard bindings, soon iPados.
 
-* **Native menu & shortcuts** — Minimalist-style keyboard bindings with full native macOS/Windows/Linux menu (File, Edit, Paragraph, Format, View, Help)
+* **Themes** — Light/Dark with system sync.
 
-* **Dark / Light themes** — auto-follows system preference or manual toggle via CSS custom properties
+  * **Export** — HTML & LaTeX built-in; PDF/DOCX/IMAGE.
 
-* **Frameless window** — custom title bar with macOS traffic light integration
+* **Frameless Window** — Custom title bar with native traffic lights.
 
-* **Tiny footprint** — DMG \~5MB, binary \~4.6MB, app bundle \~4.7MB
-
-* **Export** — HTML and LaTeX built-in; PDF, DOCX, EPUB planned (pandoc integration)
-
-## Architecture
+## Architecture Overview
 
 ```
 ┌───────────────────────────────────────┐
@@ -151,50 +159,6 @@ cd src-tauri && cargo check
 | Inline Code          | `Cmd+E`                     | `Ctrl+E`                       |
 | Link                 | `Cmd+K`                     | `Ctrl+K`                       |
 | Zoom In/Out/Reset    | `Cmd+=` / `Cmd+-` / `Cmd+0` | `Ctrl+=` / `Ctrl+-` / `Ctrl+0` |
-
-## Project Structure
-
-```
-moraya/
-├── src-tauri/                    # Rust backend (Tauri v2)
-│   ├── src/
-│   │   ├── main.rs               # Entry point
-│   │   ├── lib.rs                # App setup, plugins, menu events
-│   │   ├── menu.rs               # Native menu definition
-│   │   └── commands/
-│   │       ├── mod.rs            # Module declarations
-│   │       └── file.rs           # File I/O (read, write, read_dir_recursive)
-│   ├── tauri.conf.json           # Window config, CSP, bundle settings
-│   └── capabilities/default.json # Permission scopes
-│
-├── src/                          # Frontend (Svelte 5 + TypeScript)
-│   ├── routes/
-│   │   └── +page.svelte          # Main page (layout, menu handlers, scroll sync)
-│   └── lib/
-│       ├── editor/
-│       │   ├── Editor.svelte     # Milkdown WYSIWYG editor
-│       │   ├── SourceEditor.svelte # Raw Markdown editor (source mode)
-│       │   ├── TableToolbar.svelte # Floating table operations toolbar
-│       │   ├── setup.ts          # Milkdown initialization
-│       │   └── plugins/
-│       │       └── keybindings.ts # Minimalist-style shortcuts
-│       ├── components/
-│       │   ├── TitleBar.svelte   # Custom frameless title bar
-│       │   ├── StatusBar.svelte  # Word/char count, mode indicator
-│       │   ├── Sidebar.svelte    # File explorer tree
-│       │   ├── SettingsPanel.svelte # Tabbed settings
-│       │   └── ai/              # AI chat panel, settings, MCP panel
-│       ├── services/
-│       │   ├── file-service.ts   # File operations via Tauri IPC
-│       │   ├── export-service.ts # Export to HTML, LaTeX
-│       │   ├── ai/              # Multi-provider LLM adapters & orchestration
-│       │   └── mcp/             # MCP client (SSE, HTTP, stdio)
-│       ├── stores/              # Editor, settings, file tree state
-│       ├── i18n/                # i18n engine with en & zh-CN locales
-│       └── styles/              # CSS variables, themes, editor styles
-│
-└── static/                       # Static assets (favicon, logos)
-```
 
 ## AI Assisted Writing
 
