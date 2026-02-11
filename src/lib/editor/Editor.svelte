@@ -4,7 +4,7 @@
   import { editorViewCtx } from '@milkdown/core';
   import { TextSelection, AllSelection } from '@milkdown/prose/state';
   import { Decoration, DecorationSet } from '@milkdown/prose/view';
-  import { callCommand } from '@milkdown/utils';
+  import { callCommand, replaceAll } from '@milkdown/utils';
   import { imageSchema } from '@milkdown/preset-commonmark';
   import {
     addRowBeforeCommand,
@@ -49,6 +49,7 @@
   } = $props();
 
   let isReady = $state(false);
+  let internalChange = false; // flag to avoid replaceAll loop on Milkdown's own onChange
   let showTableToolbar = $state(false);
   let tableToolbarPosition = $state({ top: 0, left: 0 });
 
@@ -520,6 +521,7 @@
       root: editorEl,
       defaultValue: content,
       onChange: (markdown) => {
+        internalChange = true;
         content = markdown;
         onContentChange?.(markdown);
         editorStore.setDirty(true);
@@ -658,6 +660,21 @@
         }
       }
     });
+  });
+
+  // ── Sync external content changes to Milkdown (split mode) ──
+  $effect(() => {
+    const current = content;
+    if (internalChange) {
+      internalChange = false;
+      return;
+    }
+    if (editor && isReady) {
+      const milkdownContent = getMarkdown(editor);
+      if (current !== milkdownContent) {
+        try { editor.action(replaceAll(current)); } catch { /* ignore during init */ }
+      }
+    }
   });
 
   // ── Search / Replace ──────────────────────────────────

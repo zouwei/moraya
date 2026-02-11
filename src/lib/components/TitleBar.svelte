@@ -153,4 +153,10 @@
   :global(.platform-macos) .titlebar-left {
     padding-left: 5rem; /* space for traffic lights */
   }
+
+  /* Windows/Linux: hide custom titlebar, use native decorations */
+  :global(.platform-windows) .titlebar,
+  :global(.platform-linux) .titlebar {
+    display: none;
+  }
 </style>

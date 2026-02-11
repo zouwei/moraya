@@ -114,8 +114,11 @@ pub(crate) fn create_editor_window(
         let _ = window.set_title_bar_style(TitleBarStyle::Overlay);
     }
 
+    // Windows/Linux: enable decorations for native title bar + menu bar
     #[cfg(not(target_os = "macos"))]
-    let _ = window;
+    {
+        let _ = window.set_decorations(true);
+    }
 
     Ok(label)
 }
@@ -210,6 +213,12 @@ pub fn run() {
                 use tauri::TitleBarStyle;
                 let _ = window.set_decorations(true);
                 let _ = window.set_title_bar_style(TitleBarStyle::Overlay);
+            }
+
+            // Windows/Linux: enable decorations for native title bar + menu bar
+            #[cfg(not(target_os = "macos"))]
+            {
+                let _ = window.set_decorations(true);
             }
 
             // Create and set native menu

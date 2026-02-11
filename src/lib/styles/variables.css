@@ -154,3 +154,9 @@
     --hljs-punctuation: #d4d4d4;
   }
 }
+
+/* Windows/Linux: no custom titlebar (native decorations used) */
+.platform-windows,
+.platform-linux {
+  --titlebar-height: 0px;
+}
