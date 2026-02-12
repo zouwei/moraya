@@ -1,19 +1,20 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
   import {
     aiStore,
     sendChatMessage,
-    executeAICommand,
     abortAIRequest,
-    AI_COMMANDS,
     type ChatMessage,
-    type AICommand,
     type AIProviderConfig,
+    type AITemplate,
+    resolveContent,
+    buildTemplateMessages,
   } from '$lib/services/ai';
   import { mcpStore } from '$lib/services/mcp';
   import { markdownToHtmlBody } from '$lib/services/export-service';
   import { openUrl } from '@tauri-apps/plugin-opener';
   import { t } from '$lib/i18n';
+  import TemplateGallery from './TemplateGallery.svelte';
+  import TemplateParamPanel from './TemplateParamPanel.svelte';
 
   let {
     documentContent = '',
@@ -42,6 +43,11 @@
   let mcpToolCount = $state(0);
   let providerConfigs = $state<AIProviderConfig[]>([]);
   let activeConfigId = $state<string | null>(null);
+
+  // Template system state
+  let activeTemplate = $state<AITemplate | null>(null);
+  let showParamPanel = $state(false);
+  let inputPlaceholderOverride = $state<string | null>(null);
 
   mcpStore.subscribe(state => {
     mcpToolCount = state.tools.length;
@@ -124,6 +130,24 @@
     userAtBottom = true;
     resetInputHeight();
 
+    if (activeTemplate && (activeTemplate.flow === 'input' || activeTemplate.flow === 'parameterized')) {
+      // Template input flow: build messages from template
+      const resolved = resolveContent(activeTemplate, documentContent, selectedText);
+      const { systemPrompt, userMessage } = buildTemplateMessages(activeTemplate, {
+        content: resolved.content,
+        input: message,
+        locale: navigator.language,
+      });
+      activeTemplate = null;
+      inputPlaceholderOverride = null;
+      aiStore.addMessage({ role: 'system', content: systemPrompt, timestamp: Date.now() });
+      try {
+        await sendChatMessage(userMessage, documentContent);
+      } catch { /* handled by store */ }
+      return;
+    }
+
+    // Normal free chat
     try {
       await sendChatMessage(message, documentContent);
     } catch {
@@ -131,20 +155,87 @@
     }
   }
 
-  async function handleCommand(command: AICommand) {
+  async function handleTemplateSelect(template: AITemplate) {
     showCommands = false;
-    userAtBottom = true;
-    try {
-      await executeAICommand(command, {
-        selectedText,
-        documentContent,
-        customPrompt: inputText.trim() || undefined,
-      });
-      inputText = '';
-      resetInputHeight();
-    } catch {
-      // Error handled by store
+
+    // Resolve content for flows that need it
+    const resolved = resolveContent(template, documentContent, selectedText);
+    if (resolved.error && template.contentSource !== 'none') {
+      aiStore.setError($t(resolved.error));
+      return;
     }
+
+    switch (template.flow) {
+      case 'auto':
+      case 'interactive': {
+        // Execute immediately
+        const { systemPrompt, userMessage } = buildTemplateMessages(template, {
+          content: resolved.content,
+          locale: navigator.language,
+        });
+        activeTemplate = null;
+        showParamPanel = false;
+        inputPlaceholderOverride = null;
+        userAtBottom = true;
+        aiStore.addMessage({ role: 'system', content: systemPrompt, timestamp: Date.now() });
+        try {
+          await sendChatMessage(userMessage, documentContent);
+        } catch { /* handled by store */ }
+        break;
+      }
+      case 'input': {
+        // Switch to input mode with custom placeholder
+        activeTemplate = template;
+        showParamPanel = false;
+        inputPlaceholderOverride = template.inputHintKey ? $t(template.inputHintKey) : null;
+        inputEl?.focus();
+        break;
+      }
+      case 'selection':
+      case 'parameterized': {
+        // Show parameter panel
+        activeTemplate = template;
+        showParamPanel = true;
+        inputPlaceholderOverride = null;
+        break;
+      }
+    }
+  }
+
+  async function handleParamExecute(params: Record<string, string>, input: string) {
+    if (!activeTemplate) return;
+
+    showParamPanel = false;
+    userAtBottom = true;
+
+    const resolved = resolveContent(activeTemplate, documentContent, selectedText);
+    if (resolved.error && activeTemplate.contentSource !== 'none') {
+      aiStore.setError($t(resolved.error));
+      activeTemplate = null;
+      return;
+    }
+
+    // Build paramLabels for interpolation
+    const paramLabels: Record<string, string> = {};
+    for (const p of activeTemplate.params ?? []) {
+      const selectedOption = p.options.find(o => o.value === params[p.key]);
+      if (selectedOption) paramLabels[p.key] = $t(selectedOption.labelKey);
+    }
+
+    const { systemPrompt, userMessage } = buildTemplateMessages(activeTemplate, {
+      content: resolved.content,
+      input,
+      params,
+      paramLabels,
+      locale: navigator.language,
+    });
+
+    activeTemplate = null;
+    inputPlaceholderOverride = null;
+    aiStore.addMessage({ role: 'system', content: systemPrompt, timestamp: Date.now() });
+    try {
+      await sendChatMessage(userMessage, documentContent);
+    } catch { /* handled by store */ }
   }
 
   function handleKeydown(event: KeyboardEvent) {
@@ -160,6 +251,11 @@
       if (isLoading) {
         abortAIRequest();
       }
+      if (activeTemplate) {
+        activeTemplate = null;
+        showParamPanel = false;
+        inputPlaceholderOverride = null;
+      }
       showCommands = false;
     }
   }
@@ -174,6 +270,9 @@
 
   function clearChat() {
     aiStore.clearHistory();
+    activeTemplate = null;
+    showParamPanel = false;
+    inputPlaceholderOverride = null;
   }
 
   function autoResizeInput() {
@@ -251,18 +350,7 @@
   {:else}
     <div class="ai-messages" bind:this={messagesEl} onscroll={handleMessagesScroll}>
       {#if chatMessages.length === 0 && !isLoading}
-        <div class="ai-welcome">
-          <p class="welcome-title">{$t('ai.welcomeTitle')}</p>
-          <p class="welcome-hint">{$t('ai.welcomeHint', { kbd: '/' })}</p>
-          <div class="quick-commands">
-            {#each AI_COMMANDS.slice(0, 4) as cmd}
-              <button class="quick-cmd" onclick={() => handleCommand(cmd.command)}>
-                <span class="cmd-icon">{cmd.icon}</span>
-                <span>{$t(cmd.labelKey)}</span>
-              </button>
-            {/each}
-          </div>
-        </div>
+        <TemplateGallery onSelectTemplate={handleTemplateSelect} />
       {/if}
 
       {#each chatMessages as msg}
@@ -359,19 +447,28 @@
     <div class="ai-input-area">
       {#if showCommands}
         <div class="commands-dropdown">
-          {#each AI_COMMANDS as cmd}
-            <button
-              class="command-item"
-              onclick={() => handleCommand(cmd.command)}
-              disabled={cmd.requiresSelection && !selectedText}
-            >
-              <span class="cmd-icon">{cmd.icon}</span>
-              <div class="cmd-info">
-                <span class="cmd-name">{$t(cmd.labelKey)}</span>
-                <span class="cmd-desc">{$t(cmd.descriptionKey)}</span>
-              </div>
-            </button>
-          {/each}
+          <TemplateGallery onSelectTemplate={handleTemplateSelect} />
+        </div>
+      {/if}
+
+      {#if showParamPanel && activeTemplate}
+        <div class="param-panel-wrapper">
+          <TemplateParamPanel
+            template={activeTemplate}
+            onExecute={handleParamExecute}
+            onCancel={() => { showParamPanel = false; activeTemplate = null; }}
+          />
+        </div>
+      {/if}
+
+      {#if activeTemplate && !showParamPanel}
+        <div class="template-hint">
+          <span class="template-hint-label">{activeTemplate.icon} {$t(activeTemplate.nameKey)}</span>
+          <button class="template-hint-close" onclick={() => { activeTemplate = null; inputPlaceholderOverride = null; }}>
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+              <path d="M8 2L2 8m0-6l6 6" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+            </svg>
+          </button>
         </div>
       {/if}
 
@@ -382,7 +479,7 @@
           bind:value={inputText}
           oninput={autoResizeInput}
           onkeydown={handleKeydown}
-          placeholder={selectedText ? $t('ai.placeholderSelection') : $t('ai.placeholder')}
+          placeholder={inputPlaceholderOverride ?? (selectedText ? $t('ai.placeholderSelection') : $t('ai.placeholder'))}
           rows={1}
         ></textarea>
         {#if isLoading}
@@ -558,54 +655,6 @@
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
-  }
-
-  .ai-welcome {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 2rem 1rem;
-    text-align: center;
-    gap: 0.5rem;
-  }
-
-  .welcome-title {
-    font-size: var(--font-size-lg);
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-
-  .welcome-hint {
-    font-size: var(--font-size-xs);
-    color: var(--text-muted);
-  }
-
-  .quick-commands {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.5rem;
-    margin-top: 0.75rem;
-    width: 100%;
-  }
-
-  .quick-cmd {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 0.5rem;
-    border: 1px solid var(--border-color);
-    background: var(--bg-primary);
-    color: var(--text-secondary);
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: var(--font-size-xs);
-    transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), opacity var(--transition-fast);
-  }
-
-  .quick-cmd:hover {
-    border-color: var(--accent-color);
-    color: var(--text-primary);
   }
 
   .cmd-icon {
@@ -975,47 +1024,49 @@
     border: 1px solid var(--border-color);
     border-radius: 8px;
     margin: 0 0.5rem 0.25rem;
-    max-height: 280px;
-    overflow-y: auto;
+    max-height: 400px;
+    overflow: hidden;
     box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.1);
     z-index: 10;
   }
 
-  .command-item {
+  .param-panel-wrapper {
+    border-bottom: 1px solid var(--border-light);
+  }
+
+  .template-hint {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    width: 100%;
-    padding: 0.5rem 0.75rem;
-    border: none;
-    background: transparent;
-    color: var(--text-primary);
-    cursor: pointer;
-    text-align: left;
-  }
-
-  .command-item:hover {
+    justify-content: space-between;
+    padding: 0.25rem 0.5rem;
     background: var(--bg-hover);
+    border-radius: 6px;
+    margin-bottom: 0.35rem;
   }
 
-  .command-item:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-
-  .cmd-info {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .cmd-name {
-    font-size: var(--font-size-sm);
+  .template-hint-label {
+    font-size: var(--font-size-xs);
+    color: var(--accent-color);
     font-weight: 500;
   }
 
-  .cmd-desc {
-    font-size: var(--font-size-xs);
+  .template-hint-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1rem;
+    height: 1rem;
+    border: none;
+    background: transparent;
     color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 3px;
+    padding: 0;
+  }
+
+  .template-hint-close:hover {
+    background: var(--bg-active);
+    color: var(--text-primary);
   }
 
   .input-row {

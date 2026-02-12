@@ -652,5 +652,166 @@
     "paragraph3": "无论你是在编写技术文档、博客文章、学术论文还是个人笔记，Moraya 都能提供一个无干扰的环境，让你专注于最重要的事情——你的内容。",
     "hrTitle": "分隔线",
     "hrDescription": "你可以使用分隔线来分隔文档的不同部分："
+  },
+  "templates": {
+    "gallery": {
+      "title": "AI 助手",
+      "search": "搜索模板...",
+      "back": "返回",
+      "start": "开始"
+    },
+    "error": {
+      "noDocument": "请先输入一些内容",
+      "noSelection": "请先选中一些文本",
+      "noContent": "请先输入内容或选中文本"
+    },
+    "writing": {
+      "name": "写作辅助",
+      "desc": "AI 辅助写作、润色、总结",
+      "free": { "name": "自由写作", "desc": "输入主题或要求，AI 为你生成文章", "hint": "请输入写作主题或要求..." },
+      "continue": { "name": "继续写作", "desc": "从当前文档末尾续写" },
+      "outline": { "name": "生成大纲", "desc": "输入主题，生成文章大纲", "hint": "请输入文章主题..." },
+      "summarize": { "name": "总结概括", "desc": "总结选中文本或全文要点" },
+      "improve": { "name": "润色优化", "desc": "提升选中文本的表达质量" },
+      "simplify": { "name": "简化表达", "desc": "将复杂文本简化为易懂的语言" },
+      "expand": { "name": "扩展内容", "desc": "对选中内容进行补充扩展" },
+      "fixGrammar": { "name": "语法修正", "desc": "修复语法和拼写错误" }
+    },
+    "translation": {
+      "name": "翻译",
+      "desc": "多语言互译与本地化",
+      "auto": { "name": "智能翻译", "desc": "自动检测语言并翻译" },
+      "toTarget": { "name": "指定语言翻译", "desc": "选择目标语言后翻译" },
+      "explain": { "name": "翻译并解释", "desc": "翻译并逐句解释用词" },
+      "polish": { "name": "本地化润色", "desc": "使翻译更地道自然" },
+      "compare": { "name": "多版本翻译", "desc": "提供多个不同风格译本" },
+      "targetLang": "目标语言",
+      "lang": {
+        "en": "英语",
+        "zhCN": "简体中文",
+        "ja": "日语",
+        "ko": "韩语",
+        "fr": "法语",
+        "de": "德语",
+        "es": "西班牙语"
+      }
+    },
+    "student": {
+      "name": "学习助手",
+      "desc": "知识学习、笔记整理、概念理解",
+      "explain": { "name": "概念解释", "desc": "用通俗语言解释概念", "hint": "请输入要解释的概念..." },
+      "notes": { "name": "学习笔记", "desc": "将内容整理成结构化笔记" },
+      "flashcard": { "name": "知识卡片", "desc": "从内容中提取 Q&A 闪卡" },
+      "mindmap": { "name": "思维导图", "desc": "生成 Markdown 格式思维导图" },
+      "essayOutline": { "name": "作文提纲", "desc": "生成作文提纲", "hint": "请输入作文题目..." },
+      "reading": { "name": "阅读理解", "desc": "对文本进行深度分析" },
+      "formula": { "name": "公式推导", "desc": "给出数学公式推导过程", "hint": "请输入公式名称或内容..." },
+      "compare": { "name": "知识对比", "desc": "表格对比两个概念异同", "hint": "请输入要对比的两个概念（如：TCP vs UDP）..." }
+    },
+    "kids": {
+      "name": "少儿启蒙",
+      "desc": "儿童故事、趣味学习、互动游戏",
+      "story": { "name": "儿童故事", "desc": "根据关键词生成儿童故事", "hint": "请输入故事关键词（如：小兔子 森林 冒险）..." },
+      "poem": { "name": "儿歌童谣", "desc": "根据主题编写儿歌", "hint": "请输入主题..." },
+      "why": { "name": "十万个为什么", "desc": "AI 回答小朋友的为什么" },
+      "alphabet": { "name": "字母学习", "desc": "交互式字母和拼音教学" },
+      "mathGame": { "name": "趣味算术", "desc": "互动出题算术游戏" },
+      "riddle": { "name": "猜谜语", "desc": "AI 出谜语让小朋友猜" },
+      "drawText": { "name": "看图说话", "desc": "描述场景让 AI 编故事", "hint": "请描述一个场景..." },
+      "knowledge": { "name": "百科问答", "desc": "自然科学动物百科互动" }
+    },
+    "marketing": {
+      "name": "营销文案",
+      "desc": "社交媒体、广告、SEO 文案生成",
+      "xiaohongshu": { "name": "小红书文案", "desc": "生成种草风格文案", "hint": "请输入产品或主题..." },
+      "twitter": { "name": "Twitter/X 帖子", "desc": "生成推特风格短文案", "hint": "请输入主题..." },
+      "slogan": { "name": "广告标语", "desc": "为品牌/产品生成广告标语", "hint": "请输入品牌或产品..." },
+      "email": { "name": "营销邮件", "desc": "配置目标人群和语气生成邮件", "hint": "请描述邮件内容..." },
+      "seoArticle": { "name": "SEO 文章", "desc": "根据关键词生成 SEO 优化文章", "hint": "请输入目标关键词..." },
+      "productDesc": { "name": "产品描述", "desc": "生成有吸引力的产品描述", "hint": "请输入产品信息..." },
+      "tone": "语气风格",
+      "tone.formal": "正式",
+      "tone.friendly": "友好",
+      "tone.urgent": "紧迫",
+      "tone.humorous": "幽默"
+    },
+    "professional": {
+      "name": "职场办公",
+      "desc": "邮件、报告、会议纪要",
+      "email": { "name": "商务邮件", "desc": "配置场景和语气生成邮件", "hint": "请描述邮件内容..." },
+      "meeting": { "name": "会议纪要", "desc": "将笔记整理成正式会议纪要" },
+      "report": { "name": "工作报告", "desc": "生成周报/月报/季报", "hint": "请输入报告要点..." },
+      "review": { "name": "代码审查", "desc": "审查代码并提出改进建议" },
+      "resume": { "name": "简历优化", "desc": "用 STAR 法则优化简历描述" },
+      "prd": { "name": "PRD 文档", "desc": "生成产品需求文档", "hint": "请输入功能描述..." },
+      "tone": "语气风格",
+      "tone.concise": "简洁",
+      "reportType": "报告类型",
+      "reportType.weekly": "周报",
+      "reportType.monthly": "月报",
+      "reportType.quarterly": "季报"
+    },
+    "personal": {
+      "name": "个人成长",
+      "desc": "日记、目标管理、决策分析",
+      "journal": { "name": "日记助手", "desc": "引导式日记写作", "hint": "请输入今天想记录的事情..." },
+      "goal": { "name": "目标分解", "desc": "将大目标分解为可执行步骤", "hint": "请输入你的目标..." },
+      "habit": { "name": "习惯养成", "desc": "制定习惯养成计划", "hint": "请输入想养成的习惯..." },
+      "decision": { "name": "决策分析", "desc": "利弊分析帮助做决定", "hint": "请描述你面临的选择..." },
+      "bookNotes": { "name": "读书笔记", "desc": "整理选中内容为读书笔记" }
+    },
+    "games_cn": {
+      "name": "中文游戏",
+      "desc": "飞花令、成语接龙、猜谜语等文字游戏",
+      "feihualing": { "name": "飞花令", "desc": "轮流说含指定字的诗句" },
+      "chengyuChain": { "name": "成语接龙", "desc": "末字接首字的成语接龙" },
+      "riddle": { "name": "猜谜语", "desc": "AI 出谜面，你猜谜底" },
+      "lanternRiddle": { "name": "猜灯谜", "desc": "字谜、拆字等灯谜挑战" },
+      "poetryFill": { "name": "诗词填空", "desc": "古诗词记忆力考验" },
+      "storyChain": { "name": "故事接龙", "desc": "双方交替续写故事" },
+      "characterGame": { "name": "猜字游戏", "desc": "根据描述猜汉字" },
+      "brainTeaser": { "name": "脑筋急转弯", "desc": "趣味脑筋急转弯" },
+      "couplet": { "name": "对联", "desc": "AI 出上联，你对下联" },
+      "wordExplain": { "name": "你说我猜", "desc": "AI 描述词语你来猜" },
+      "ancientText": { "name": "文言文翻译", "desc": "文言文翻译白话文挑战" },
+      "homophone": { "name": "谐音梗", "desc": "谐音双关创意挑战" }
+    },
+    "games_en": {
+      "name": "英文游戏",
+      "desc": "Word Chain、Hangman、Trivia 等英文语言游戏",
+      "wordChain": { "name": "Word Chain", "desc": "末字母接首字母单词接龙" },
+      "twentyQuestions": { "name": "20 Questions", "desc": "20 个是/否问题猜物品" },
+      "hangman": { "name": "Hangman", "desc": "猜字母拼单词" },
+      "storyBuilder": { "name": "Story Builder", "desc": "轮流共创故事" },
+      "wordAssociation": { "name": "Word Association", "desc": "自由词汇联想接龙" },
+      "riddles": { "name": "Riddles", "desc": "英文谜语" },
+      "trivia": { "name": "Trivia Quiz", "desc": "常识问答挑战" },
+      "rhymeTime": { "name": "Rhyme Time", "desc": "用押韵词编故事" },
+      "acronym": { "name": "Acronym Game", "desc": "为随机缩写编含义" },
+      "taboo": { "name": "Taboo", "desc": "不用禁词描述目标词" },
+      "sentenceBuilder": { "name": "Sentence Builder", "desc": "用指定词造最长句" },
+      "emojiStory": { "name": "Emoji Story", "desc": "用 emoji 表达让对方猜" }
+    },
+    "quiz": {
+      "name": "刷题练习",
+      "desc": "AI 出题评分，涵盖各领域",
+      "practice": { "name": "万能刷题", "desc": "选择方向和难度，AI 出题 → 答题 → 评分 → 下一题" },
+      "direction": "刷题方向",
+      "dir": {
+        "programming": "编程",
+        "math": "数学",
+        "english": "英语",
+        "science": "科学",
+        "history": "历史",
+        "interview": "面试题",
+        "custom": "自定义方向"
+      },
+      "difficulty": "难度",
+      "diff": {
+        "easy": "简单",
+        "medium": "中等",
+        "hard": "困难"
+      }
+    }
   }
 }

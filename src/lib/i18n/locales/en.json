@@ -652,5 +652,166 @@
     "paragraph3": "Whether you're writing technical documentation, blog posts, academic papers, or personal notes, Moraya provides a distraction-free environment that lets you focus on what matters most — your content.",
     "hrTitle": "Horizontal Rules",
     "hrDescription": "You can use horizontal rules to separate different sections of your document:"
+  },
+  "templates": {
+    "gallery": {
+      "title": "AI Assistant",
+      "search": "Search templates...",
+      "back": "Back",
+      "start": "Start"
+    },
+    "error": {
+      "noDocument": "Please write some content first",
+      "noSelection": "Please select some text first",
+      "noContent": "Please write some content or select text first"
+    },
+    "writing": {
+      "name": "Writing",
+      "desc": "AI-powered writing, editing, and summarization",
+      "free": { "name": "Free Write", "desc": "Enter a topic and AI generates content", "hint": "Enter a writing topic or instructions..." },
+      "continue": { "name": "Continue Writing", "desc": "Continue from the end of the document" },
+      "outline": { "name": "Generate Outline", "desc": "Create an article outline", "hint": "Enter article topic..." },
+      "summarize": { "name": "Summarize", "desc": "Summarize selected text or full document" },
+      "improve": { "name": "Improve", "desc": "Enhance writing quality" },
+      "simplify": { "name": "Simplify", "desc": "Simplify complex text" },
+      "expand": { "name": "Expand", "desc": "Add more details and explanations" },
+      "fixGrammar": { "name": "Fix Grammar", "desc": "Fix grammar and spelling errors" }
+    },
+    "translation": {
+      "name": "Translation",
+      "desc": "Multi-language translation and localization",
+      "auto": { "name": "Smart Translate", "desc": "Auto-detect language and translate" },
+      "toTarget": { "name": "Translate To...", "desc": "Choose target language and translate" },
+      "explain": { "name": "Translate & Explain", "desc": "Translate with word-by-word explanation" },
+      "polish": { "name": "Localize", "desc": "Make translations more natural" },
+      "compare": { "name": "Multi-version", "desc": "Provide multiple translation styles" },
+      "targetLang": "Target Language",
+      "lang": {
+        "en": "English",
+        "zhCN": "Simplified Chinese",
+        "ja": "Japanese",
+        "ko": "Korean",
+        "fr": "French",
+        "de": "German",
+        "es": "Spanish"
+      }
+    },
+    "student": {
+      "name": "Study Helper",
+      "desc": "Learning, note-taking, concept understanding",
+      "explain": { "name": "Explain Concept", "desc": "Explain a concept in simple terms", "hint": "Enter a concept to explain..." },
+      "notes": { "name": "Study Notes", "desc": "Organize content into structured notes" },
+      "flashcard": { "name": "Flashcards", "desc": "Extract Q&A flashcards from content" },
+      "mindmap": { "name": "Mind Map", "desc": "Generate a Markdown mind map" },
+      "essayOutline": { "name": "Essay Outline", "desc": "Generate an essay outline", "hint": "Enter essay topic..." },
+      "reading": { "name": "Reading Analysis", "desc": "Deep analysis of text content" },
+      "formula": { "name": "Formula Derivation", "desc": "Show math formula derivation steps", "hint": "Enter formula name or content..." },
+      "compare": { "name": "Compare Concepts", "desc": "Compare two concepts side by side", "hint": "Enter two concepts (e.g., TCP vs UDP)..." }
+    },
+    "kids": {
+      "name": "Kids Learning",
+      "desc": "Stories, fun learning, interactive games",
+      "story": { "name": "Kids Story", "desc": "Generate a story from keywords", "hint": "Enter story keywords (e.g., bunny forest adventure)..." },
+      "poem": { "name": "Nursery Rhyme", "desc": "Create a rhyme about a topic", "hint": "Enter a topic..." },
+      "why": { "name": "Why? Why? Why?", "desc": "AI answers endless 'why' questions" },
+      "alphabet": { "name": "Alphabet Fun", "desc": "Interactive letter learning" },
+      "mathGame": { "name": "Math Game", "desc": "Fun interactive arithmetic" },
+      "riddle": { "name": "Riddles", "desc": "AI gives riddles for kids to solve" },
+      "drawText": { "name": "Picture Talk", "desc": "Describe a scene, AI writes a story", "hint": "Describe a scene..." },
+      "knowledge": { "name": "Fun Facts", "desc": "Nature, science, animal encyclopedia" }
+    },
+    "marketing": {
+      "name": "Marketing",
+      "desc": "Social media, ads, and SEO copywriting",
+      "xiaohongshu": { "name": "Xiaohongshu Post", "desc": "Generate lifestyle-review style post", "hint": "Enter product or topic..." },
+      "twitter": { "name": "Twitter/X Post", "desc": "Generate tweet-style content", "hint": "Enter topic..." },
+      "slogan": { "name": "Ad Slogan", "desc": "Generate catchy brand slogans", "hint": "Enter brand or product..." },
+      "email": { "name": "Marketing Email", "desc": "Configure audience and tone for email", "hint": "Describe the email content..." },
+      "seoArticle": { "name": "SEO Article", "desc": "Generate SEO-optimized content", "hint": "Enter target keywords..." },
+      "productDesc": { "name": "Product Description", "desc": "Generate compelling product copy", "hint": "Enter product info..." },
+      "tone": "Tone",
+      "tone.formal": "Formal",
+      "tone.friendly": "Friendly",
+      "tone.urgent": "Urgent",
+      "tone.humorous": "Humorous"
+    },
+    "professional": {
+      "name": "Professional",
+      "desc": "Emails, reports, meeting notes",
+      "email": { "name": "Business Email", "desc": "Configure scenario and tone for email", "hint": "Describe the email content..." },
+      "meeting": { "name": "Meeting Notes", "desc": "Organize notes into formal minutes" },
+      "report": { "name": "Work Report", "desc": "Generate weekly/monthly/quarterly report", "hint": "Enter key points for the report..." },
+      "review": { "name": "Code Review", "desc": "Review code and suggest improvements" },
+      "resume": { "name": "Resume Polish", "desc": "Optimize resume with STAR method" },
+      "prd": { "name": "PRD Document", "desc": "Generate product requirements doc", "hint": "Enter feature description..." },
+      "tone": "Tone",
+      "tone.concise": "Concise",
+      "reportType": "Report Type",
+      "reportType.weekly": "Weekly",
+      "reportType.monthly": "Monthly",
+      "reportType.quarterly": "Quarterly"
+    },
+    "personal": {
+      "name": "Personal Growth",
+      "desc": "Journaling, goals, decision making",
+      "journal": { "name": "Journal Helper", "desc": "Guided journaling and reflection", "hint": "What happened today?..." },
+      "goal": { "name": "Goal Breakdown", "desc": "Break goals into actionable steps", "hint": "Enter your goal..." },
+      "habit": { "name": "Habit Builder", "desc": "Create a habit-building plan", "hint": "Enter the habit you want to build..." },
+      "decision": { "name": "Decision Analysis", "desc": "Pros/cons analysis for decisions", "hint": "Describe your choices..." },
+      "bookNotes": { "name": "Book Notes", "desc": "Organize content into reading notes" }
+    },
+    "games_cn": {
+      "name": "Chinese Games",
+      "desc": "Poetry games, idiom chains, riddles",
+      "feihualing": { "name": "Poetry Challenge", "desc": "Take turns reciting poems with a given character" },
+      "chengyuChain": { "name": "Idiom Chain", "desc": "Chain idioms by last/first character" },
+      "riddle": { "name": "Riddles", "desc": "AI gives clues, you guess the answer" },
+      "lanternRiddle": { "name": "Lantern Riddles", "desc": "Character-based riddle puzzles" },
+      "poetryFill": { "name": "Poetry Fill-in", "desc": "Fill in missing words from poems" },
+      "storyChain": { "name": "Story Chain", "desc": "Take turns continuing a story" },
+      "characterGame": { "name": "Character Guess", "desc": "Guess the Chinese character from clues" },
+      "brainTeaser": { "name": "Brain Teasers", "desc": "Fun brain teaser puzzles" },
+      "couplet": { "name": "Couplets", "desc": "AI gives first line, you match it" },
+      "wordExplain": { "name": "Word Charades", "desc": "AI describes, you guess the word" },
+      "ancientText": { "name": "Classical Chinese", "desc": "Translate classical to modern Chinese" },
+      "homophone": { "name": "Homophones", "desc": "Homophone pun challenge" }
+    },
+    "games_en": {
+      "name": "English Games",
+      "desc": "Word Chain, Hangman, Trivia and more",
+      "wordChain": { "name": "Word Chain", "desc": "Last letter starts the next word" },
+      "twentyQuestions": { "name": "20 Questions", "desc": "Guess the object in 20 yes/no questions" },
+      "hangman": { "name": "Hangman", "desc": "Guess the word letter by letter" },
+      "storyBuilder": { "name": "Story Builder", "desc": "Take turns building a story" },
+      "wordAssociation": { "name": "Word Association", "desc": "Free association word chain" },
+      "riddles": { "name": "Riddles", "desc": "Solve English riddles" },
+      "trivia": { "name": "Trivia Quiz", "desc": "General knowledge questions" },
+      "rhymeTime": { "name": "Rhyme Time", "desc": "Create stories with rhyming words" },
+      "acronym": { "name": "Acronym Game", "desc": "Make up meanings for random acronyms" },
+      "taboo": { "name": "Taboo", "desc": "Describe without using forbidden words" },
+      "sentenceBuilder": { "name": "Sentence Builder", "desc": "Build the longest sentence with given words" },
+      "emojiStory": { "name": "Emoji Story", "desc": "Tell stories using emojis" }
+    },
+    "quiz": {
+      "name": "Quiz & Practice",
+      "desc": "AI-generated questions with scoring",
+      "practice": { "name": "Universal Quiz", "desc": "Choose subject and difficulty, AI quizzes you" },
+      "direction": "Subject",
+      "dir": {
+        "programming": "Programming",
+        "math": "Mathematics",
+        "english": "English",
+        "science": "Science",
+        "history": "History",
+        "interview": "Interview Prep",
+        "custom": "Custom Subject"
+      },
+      "difficulty": "Difficulty",
+      "diff": {
+        "easy": "Easy",
+        "medium": "Medium",
+        "hard": "Hard"
+      }
+    }
   }
 }

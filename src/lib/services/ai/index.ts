@@ -26,3 +26,7 @@ export {
   IMAGE_SIZE_MAP,
   resolveImageSize,
 } from './types';
+
+// Template system
+export type { AITemplate, AITemplateCategory, TemplateContext, TemplateParam, FlowType } from './templates';
+export { getCategories, getTemplatesByCategory, resolveContent, buildTemplateMessages, getAllTemplates } from './templates';
