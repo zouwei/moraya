@@ -1,17 +1,138 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <!-- Moraya Logo: Diagonal stroke + two dots, 45° centered (square corners) -->
+  <!-- Moraya Logo Concept: Abstract flowing silk ribbon "M"
+       Deep navy → cyan gradients, ethereal light trails, high contrast
+       Perfect symmetry about x=256 -->
 
-  <!-- Background: square (no border-radius) -->
-  <rect x="32" y="32" width="448" height="448" rx="0" ry="0" fill="#1a1a2e"/>
+  <defs>
+    <!-- Ribbon gradient: deep navy → cyan (vertical, brighter at peaks) -->
+    <linearGradient id="ribbonGrad" x1="256" y1="410" x2="256" y2="80" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0a1628"/>
+      <stop offset="20%" stop-color="#1a3a6e"/>
+      <stop offset="50%" stop-color="#2d7dd2"/>
+      <stop offset="78%" stop-color="#4fc3f7"/>
+      <stop offset="100%" stop-color="#00e5ff"/>
+    </linearGradient>
 
-  <!-- Diagonal capsule stroke (exactly 45°, centered on 256,256) -->
-  <rect x="228" y="116" width="56" height="280" rx="28" ry="28"
-        transform="rotate(-45, 256, 256)"
-        fill="#f0efe8"/>
+    <!-- Aura glow gradient -->
+    <linearGradient id="auraGrad" x1="256" y1="420" x2="256" y2="70" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1a3a6e" stop-opacity="0.25"/>
+      <stop offset="45%" stop-color="#2d7dd2" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#00e5ff" stop-opacity="0.4"/>
+    </linearGradient>
 
-  <!-- Upper-right dot (symmetric about center diagonal) -->
-  <circle cx="355" cy="157" r="36" fill="#f0efe8"/>
+    <!-- Inner highlight gradient (bright at peaks) -->
+    <linearGradient id="highlightGrad" x1="256" y1="400" x2="256" y2="80" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4fc3f7" stop-opacity="0"/>
+      <stop offset="45%" stop-color="#67e8f9" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#b2ebf2" stop-opacity="0.8"/>
+    </linearGradient>
 
-  <!-- Lower-left dot (symmetric about center diagonal) -->
-  <circle cx="157" cy="355" r="36" fill="#f0efe8"/>
+    <!-- Ambient radial glow -->
+    <radialGradient id="ambientGlow" cx="50%" cy="40%" r="36%">
+      <stop offset="0%" stop-color="#2d7dd2" stop-opacity="0.09"/>
+      <stop offset="100%" stop-color="#0a0e1a" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- === Filters === -->
+    <filter id="wideGlow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="24"/>
+    </filter>
+
+    <filter id="medGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="10" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+
+    <filter id="innerShine" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+
+    <filter id="trailGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="8"/>
+    </filter>
+
+    <filter id="particleGlow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+
+  <!-- ===== Background: solid deep navy blue ===== -->
+  <rect width="512" height="512" fill="#0a0e1a"/>
+
+  <!-- Ambient glow behind ribbon -->
+  <rect width="512" height="512" fill="url(#ambientGlow)"/>
+
+  <!-- ===== Ethereal light trails (wisps at ribbon endpoints) ===== -->
+  <!-- Foot trails (downward wisps) -->
+  <path d="M 76,405 C 72,418 70,436 73,448"
+        fill="none" stroke="#00e5ff" stroke-width="3.5" stroke-opacity="0.12"
+        stroke-linecap="round" filter="url(#trailGlow)"/>
+  <path d="M 436,405 C 440,418 442,436 439,448"
+        fill="none" stroke="#00e5ff" stroke-width="3.5" stroke-opacity="0.12"
+        stroke-linecap="round" filter="url(#trailGlow)"/>
+
+  <!-- Peak trails (upward wisps) -->
+  <path d="M 166,108 C 160,90 157,72 161,58"
+        fill="none" stroke="#00e5ff" stroke-width="2.5" stroke-opacity="0.1"
+        stroke-linecap="round" filter="url(#trailGlow)"/>
+  <path d="M 346,108 C 352,90 355,72 351,58"
+        fill="none" stroke="#00e5ff" stroke-width="2.5" stroke-opacity="0.1"
+        stroke-linecap="round" filter="url(#trailGlow)"/>
+
+  <!-- ===== The "M" ribbon (6 cubic Bezier segments, perfectly mirrored) =====
+       Left foot (80,400) → Left peak (~169,114) → Valley (256,278) → Right peak (~343,114) → Right foot (432,400) -->
+
+  <!-- Layer 1: Wide ethereal glow (outermost halo) -->
+  <path d="M 80,400 C 84,328 100,208 140,138 C 162,100 186,110 206,153 C 227,196 243,248 256,278 C 269,248 285,196 306,153 C 326,110 350,100 372,138 C 412,208 428,328 432,400"
+        fill="none" stroke="#00e5ff" stroke-width="52" stroke-opacity="0.045"
+        stroke-linecap="round" stroke-linejoin="round"
+        filter="url(#wideGlow)"/>
+
+  <!-- Layer 2: Ribbon aura (mid-range glow) -->
+  <path d="M 80,400 C 84,328 100,208 140,138 C 162,100 186,110 206,153 C 227,196 243,248 256,278 C 269,248 285,196 306,153 C 326,110 350,100 372,138 C 412,208 428,328 432,400"
+        fill="none" stroke="url(#auraGrad)" stroke-width="34"
+        stroke-linecap="round" stroke-linejoin="round"
+        filter="url(#medGlow)"/>
+
+  <!-- Layer 3: Main ribbon body (core gradient stroke) -->
+  <path d="M 80,400 C 84,328 100,208 140,138 C 162,100 186,110 206,153 C 227,196 243,248 256,278 C 269,248 285,196 306,153 C 326,110 350,100 372,138 C 412,208 428,328 432,400"
+        fill="none" stroke="url(#ribbonGrad)" stroke-width="18"
+        stroke-linecap="round" stroke-linejoin="round"
+        filter="url(#innerShine)"/>
+
+  <!-- Layer 4: Inner highlight band -->
+  <path d="M 80,400 C 84,328 100,208 140,138 C 162,100 186,110 206,153 C 227,196 243,248 256,278 C 269,248 285,196 306,153 C 326,110 350,100 372,138 C 412,208 428,328 432,400"
+        fill="none" stroke="url(#highlightGrad)" stroke-width="7"
+        stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Layer 5: Center silk sheen (ultra-thin bright line) -->
+  <path d="M 80,400 C 84,328 100,208 140,138 C 162,100 186,110 206,153 C 227,196 243,248 256,278 C 269,248 285,196 306,153 C 326,110 350,100 372,138 C 412,208 428,328 432,400"
+        fill="none" stroke="#e0f7fa" stroke-width="2" stroke-opacity="0.18"
+        stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- ===== Light particles (symmetric pairs along the ribbon) ===== -->
+  <!-- Outer: near feet (subtle) -->
+  <circle cx="95" cy="340" r="2" fill="#1a3a6e" opacity="0.5" filter="url(#particleGlow)"/>
+  <circle cx="417" cy="340" r="2" fill="#1a3a6e" opacity="0.5" filter="url(#particleGlow)"/>
+
+  <!-- Mid-leg -->
+  <circle cx="110" cy="270" r="2.5" fill="#4fc3f7" opacity="0.5" filter="url(#particleGlow)"/>
+  <circle cx="402" cy="270" r="2.5" fill="#4fc3f7" opacity="0.5" filter="url(#particleGlow)"/>
+
+  <!-- Near peaks (brightest) -->
+  <circle cx="145" cy="140" r="3" fill="#80deea" opacity="0.75" filter="url(#particleGlow)"/>
+  <circle cx="367" cy="140" r="3" fill="#80deea" opacity="0.75" filter="url(#particleGlow)"/>
+
+  <!-- At peaks (accent dots) -->
+  <circle cx="169" cy="114" r="3.5" fill="#b2ebf2" opacity="0.9" filter="url(#particleGlow)"/>
+  <circle cx="343" cy="114" r="3.5" fill="#b2ebf2" opacity="0.9" filter="url(#particleGlow)"/>
+
+  <!-- Descending into valley -->
+  <circle cx="220" cy="230" r="2" fill="#4fc3f7" opacity="0.45" filter="url(#particleGlow)"/>
+  <circle cx="292" cy="230" r="2" fill="#4fc3f7" opacity="0.45" filter="url(#particleGlow)"/>
+
+  <!-- Valley center -->
+  <circle cx="256" cy="278" r="2.5" fill="#4fc3f7" opacity="0.5" filter="url(#particleGlow)"/>
 </svg>
