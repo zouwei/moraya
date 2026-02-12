@@ -70,7 +70,7 @@
   .workflow-backdrop {
     position: fixed;
     inset: 0;
-    z-index: 49;
+    z-index: 100;
   }
 
   .workflow-panel {
@@ -82,8 +82,13 @@
     border: 1px solid var(--border-color);
     border-radius: 10px;
     box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.12);
-    z-index: 50;
+    z-index: 101;
     animation: slideUp 0.15s ease-out;
+  }
+
+  /* iPadOS: flush with StatusBar top border (40px height + 1px border-top) */
+  :global(.platform-ipados) .workflow-panel {
+    bottom: 41px;
   }
 
   @keyframes slideUp {

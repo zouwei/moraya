@@ -1,5 +1,5 @@
 /**
- * Enter key handler plugin for Milkdown (Typora-style).
+ * Enter key handler plugin for Milkdown (style).
  *
  * - Enter: split the current block into a new paragraph (no <br/>).
  * - Shift+Enter: insert a hard break (<br/>) within the same paragraph.

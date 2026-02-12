@@ -87,6 +87,13 @@ pub fn mcp_connect_stdio(
     args: Vec<String>,
     env: HashMap<String, String>,
 ) -> Result<(), String> {
+    #[cfg(target_os = "ios")]
+    {
+        let _ = (&state, &server_id, &command, &args, &env);
+        return Err("stdio transport is not available on iPad".to_string());
+    }
+
+    #[cfg(not(target_os = "ios"))]
     validate_command(&command)?;
 
     let mut processes = state.processes.lock().map_err(|e| e.to_string())?;
@@ -250,20 +257,29 @@ pub fn mcp_disconnect(
 /// Check if an external command exists and return its --version output
 #[tauri::command]
 pub fn check_command_exists(command: String) -> Result<String, String> {
-    validate_command(&command)?;
+    #[cfg(target_os = "ios")]
+    {
+        let _ = &command;
+        return Err("Command execution is not available on iPad".to_string());
+    }
 
-    let output = Command::new(&command)
-        .arg("--version")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|_| format!("Command '{}' not found", command))?;
+    #[cfg(not(target_os = "ios"))]
+    {
+        validate_command(&command)?;
 
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    Ok(if !stdout.is_empty() {
-        stdout
-    } else {
-        String::from_utf8_lossy(&output.stderr).trim().to_string()
-    })
+        let output = Command::new(&command)
+            .arg("--version")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .map_err(|_| format!("Command '{}' not found", command))?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        Ok(if !stdout.is_empty() {
+            stdout
+        } else {
+            String::from_utf8_lossy(&output.stderr).trim().to_string()
+        })
+    }
 }

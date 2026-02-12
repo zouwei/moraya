@@ -155,7 +155,8 @@
   }
 }
 
-/* Windows/Linux: no custom titlebar (native decorations used) */
+/* All desktop platforms: no custom titlebar (native decorations used) */
+.platform-macos,
 .platform-windows,
 .platform-linux {
   --titlebar-height: 0px;

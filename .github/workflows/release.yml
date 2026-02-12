@@ -94,6 +94,12 @@ jobs:
             ### Windows
 
             Run the `.msi` installer.
+
+            ### iPad
+
+            Available on TestFlight. [Join Beta →](https://testflight.apple.com/join/XXXXX)
+
+            Or download the `.ipa` file below for Ad Hoc sideloading.
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
@@ -129,15 +135,118 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 
-  # 新增：等待所有构建完成后触发部署
+  # # iPad iOS build (parallel with desktop builds)
+  # release-ios:
+  #   permissions:
+  #     contents: write
+  #   runs-on: macos-latest
+
+  #   steps:
+  #     - uses: actions/checkout@v4
+
+  #     - name: Setup pnpm
+  #       uses: pnpm/action-setup@v4
+  #       with:
+  #         version: 10
+
+  #     - name: Setup Node.js
+  #       uses: actions/setup-node@v4
+  #       with:
+  #         node-version: lts/*
+  #         cache: pnpm
+
+  #     - name: Install Rust stable
+  #       uses: dtolnay/rust-toolchain@stable
+  #       with:
+  #         targets: aarch64-apple-ios
+
+  #     - name: Rust cache
+  #       uses: swatinem/rust-cache@v2
+  #       with:
+  #         workspaces: './src-tauri -> target'
+
+  #     - name: Install frontend dependencies
+  #       run: pnpm install --frozen-lockfile
+
+  #     # Import signing certificate into CI keychain
+  #     - name: Install Apple certificate and provisioning profile
+  #       env:
+  #         IOS_CERTIFICATE_BASE64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
+  #         IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+  #         IOS_PROVISION_PROFILE_BASE64: ${{ secrets.IOS_PROVISION_PROFILE_BASE64 }}
+  #       run: |
+  #         KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+  #         KEYCHAIN_PASSWORD=$(openssl rand -hex 12)
+  #         security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+  #         security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+  #         security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+  #         CERT_PATH=$RUNNER_TEMP/certificate.p12
+  #         echo -n "$IOS_CERTIFICATE_BASE64" | base64 --decode -o $CERT_PATH
+  #         security import $CERT_PATH -P "$IOS_CERTIFICATE_PASSWORD" \
+  #           -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+  #         security set-key-partition-list -S apple-tool:,apple: \
+  #           -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+  #         security list-keychain -d user -s $KEYCHAIN_PATH
+
+  #         PROFILE_PATH=$RUNNER_TEMP/profile.mobileprovision
+  #         echo -n "$IOS_PROVISION_PROFILE_BASE64" | base64 --decode -o $PROFILE_PATH
+  #         mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+  #         cp $PROFILE_PATH ~/Library/MobileDevice/Provisioning\ Profiles/
+
+  #     # Auto-increment build number using github.run_number
+  #     - name: Set iOS build number
+  #       run: |
+  #         cd src-tauri/gen/apple
+  #         agvtool new-version -all ${{ github.run_number }}
+
+  #     # Build IPA
+  #     - name: Build iOS
+  #       run: pnpm tauri ios build
+
+  #     # Upload IPA to GitHub Release (same Release as desktop builds)
+  #     - name: Upload IPA to GitHub Release
+  #       uses: softprops/action-gh-release@v2
+  #       with:
+  #         files: src-tauri/gen/apple/build/arm64/Moraya.ipa
+  #         tag_name: ${{ github.ref_name }}
+  #       env:
+  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  #     # Upload to App Store Connect → auto-enters TestFlight
+  #     - name: Upload to App Store Connect
+  #       env:
+  #         APPSTORE_API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+  #         APPSTORE_API_ISSUER: ${{ secrets.APPSTORE_API_ISSUER }}
+  #         APPSTORE_API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+  #       run: |
+  #         mkdir -p ~/.appstoreconnect/private_keys
+  #         echo "$APPSTORE_API_PRIVATE_KEY" > \
+  #           ~/.appstoreconnect/private_keys/AuthKey_${APPSTORE_API_KEY_ID}.p8
+
+  #         xcrun altool --upload-app \
+  #           --type ios \
+  #           --file "src-tauri/gen/apple/build/arm64/Moraya.ipa" \
+  #           --apiKey "$APPSTORE_API_KEY_ID" \
+  #           --apiIssuer "$APPSTORE_API_ISSUER"
+
+  #     # Cleanup keychain
+  #     - name: Cleanup
+  #       if: always()
+  #       run: |
+  #         security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
+  #         rm -f $RUNNER_TEMP/certificate.p12 $RUNNER_TEMP/profile.mobileprovision
+
+
+  # Wait for all builds (desktop + iPad) before triggering deploy
   trigger-deploy:
-    needs: release  # 等待所有平台构建完成
+    needs: [release]
     runs-on: ubuntu-latest
     steps:
       - name: Trigger Cloudflare Pages Deploy
         run: |
           curl -X POST "${{ secrets.CLOUDFLARE_DEPLOY_HOOK_URL }}"
-      
+
       - name: Notify success
         run: |
           echo "✅ Cloudflare Pages deploy triggered for ${{ github.ref_name }}"

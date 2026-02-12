@@ -161,4 +161,32 @@
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }
   }
+
+  /* iPadOS: taller statusbar to match TouchToolbar visual weight */
+  :global(.platform-ipados) .statusbar {
+    height: 40px;
+    padding-bottom: env(safe-area-inset-bottom);
+    font-size: var(--font-size-sm);
+  }
+
+  :global(.platform-ipados) .mode-switcher {
+    height: 28px;
+    border-radius: 5px;
+  }
+
+  :global(.platform-ipados) .mode-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 0.6rem;
+    height: 100%;
+  }
+
+  :global(.platform-ipados) .publish-btn {
+    display: flex;
+    align-items: center;
+    padding: 0 0.6rem;
+    height: 28px;
+    border-radius: 5px;
+  }
 </style>

@@ -44,6 +44,13 @@ vite.config.ts.timestamp-*
 src-tauri/target/
 src-tauri/gen/schemas/
 
+# iOS build artifacts (keep gen/apple/ project files in git)
+src-tauri/gen/apple/build/
+src-tauri/gen/apple/Frameworks/
+src-tauri/gen/apple/*.xcworkspace/xcuserdata/
+src-tauri/gen/apple/**/*.xcodeproj/xcuserdata/
+src-tauri/gen/apple/**/DerivedData/
+
 # =========================
 # Build Artifacts
 # =========================
@@ -54,6 +61,7 @@ src-tauri/gen/schemas/
 *.deb
 *.AppImage
 *.rpm
+*.ipa
 
 # =========================
 # IDE

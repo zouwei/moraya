@@ -27,6 +27,7 @@
   import { save as saveDialog } from '@tauri-apps/plugin-dialog';
   import { invoke } from '@tauri-apps/api/core';
   import { openUrl } from '@tauri-apps/plugin-opener';
+  import { isTauri } from '$lib/utils/platform';
   import TableToolbar from './TableToolbar.svelte';
   import ImageContextMenu from './ImageContextMenu.svelte';
   import ImageToolbar from './ImageToolbar.svelte';
@@ -684,6 +685,7 @@
     editorEl.addEventListener('drop', (e) => e.preventDefault());
 
     // Listen for Tauri drag-drop events (provides file paths + drop position)
+    if (!isTauri) return;
     dragDropUnlisten = await getCurrentWebview().onDragDropEvent(async (event) => {
       if (event.payload.type !== 'drop' || !editor) return;
       const { paths, position } = event.payload;

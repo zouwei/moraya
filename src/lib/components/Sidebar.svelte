@@ -236,4 +236,14 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+
+  /* iPadOS: larger touch targets and active feedback */
+  :global(.platform-ipados) .tree-item {
+    padding: 0.5rem 0.75rem;
+    min-height: 44px;
+  }
+
+  :global(.platform-ipados) .tree-item:active {
+    background: var(--bg-hover);
+  }
 </style>

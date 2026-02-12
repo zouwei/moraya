@@ -21,6 +21,7 @@
     insertTableCommand,
     toggleStrikethroughCommand,
   } from '@milkdown/preset-gfm';
+  import { undoCommand, redoCommand } from '@milkdown/plugin-history';
   import Editor from '$lib/editor/Editor.svelte';
   import SourceEditor from '$lib/editor/SourceEditor.svelte';
   import SearchBar from '$lib/editor/SearchBar.svelte';
@@ -45,6 +46,10 @@
   import { getCurrentWebview } from '@tauri-apps/api/webview';
   import { openUrl } from '@tauri-apps/plugin-opener';
   import { t } from '$lib/i18n';
+  import { getPlatformClass, isIPadOS, isTauri, isVirtualKeyboardVisible } from '$lib/utils/platform';
+  import TabBar from '$lib/components/TabBar.svelte';
+  import TouchToolbar from '$lib/editor/TouchToolbar.svelte';
+  import { tabsStore } from '$lib/stores/tabs-store';
 
   import '$lib/styles/global.css';
   import '$lib/styles/editor.css';
@@ -163,6 +168,7 @@ ${tr('welcome.tip')}
   let showImageDialog = $state(false);
   let showSearch = $state(false);
   let showReplace = $state(false);
+  let showTouchToolbar = $state(isIPadOS);
   let searchMatchCount = $state(0);
   let searchCurrentMatch = $state(0);
   let currentFileName = $state($t('common.untitled'));
@@ -243,6 +249,17 @@ ${tr('welcome.tip')}
     await scrollEditorToTop();
   }
 
+  /** Save with tab sync on iPad */
+  async function handleSave(asNew = false) {
+    const saved = asNew ? await saveFileAs(content) : await saveFile(content);
+    if (saved && isIPadOS) {
+      const state = editorStore.getState();
+      if (state.currentFilePath) {
+        tabsStore.updateActiveFile(state.currentFilePath, getFileNameFromPath(state.currentFilePath));
+      }
+    }
+  }
+
   function runEditorCommand(cmd: any, payload?: any) {
     if (!milkdownEditor) return;
     try {
@@ -250,6 +267,31 @@ ${tr('welcome.tip')}
     } catch {
       // Command may fail if editor not ready or selection invalid
     }
+  }
+
+  /** Handle commands from the iPad touch toolbar */
+  function handleTouchCommand(cmd: string) {
+    const commandMap: Record<string, () => void> = {
+      bold: () => runEditorCommand(toggleStrongCommand),
+      italic: () => runEditorCommand(toggleEmphasisCommand),
+      strikethrough: () => runEditorCommand(toggleStrikethroughCommand),
+      code: () => runEditorCommand(toggleInlineCodeCommand),
+      link: () => runEditorCommand(toggleLinkCommand, { href: '' }),
+      h1: () => runEditorCommand(wrapInHeadingCommand, 1),
+      h2: () => runEditorCommand(wrapInHeadingCommand, 2),
+      h3: () => runEditorCommand(wrapInHeadingCommand, 3),
+      quote: () => runEditorCommand(wrapInBlockquoteCommand),
+      bullet_list: () => runEditorCommand(wrapInBulletListCommand),
+      ordered_list: () => runEditorCommand(wrapInOrderedListCommand),
+      code_block: () => runEditorCommand(createCodeBlockCommand),
+      math_block: () => insertMathBlock(),
+      table: () => runEditorCommand(insertTableCommand, { row: 3, col: 3 }),
+      image: () => { showImageDialog = true; },
+      hr: () => runEditorCommand(insertHrCommand),
+      undo: () => runEditorCommand(undoCommand),
+      redo: () => runEditorCommand(redoCommand),
+    };
+    commandMap[cmd]?.();
   }
 
   async function insertMathBlock() {
@@ -347,19 +389,42 @@ ${tr('welcome.tip')}
     if (state.editorMode === 'source') {
       milkdownEditor = null;
     }
+    // Sync dirty state to tabs store on iPad
+    if (isIPadOS) {
+      tabsStore.syncDirty(state.isDirty);
+    }
   });
+
+  // iPad tabs: reload content when active tab changes
+  let prevActiveTabId = '';
+  if (isIPadOS) {
+    tabsStore.subscribe(state => {
+      if (state.activeTabId !== prevActiveTabId) {
+        prevActiveTabId = state.activeTabId;
+        const tab = state.tabs.find(t => t.id === state.activeTabId);
+        if (tab) {
+          content = tab.content;
+          currentFileName = tab.fileName;
+          replaceContentAndScrollToTop(tab.content);
+        }
+      }
+    });
+  }
 
   // Sync native menu checkmarks when editor mode changes
   $effect(() => {
+    if (!isTauri) return;
     invoke('set_editor_mode_menu', { mode: editorMode });
   });
 
   // Sync sidebar and AI panel check state to native menu
   $effect(() => {
+    if (!isTauri) return;
     invoke('set_menu_check', { id: 'view_sidebar', checked: showSidebar });
   });
 
   $effect(() => {
+    if (!isTauri) return;
     invoke('set_menu_check', { id: 'view_ai_panel', checked: showAIPanel });
   });
 
@@ -429,7 +494,7 @@ ${tr('welcome.tip')}
       // macOS app menu
       preferences: tr('menu.settings'),
     };
-    invoke('update_menu_labels', { labels });
+    if (isTauri) invoke('update_menu_labels', { labels });
   });
 
   // Auto-save timer
@@ -442,7 +507,7 @@ ${tr('welcome.tip')}
       autoSaveTimer = setInterval(() => {
         const editorState = editorStore.getState();
         if (editorState.isDirty && editorState.currentFilePath) {
-          saveFile(content);
+          handleSave();
         }
       }, settings.autoSaveInterval);
     }
@@ -455,11 +520,7 @@ ${tr('welcome.tip')}
     // File shortcuts
     if (mod && event.key === 's') {
       event.preventDefault();
-      if (event.shiftKey) {
-        saveFileAs(content);
-      } else {
-        saveFile(content);
-      }
+      handleSave(event.shiftKey);
       return;
     }
 
@@ -597,14 +658,26 @@ ${tr('welcome.tip')}
   async function handleOpenFile() {
     const fileContent = await openFile();
     if (fileContent !== null) {
+      if (isIPadOS) {
+        // openFile() already updated editorStore.currentFilePath
+        const filePath = editorStore.getState().currentFilePath;
+        const fileName = filePath ? getFileNameFromPath(filePath) : $t('common.untitled');
+        tabsStore.openFileTab(filePath ?? '', fileName, fileContent);
+      }
       content = fileContent;
-      editorStore.setContent(fileContent);
       resetWorkflowState();
       await replaceContentAndScrollToTop(content);
     }
   }
 
   async function handleNewFile() {
+    if (isIPadOS) {
+      tabsStore.addTab();
+      content = '';
+      resetWorkflowState();
+      await replaceContentAndScrollToTop(content);
+      return;
+    }
     content = '';
     editorStore.reset();
     resetWorkflowState();
@@ -613,6 +686,14 @@ ${tr('welcome.tip')}
 
   async function handleFileSelect(path: string) {
     const fileContent = await loadFile(path);
+    if (isIPadOS) {
+      const fileName = getFileNameFromPath(path);
+      tabsStore.openFileTab(path, fileName, fileContent);
+      content = fileContent;
+      resetWorkflowState();
+      await replaceContentAndScrollToTop(content);
+      return;
+    }
     content = fileContent;
     editorStore.setContent(fileContent);
     resetWorkflowState();
@@ -912,158 +993,53 @@ ${tr('welcome.tip')}
   });
 
   onMount(() => {
-    // Detect platform for CSS classes
-    const ua = navigator.userAgent.toLowerCase();
-    if (ua.includes('mac')) {
-      document.body.classList.add('platform-macos');
-    } else if (ua.includes('win')) {
-      document.body.classList.add('platform-windows');
-    } else {
-      document.body.classList.add('platform-linux');
+    // Detect platform for CSS classes (iPadOS UA mimics macOS, needs maxTouchPoints check)
+    document.body.classList.add(getPlatformClass());
+
+    // iPadOS + Tauri: track visual viewport height for virtual keyboard handling
+    // (browser testing mode uses 100dvh fallback, no need for --app-height)
+    let vvUnlisten: (() => void) | undefined;
+    if (isTauri && isIPadOS && window.visualViewport) {
+      const onVVResize = () => {
+        const vh = window.visualViewport!.height;
+        document.documentElement.style.setProperty('--app-height', `${vh}px`);
+      };
+      window.visualViewport.addEventListener('resize', onVVResize);
+      vvUnlisten = () => window.visualViewport?.removeEventListener('resize', onVVResize);
+      // Set initial value
+      onVVResize();
     }
 
     // Preload enhancement plugins in background (warms cache for editor creation)
     preloadEnhancementPlugins();
 
-    // Restore persisted settings, AI config, and MCP servers
-    Promise.all([initSettingsStore(), initAIStore(), initMCPStore()])
-      .then(() => {
-        // Auto-connect all enabled MCP servers
-        connectAllServers().catch(() => {});
+    // Restore persisted settings, AI config, and MCP servers (Tauri-only: uses plugin-store)
+    if (isTauri) {
+      Promise.all([initSettingsStore(), initAIStore(), initMCPStore()])
+        .then(() => {
+          // Auto-connect all enabled MCP servers
+          connectAllServers().catch(() => {});
 
-        // Initialize dynamic service container (checks Node.js, reconnects saved services)
-        initContainerManager().catch(() => {});
+          // Initialize dynamic service container (checks Node.js, reconnects saved services)
+          initContainerManager().catch(() => {});
 
-        // Auto-check for updates (once daily)
-        const settings = settingsStore.getState();
-        if (shouldCheckToday(settings.lastUpdateCheckDate)) {
-          checkForUpdate()
-            .then(() => {
-              settingsStore.update({ lastUpdateCheckDate: getTodayDateString() });
-            })
-            .catch(() => {}); // Silently fail on background check
-        }
-      })
-      .catch(() => {});
+          // Auto-check for updates (once daily)
+          const settings = settingsStore.getState();
+          if (shouldCheckToday(settings.lastUpdateCheckDate)) {
+            checkForUpdate()
+              .then(() => {
+                settingsStore.update({ lastUpdateCheckDate: getTodayDateString() });
+              })
+              .catch(() => {}); // Silently fail on background check
+          }
+        })
+        .catch(() => {});
 
-    setupAutoSave();
+      setupAutoSave();
+    }
 
     // Initialize word count
     editorStore.setContent(content);
-
-    // Listen for native menu events from Tauri
-    const menuUnlisteners: UnlistenFn[] = [];
-
-    const menuHandlers: Record<string, () => void> = {
-      // File
-      'menu:file_new': () => handleNewFile(),
-      'menu:file_new_window': () => invoke('create_new_window').catch(() => {}),
-      'menu:file_open': () => handleOpenFile(),
-      'menu:file_save': () => saveFile(content),
-      'menu:file_save_as': () => saveFileAs(content),
-      'menu:file_export_html': () => exportDocument(content, 'html'),
-      'menu:file_export_pdf': () => exportDocument(content, 'pdf'),
-      'menu:file_export_image': () => exportDocument(content, 'image'),
-      'menu:file_export_doc': () => exportDocument(content, 'doc'),
-      // Edit — search
-      'menu:edit_find': () => { showSearch = true; },
-      'menu:edit_replace': () => { showSearch = true; showReplace = true; },
-      // Paragraph
-      'menu:para_h1': () => runEditorCommand(wrapInHeadingCommand, 1),
-      'menu:para_h2': () => runEditorCommand(wrapInHeadingCommand, 2),
-      'menu:para_h3': () => runEditorCommand(wrapInHeadingCommand, 3),
-      'menu:para_h4': () => runEditorCommand(wrapInHeadingCommand, 4),
-      'menu:para_h5': () => runEditorCommand(wrapInHeadingCommand, 5),
-      'menu:para_h6': () => runEditorCommand(wrapInHeadingCommand, 6),
-      'menu:para_table': () => runEditorCommand(insertTableCommand, { row: 3, col: 3 }),
-      'menu:para_code_block': () => runEditorCommand(createCodeBlockCommand),
-      'menu:para_math_block': () => insertMathBlock(),
-      'menu:para_quote': () => runEditorCommand(wrapInBlockquoteCommand),
-      'menu:para_bullet_list': () => runEditorCommand(wrapInBulletListCommand),
-      'menu:para_ordered_list': () => runEditorCommand(wrapInOrderedListCommand),
-      'menu:para_hr': () => runEditorCommand(insertHrCommand),
-      // Format
-      'menu:fmt_bold': () => runEditorCommand(toggleStrongCommand),
-      'menu:fmt_italic': () => runEditorCommand(toggleEmphasisCommand),
-      'menu:fmt_strikethrough': () => runEditorCommand(toggleStrikethroughCommand),
-      'menu:fmt_code': () => runEditorCommand(toggleInlineCodeCommand),
-      'menu:fmt_link': () => runEditorCommand(toggleLinkCommand, { href: '' }),
-      'menu:fmt_image': () => { showImageDialog = true; },
-      // View — editor modes
-      'menu:view_mode_visual': () => editorStore.setEditorMode('visual'),
-      'menu:view_mode_source': () => editorStore.setEditorMode('source'),
-      'menu:view_mode_split': () => editorStore.setEditorMode('split'),
-      // View — panels
-      'menu:view_sidebar': () => settingsStore.toggleSidebar(),
-      'menu:view_ai_panel': () => { showAIPanel = !showAIPanel; },
-      // View — zoom
-      'menu:view_zoom_in': () => {
-        const s = settingsStore.getState();
-        const sz = Math.min(s.fontSize + 1, 24);
-        settingsStore.update({ fontSize: sz });
-        document.documentElement.style.setProperty('--font-size-base', `${sz}px`);
-      },
-      'menu:view_zoom_out': () => {
-        const s = settingsStore.getState();
-        const sz = Math.max(s.fontSize - 1, 12);
-        settingsStore.update({ fontSize: sz });
-        document.documentElement.style.setProperty('--font-size-base', `${sz}px`);
-      },
-      'menu:view_actual_size': () => {
-        settingsStore.update({ fontSize: 16 });
-        document.documentElement.style.setProperty('--font-size-base', '16px');
-      },
-      // Help
-      'menu:help_version_info': () => { showUpdateDialog = true; },
-      'menu:help_changelog': () => { openUrl('https://github.com/zouwei/moraya/releases'); },
-      'menu:help_privacy': async () => {
-        try {
-          const privacyContent = await invoke<string>('read_resource_file', { name: 'privacy-policy.md' });
-          content = privacyContent;
-          editorStore.setContent(privacyContent);
-          if (milkdownEditor && editorStore.getState().editorMode !== 'source') {
-            try { milkdownEditor.action(replaceAll(content)); } catch { /* ignore */ }
-          }
-        } catch {
-          // Resource not found
-        }
-      },
-      'menu:help_website': () => { openUrl('https://moraya.app'); },
-      'menu:help_about': () => { openUrl('https://moraya.app/en/about/'); },
-      'menu:help_feedback': () => { openUrl('https://github.com/zouwei/moraya/issues'); },
-      // App
-      'menu:preferences': () => { showSettings = !showSettings; },
-    };
-
-    Object.entries(menuHandlers).forEach(([event, handler]) => {
-      listen(event, () => {
-        if (document.hasFocus()) handler();
-      }).then(unlisten => menuUnlisteners.push(unlisten));
-    });
-
-    // Helper: load a file by path and sync to all editor modes
-    async function openFileByPath(filePath: string) {
-      const fileContent = await loadFile(filePath);
-      content = fileContent;
-      resetWorkflowState();
-      await replaceContentAndScrollToTop(content);
-    }
-
-    // Listen for file open events from OS file association (while app is running)
-    let openFileUnlisten: UnlistenFn | undefined;
-    listen<string>('open-file', async (event) => {
-      const filePath = event.payload;
-      if (filePath) {
-        await openFileByPath(filePath);
-      }
-    }).then(unlisten => { openFileUnlisten = unlisten; });
-
-    // Check if a file was passed via OS file association on startup
-    invoke<string | null>('get_opened_file').then(async (filePath) => {
-      if (filePath) {
-        await openFileByPath(filePath);
-      }
-    });
 
     // Listen for AI/MCP file-synced events to reload content into the editor
     function handleFileSynced(e: Event) {
@@ -1086,29 +1062,148 @@ ${tr('welcome.tip')}
     }
     window.addEventListener('moraya:dynamic-service-created', handleDynamicServiceCreated);
 
-    // Drag-drop: open MD files in new windows
-    const MD_EXTENSIONS = new Set(['md', 'markdown', 'mdown', 'mkd', 'mkdn', 'mdwn', 'mdx', 'txt']);
+    // ── Tauri-only: native menu events, file association, drag-drop ──
+    const menuUnlisteners: UnlistenFn[] = [];
+    let openFileUnlisten: UnlistenFn | undefined;
     let dragDropUnlisten: UnlistenFn | undefined;
-    getCurrentWebview().onDragDropEvent(async (event) => {
-      if (event.payload.type !== 'drop') return;
-      const { paths } = event.payload;
-      for (const p of paths) {
-        const ext = p.split('.').pop()?.toLowerCase() ?? '';
-        if (MD_EXTENSIONS.has(ext)) {
+
+    if (isTauri) {
+      const menuHandlers: Record<string, () => void> = {
+        // File
+        'menu:file_new': () => handleNewFile(),
+        'menu:file_new_window': () => isIPadOS ? handleNewFile() : invoke('create_new_window').catch(() => {}),
+        'menu:file_open': () => handleOpenFile(),
+        'menu:file_save': () => handleSave(),
+        'menu:file_save_as': () => handleSave(true),
+        'menu:file_export_html': () => exportDocument(content, 'html'),
+        'menu:file_export_pdf': () => exportDocument(content, 'pdf'),
+        'menu:file_export_image': () => exportDocument(content, 'image'),
+        'menu:file_export_doc': () => exportDocument(content, 'doc'),
+        // Edit — search
+        'menu:edit_find': () => { showSearch = true; },
+        'menu:edit_replace': () => { showSearch = true; showReplace = true; },
+        // Paragraph
+        'menu:para_h1': () => runEditorCommand(wrapInHeadingCommand, 1),
+        'menu:para_h2': () => runEditorCommand(wrapInHeadingCommand, 2),
+        'menu:para_h3': () => runEditorCommand(wrapInHeadingCommand, 3),
+        'menu:para_h4': () => runEditorCommand(wrapInHeadingCommand, 4),
+        'menu:para_h5': () => runEditorCommand(wrapInHeadingCommand, 5),
+        'menu:para_h6': () => runEditorCommand(wrapInHeadingCommand, 6),
+        'menu:para_table': () => runEditorCommand(insertTableCommand, { row: 3, col: 3 }),
+        'menu:para_code_block': () => runEditorCommand(createCodeBlockCommand),
+        'menu:para_math_block': () => insertMathBlock(),
+        'menu:para_quote': () => runEditorCommand(wrapInBlockquoteCommand),
+        'menu:para_bullet_list': () => runEditorCommand(wrapInBulletListCommand),
+        'menu:para_ordered_list': () => runEditorCommand(wrapInOrderedListCommand),
+        'menu:para_hr': () => runEditorCommand(insertHrCommand),
+        // Format
+        'menu:fmt_bold': () => runEditorCommand(toggleStrongCommand),
+        'menu:fmt_italic': () => runEditorCommand(toggleEmphasisCommand),
+        'menu:fmt_strikethrough': () => runEditorCommand(toggleStrikethroughCommand),
+        'menu:fmt_code': () => runEditorCommand(toggleInlineCodeCommand),
+        'menu:fmt_link': () => runEditorCommand(toggleLinkCommand, { href: '' }),
+        'menu:fmt_image': () => { showImageDialog = true; },
+        // View — editor modes
+        'menu:view_mode_visual': () => editorStore.setEditorMode('visual'),
+        'menu:view_mode_source': () => editorStore.setEditorMode('source'),
+        'menu:view_mode_split': () => editorStore.setEditorMode('split'),
+        // View — panels
+        'menu:view_sidebar': () => settingsStore.toggleSidebar(),
+        'menu:view_ai_panel': () => { showAIPanel = !showAIPanel; },
+        // View — zoom
+        'menu:view_zoom_in': () => {
+          const s = settingsStore.getState();
+          const sz = Math.min(s.fontSize + 1, 24);
+          settingsStore.update({ fontSize: sz });
+          document.documentElement.style.setProperty('--font-size-base', `${sz}px`);
+        },
+        'menu:view_zoom_out': () => {
+          const s = settingsStore.getState();
+          const sz = Math.max(s.fontSize - 1, 12);
+          settingsStore.update({ fontSize: sz });
+          document.documentElement.style.setProperty('--font-size-base', `${sz}px`);
+        },
+        'menu:view_actual_size': () => {
+          settingsStore.update({ fontSize: 16 });
+          document.documentElement.style.setProperty('--font-size-base', '16px');
+        },
+        // Help
+        'menu:help_version_info': () => { showUpdateDialog = true; },
+        'menu:help_changelog': () => { openUrl('https://github.com/zouwei/moraya/releases'); },
+        'menu:help_privacy': async () => {
           try {
-            await invoke('open_file_in_new_window', { path: p });
-          } catch (err) {
-            console.error('Failed to open file in new window:', err);
+            const privacyContent = await invoke<string>('read_resource_file', { name: 'privacy-policy.md' });
+            content = privacyContent;
+            editorStore.setContent(privacyContent);
+            if (milkdownEditor && editorStore.getState().editorMode !== 'source') {
+              try { milkdownEditor.action(replaceAll(content)); } catch { /* ignore */ }
+            }
+          } catch {
+            // Resource not found
           }
-        }
+        },
+        'menu:help_website': () => { openUrl('https://moraya.app'); },
+        'menu:help_about': () => { openUrl('https://moraya.app/en/about/'); },
+        'menu:help_feedback': () => { openUrl('https://github.com/zouwei/moraya/issues'); },
+        // App
+        'menu:preferences': () => { showSettings = !showSettings; },
+      };
+
+      Object.entries(menuHandlers).forEach(([event, handler]) => {
+        listen(event, () => {
+          if (document.hasFocus()) handler();
+        }).then(unlisten => menuUnlisteners.push(unlisten));
+      });
+
+      // Helper: load a file by path and sync to all editor modes
+      async function openFileByPath(filePath: string) {
+        const fileContent = await loadFile(filePath);
+        content = fileContent;
+        resetWorkflowState();
+        await replaceContentAndScrollToTop(content);
       }
-    }).then(unlisten => { dragDropUnlisten = unlisten; });
+
+      // Listen for file open events from OS file association (while app is running)
+      listen<string>('open-file', async (event) => {
+        const filePath = event.payload;
+        if (filePath) {
+          await openFileByPath(filePath);
+        }
+      }).then(unlisten => { openFileUnlisten = unlisten; });
+
+      // Check if a file was passed via OS file association on startup
+      invoke<string | null>('get_opened_file').then(async (filePath) => {
+        if (filePath) {
+          await openFileByPath(filePath);
+        }
+      });
+
+      // Drag-drop: open MD files (new windows on desktop, new tabs on iPad)
+      const MD_EXTENSIONS = new Set(['md', 'markdown', 'mdown', 'mkd', 'mkdn', 'mdwn', 'mdx', 'txt']);
+      if (!isIPadOS) {
+        getCurrentWebview().onDragDropEvent(async (event) => {
+          if (event.payload.type !== 'drop') return;
+          const { paths } = event.payload;
+          for (const p of paths) {
+            const ext = p.split('.').pop()?.toLowerCase() ?? '';
+            if (MD_EXTENSIONS.has(ext)) {
+              try {
+                await invoke('open_file_in_new_window', { path: p });
+              } catch (err) {
+                console.error('Failed to open file in new window:', err);
+              }
+            }
+          }
+        }).then(unlisten => { dragDropUnlisten = unlisten; });
+      }
+    }
 
     return () => {
       if (autoSaveTimer) clearInterval(autoSaveTimer);
       menuUnlisteners.forEach(unlisten => unlisten());
       openFileUnlisten?.();
       dragDropUnlisten?.();
+      vvUnlisten?.();
       window.removeEventListener('moraya:file-synced', handleFileSynced);
       window.removeEventListener('moraya:dynamic-service-created', handleDynamicServiceCreated);
       cleanupTempServices().catch(() => {});
@@ -1120,6 +1215,20 @@ ${tr('welcome.tip')}
 
 <div class="app-container">
   <TitleBar title={currentFileName} />
+
+  {#if isIPadOS}
+    <TabBar
+      onNewTab={() => handleNewFile()}
+      onCloseTab={(tab) => {
+        if (tab.isDirty) {
+          // TODO: show unsaved changes dialog
+          tabsStore.closeTab(tab.id);
+        } else {
+          tabsStore.closeTab(tab.id);
+        }
+      }}
+    />
+  {/if}
 
   <div class="app-body">
     {#if showSidebar}
@@ -1170,6 +1279,10 @@ ${tr('welcome.tip')}
       {/await}
     {/if}
   </div>
+
+  {#if showTouchToolbar && editorMode !== 'source'}
+    <TouchToolbar onCommand={handleTouchCommand} />
+  {/if}
 
   <StatusBar onPublishWorkflow={handlePublishWorkflow} onShowUpdateDialog={() => showUpdateDialog = true} />
 </div>
@@ -1243,8 +1356,20 @@ ${tr('welcome.tip')}
   .app-container {
     display: flex;
     flex-direction: column;
-    height: 100vh;
+    height: var(--app-height, 100dvh);
     overflow: hidden;
+  }
+
+  /* Fallback for browsers without dvh support */
+  @supports not (height: 100dvh) {
+    .app-container {
+      height: var(--app-height, 100vh);
+    }
+  }
+
+  /* macOS: offset content below native traffic lights (TitleBarStyle::Overlay) */
+  :global(.platform-macos) .app-container {
+    padding-top: 28px;
   }
 
   .app-body {

@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { getCurrentWindow } from '@tauri-apps/api/window';
   import { editorStore } from '../stores/editor-store';
   import { t } from '$lib/i18n';
+  import { isTauri } from '$lib/utils/platform';
+  import { getCurrentWindow, type Window as TauriWindow } from '@tauri-apps/api/window';
 
   let {
     title = 'Moraya',
@@ -11,23 +12,24 @@
 
   let isMaximized = $state(false);
 
-  const appWindow = getCurrentWindow();
+  // Tauri window API (null in plain browser for iPad testing)
+  const appWindow: TauriWindow | null = isTauri ? getCurrentWindow() : null;
 
   async function checkMaximized() {
-    isMaximized = await appWindow.isMaximized();
+    if (appWindow) isMaximized = await appWindow.isMaximized();
   }
 
   function handleMinimize() {
-    appWindow.minimize();
+    appWindow?.minimize();
   }
 
   function handleMaximize() {
-    appWindow.toggleMaximize();
+    appWindow?.toggleMaximize();
     checkMaximized();
   }
 
   function handleClose() {
-    appWindow.close();
+    appWindow?.close();
   }
 
   // Derive display title
@@ -40,7 +42,7 @@
 
   // Sync native window title so macOS Window menu and Dock show the document name
   $effect(() => {
-    appWindow.setTitle(displayTitle);
+    appWindow?.setTitle(displayTitle);
   });
 </script>
 
@@ -154,9 +156,24 @@
     padding-left: 5rem; /* space for traffic lights */
   }
 
-  /* Windows/Linux: hide custom titlebar, use native decorations */
+  /* All desktop platforms: hide custom titlebar, use native decorations */
+  :global(.platform-macos) .titlebar,
   :global(.platform-windows) .titlebar,
   :global(.platform-linux) .titlebar {
     display: none;
+  }
+
+  /* iPadOS: no window controls, no drag region, safe area inset */
+  :global(.platform-ipados) .titlebar {
+    -webkit-app-region: no-drag;
+    padding-top: env(safe-area-inset-top);
+  }
+
+  :global(.platform-ipados) .titlebar-right {
+    display: none;
+  }
+
+  :global(.platform-ipados) .titlebar-left {
+    padding-left: 0.5rem;
   }
 </style>

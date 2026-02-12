@@ -6,8 +6,9 @@ use tauri::{Emitter, Manager};
 mod commands;
 #[cfg(target_os = "macos")]
 mod dock;
+#[cfg(not(target_os = "ios"))]
 mod menu;
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(not(target_os = "macos"), not(target_os = "ios")))]
 mod tray;
 
 /// Holds file paths requested to be opened via OS file association or CLI args.
@@ -24,18 +25,21 @@ pub struct MainWindowReady(pub AtomicBool);
 static WINDOW_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 #[tauri::command]
-fn set_editor_mode_menu(app: tauri::AppHandle, mode: String) {
-    menu::update_mode_checks(&app, &mode);
+fn set_editor_mode_menu(_app: tauri::AppHandle, _mode: String) {
+    #[cfg(not(target_os = "ios"))]
+    menu::update_mode_checks(&_app, &_mode);
 }
 
 #[tauri::command]
-fn update_menu_labels(app: tauri::AppHandle, labels: HashMap<String, String>) {
-    menu::update_menu_labels(&app, &labels);
+fn update_menu_labels(_app: tauri::AppHandle, _labels: HashMap<String, String>) {
+    #[cfg(not(target_os = "ios"))]
+    menu::update_menu_labels(&_app, &_labels);
 }
 
 #[tauri::command]
-fn set_menu_check(app: tauri::AppHandle, id: String, checked: bool) {
-    menu::set_check_item(&app, &id, checked);
+fn set_menu_check(_app: tauri::AppHandle, _id: String, _checked: bool) {
+    #[cfg(not(target_os = "ios"))]
+    menu::set_check_item(&_app, &_id, _checked);
 }
 
 /// Called by the frontend once it's ready; returns the file path to open (if any).
@@ -130,10 +134,18 @@ fn open_file_in_new_window(
     pending: tauri::State<'_, PendingFiles>,
     path: String,
 ) -> Result<String, String> {
-    if !std::path::Path::new(&path).is_file() {
-        return Err(format!("File not found: {}", path));
+    #[cfg(target_os = "ios")]
+    {
+        let _ = (&app, &pending, &path);
+        return Err("Multi-window is not supported on iPad".to_string());
     }
-    create_editor_window(&app, &pending, Some(path))
+    #[cfg(not(target_os = "ios"))]
+    {
+        if !std::path::Path::new(&path).is_file() {
+            return Err("File not found".to_string());
+        }
+        create_editor_window(&app, &pending, Some(path))
+    }
 }
 
 /// Create a new empty editor window (for Dock "New Window" and menu).
@@ -142,6 +154,12 @@ fn create_new_window(
     app: tauri::AppHandle,
     pending: tauri::State<'_, PendingFiles>,
 ) -> Result<String, String> {
+    #[cfg(target_os = "ios")]
+    {
+        let _ = (&app, &pending);
+        return Err("Multi-window is not supported on iPad".to_string());
+    }
+    #[cfg(not(target_os = "ios"))]
     create_editor_window(&app, &pending, None)
 }
 
@@ -161,6 +179,7 @@ fn file_paths_from_args() -> Vec<String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Fix PATH for macOS GUI apps (Dock/Finder don't inherit shell PATH)
+    #[cfg(not(target_os = "ios"))]
     let _ = fix_path_env::fix();
 
     // Collect file paths from CLI args (Windows file association)
@@ -207,49 +226,53 @@ pub fn run() {
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
 
-            // macOS: enable decorations for native traffic lights, then overlay
-            #[cfg(target_os = "macos")]
+            // Desktop: configure window decorations
+            #[cfg(not(target_os = "ios"))]
             {
-                use tauri::TitleBarStyle;
-                let _ = window.set_decorations(true);
-                let _ = window.set_title_bar_style(TitleBarStyle::Overlay);
-            }
-
-            // Windows/Linux: enable decorations for native title bar + menu bar
-            #[cfg(not(target_os = "macos"))]
-            {
-                let _ = window.set_decorations(true);
-            }
-
-            // Create and set native menu
-            let app_handle = app.handle().clone();
-            let native_menu = menu::create_menu(&app_handle)?;
-            app.set_menu(native_menu)?;
-
-            // Set up macOS Dock right-click menu with "New Window"
-            #[cfg(target_os = "macos")]
-            dock::setup_dock_menu(&app_handle);
-
-            // Set up system tray for Windows/Linux
-            #[cfg(not(target_os = "macos"))]
-            tray::setup_tray(app)?;
-
-            // Handle menu events — emit to the main window
-            let app_handle_for_events = app.handle().clone();
-            app.on_menu_event(move |_app, event| {
-                let id = event.id().0.as_str();
-
-                // Update mode check marks when a mode menu item is clicked
-                match id {
-                    "view_mode_visual" => menu::update_mode_checks(&app_handle_for_events, "visual"),
-                    "view_mode_source" => menu::update_mode_checks(&app_handle_for_events, "source"),
-                    "view_mode_split" => menu::update_mode_checks(&app_handle_for_events, "split"),
-                    _ => {}
+                // macOS: enable decorations for native traffic lights, then overlay
+                #[cfg(target_os = "macos")]
+                {
+                    use tauri::TitleBarStyle;
+                    let _ = window.set_decorations(true);
+                    let _ = window.set_title_bar_style(TitleBarStyle::Overlay);
                 }
 
-                // Emit as global event to all webviews
-                let _ = app_handle_for_events.emit(&format!("menu:{}", id), ());
-            });
+                // Windows/Linux: enable decorations for native title bar + menu bar
+                #[cfg(all(not(target_os = "macos"), not(target_os = "ios")))]
+                {
+                    let _ = window.set_decorations(true);
+                }
+
+                // Create and set native menu
+                let app_handle = app.handle().clone();
+                let native_menu = menu::create_menu(&app_handle)?;
+                app.set_menu(native_menu)?;
+
+                // Set up macOS Dock right-click menu with "New Window"
+                #[cfg(target_os = "macos")]
+                dock::setup_dock_menu(&app_handle);
+
+                // Set up system tray for Windows/Linux
+                #[cfg(all(not(target_os = "macos"), not(target_os = "ios")))]
+                tray::setup_tray(app)?;
+
+                // Handle menu events — emit to the main window
+                let app_handle_for_events = app.handle().clone();
+                app.on_menu_event(move |_app, event| {
+                    let id = event.id().0.as_str();
+
+                    // Update mode check marks when a mode menu item is clicked
+                    match id {
+                        "view_mode_visual" => menu::update_mode_checks(&app_handle_for_events, "visual"),
+                        "view_mode_source" => menu::update_mode_checks(&app_handle_for_events, "source"),
+                        "view_mode_split" => menu::update_mode_checks(&app_handle_for_events, "split"),
+                        _ => {}
+                    }
+
+                    // Emit as global event to all webviews
+                    let _ = app_handle_for_events.emit(&format!("menu:{}", id), ());
+                });
+            }
 
             let _ = window;
             Ok(())

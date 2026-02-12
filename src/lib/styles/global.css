@@ -47,3 +47,25 @@ html, body {
   -webkit-user-select: none;
   user-select: none;
 }
+
+/* iPadOS / touch devices: disable hover effects, use active state */
+@media (hover: none) and (pointer: coarse) {
+  /* Prevent sticky hover on touch: disable hover backgrounds on common UI */
+  button:hover,
+  .titlebar-btn:hover,
+  .mode-btn:hover,
+  .publish-btn:hover {
+    background: inherit;
+    color: inherit;
+  }
+
+  /* Faster tap response: remove 300ms delay */
+  * {
+    touch-action: manipulation;
+  }
+
+  /* Hide scrollbars on touch (use native scroll indicators) */
+  ::-webkit-scrollbar {
+    display: none;
+  }
+}

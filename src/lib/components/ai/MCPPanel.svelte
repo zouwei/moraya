@@ -22,6 +22,7 @@
     type MarketplaceSource,
   } from '$lib/services/mcp';
   import { t } from '$lib/i18n';
+  import { isIPadOS } from '$lib/utils/platform';
   import { ask } from '@tauri-apps/plugin-dialog';
   import { openUrl } from '@tauri-apps/plugin-opener';
   import { containerStore, type DynamicService } from '$lib/services/mcp/container-store';
@@ -70,7 +71,7 @@
   let newServerCommand = $state('');
   let newServerArgs = $state('');
   let newServerEnv = $state('');
-  let newServerTransport = $state<'http' | 'sse' | 'stdio'>('stdio');
+  let newServerTransport = $state<'http' | 'sse' | 'stdio'>(isIPadOS ? 'http' : 'stdio');
   let showAddServer = $state(false);
   let addMode = $state<'form' | 'json'>('form');
   let jsonInput = $state('');
@@ -599,7 +600,7 @@
                 placeholder={$t('mcp.servers.serverName')}
               />
               <select class="form-input" bind:value={editTransport}>
-                <option value="stdio">{$t('mcp.servers.stdio')}</option>
+                {#if !isIPadOS}<option value="stdio">{$t('mcp.servers.stdio')}</option>{/if}
                 <option value="http">{$t('mcp.servers.http')}</option>
                 <option value="sse">{$t('mcp.servers.sse')}</option>
               </select>
@@ -699,7 +700,7 @@
               placeholder={$t('mcp.servers.serverName')}
             />
             <select class="form-input" bind:value={newServerTransport}>
-              <option value="stdio">{$t('mcp.servers.stdio')}</option>
+              {#if !isIPadOS}<option value="stdio">{$t('mcp.servers.stdio')}</option>{/if}
               <option value="http">{$t('mcp.servers.http')}</option>
               <option value="sse">{$t('mcp.servers.sse')}</option>
             </select>
