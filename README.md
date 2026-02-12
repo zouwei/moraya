@@ -14,7 +14,7 @@
 
 * **Ultra-Lightweight & Native Performance** — \~5MB installer, instant launch, tiny memory footprint.
 
-* **True Instant WYSIWYG** — Type `# `   and see a heading instantly (Milkdown/ProseMirror-powered).
+* **True Instant WYSIWYG** — Type `# `    and see a heading instantly (Milkdown/ProseMirror-powered).
 
 * **Most Powerful Local AI Integration** — Multi-provider streaming chat (Claude, OpenAI, Gemini, DeepSeek, Ollama, custom endpoints) with smart commands and AI image generation.
 
@@ -141,31 +141,31 @@ cd src-tauri && cargo check
 
 ## Keyboard Shortcuts
 
-| Action               | macOS              | Windows/Linux        |
-| -------------------- | ------------------ | -------------------- |
-| New                  | `Cmd+N`            | `Ctrl+N`             |
-| New Window           | `Cmd+Shift+N`      | `Ctrl+Shift+N`       |
-| Open                 | `Cmd+O`            | `Ctrl+O`             |
-| Save                 | `Cmd+S`            | `Ctrl+S`             |
-| Save As              | `Cmd+Shift+S`      | `Ctrl+Shift+S`       |
-| Settings             | `Cmd+,`            | `Ctrl+,`             |
-| Find                 | `Cmd+F`            | `Ctrl+F`             |
-| Replace              | `Cmd+H`            | `Ctrl+H`             |
-| Toggle Visual/Source | `Cmd+/`            | `Ctrl+/`             |
-| Toggle Split Mode    | `Cmd+Shift+/`      | `Ctrl+Shift+/`       |
-| Toggle Sidebar       | `Cmd+\`            | `Ctrl+\`             |
-| Toggle AI Panel      | `Cmd+J`            | `Ctrl+J`             |
-| Export HTML          | `Cmd+Shift+E`      | `Ctrl+Shift+E`       |
-| Heading 1–6          | `Cmd+1`–`6`        | `Ctrl+1`–`6`         |
-| Bold                 | `Cmd+B`            | `Ctrl+B`             |
-| Italic               | `Cmd+I`            | `Ctrl+I`             |
-| Strikethrough        | `Cmd+Shift+X`      | `Ctrl+Shift+X`       |
-| Inline Code          | `Cmd+E`            | `Ctrl+E`             |
-| Link                 | `Cmd+K`            | `Ctrl+K`             |
-| Insert Image         | `Cmd+Shift+G`      | `Ctrl+Shift+G`       |
-| Code Block           | `Cmd+Shift+K`      | `Ctrl+Shift+K`       |
-| Quote                | `Cmd+Shift+Q`      | `Ctrl+Shift+Q`       |
-| Zoom In/Out/Reset    | `Cmd+=`/`-`/`0`    | `Ctrl+=`/`-`/`0`     |
+| Action               | macOS           | Windows/Linux    |
+| -------------------- | --------------- | ---------------- |
+| New                  | `Cmd+N`         | `Ctrl+N`         |
+| New Window           | `Cmd+Shift+N`   | `Ctrl+Shift+N`   |
+| Open                 | `Cmd+O`         | `Ctrl+O`         |
+| Save                 | `Cmd+S`         | `Ctrl+S`         |
+| Save As              | `Cmd+Shift+S`   | `Ctrl+Shift+S`   |
+| Settings             | `Cmd+,`         | `Ctrl+,`         |
+| Find                 | `Cmd+F`         | `Ctrl+F`         |
+| Replace              | `Cmd+H`         | `Ctrl+H`         |
+| Toggle Visual/Source | `Cmd+/`         | `Ctrl+/`         |
+| Toggle Split Mode    | `Cmd+Shift+/`   | `Ctrl+Shift+/`   |
+| Toggle Sidebar       | `Cmd+\`         | `Ctrl+\`         |
+| Toggle AI Panel      | `Cmd+J`         | `Ctrl+J`         |
+| Export HTML          | `Cmd+Shift+E`   | `Ctrl+Shift+E`   |
+| Heading 1–6          | `Cmd+1`–`6`     | `Ctrl+1`–`6`     |
+| Bold                 | `Cmd+B`         | `Ctrl+B`         |
+| Italic               | `Cmd+I`         | `Ctrl+I`         |
+| Strikethrough        | `Cmd+Shift+X`   | `Ctrl+Shift+X`   |
+| Inline Code          | `Cmd+E`         | `Ctrl+E`         |
+| Link                 | `Cmd+K`         | `Ctrl+K`         |
+| Insert Image         | `Cmd+Shift+G`   | `Ctrl+Shift+G`   |
+| Code Block           | `Cmd+Shift+K`   | `Ctrl+Shift+K`   |
+| Quote                | `Cmd+Shift+Q`   | `Ctrl+Shift+Q`   |
+| Zoom In/Out/Reset    | `Cmd+=`/`-`/`0` | `Ctrl+=`/`-`/`0` |
 
 ## AI Assisted Writing
 
@@ -235,6 +235,8 @@ Each AI response has action buttons below it:
 * [x] **v0.5.0** — RSS Feed: Auto-update RSS feed when publishing articles, per-target RSS config, zero-dependency XML generation → [Detailed Requirements](docs/iterations/v0.5.0-rss-feed.md)
 
 * [x] **v0.6.0** — Security Hardening: API Key Keychain storage, AI proxy in Rust backend, CSP tightening, MCP security hardening, path traversal protection, HTML export sanitization, error sanitization, unsafe FFI hardening → [Detailed Requirements](docs/iterations/v0.6.0-security-hardening.md)
+
+* [ ] **v0.7.0** — iPadOS Adaptation: Tab bar system for multi-file editing, floating touch toolbar, virtual keyboard handling, platform detection, touch interaction adaptations, MCP SSE/HTTP only (stdio disabled), CI/CD with TestFlight → [Detailed Requirements](docs/iterations/v0.7.0-ipados-adaptation.md)
 
 ## Recommended IDE Setup
 
