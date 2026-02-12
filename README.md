@@ -238,6 +238,10 @@ Each AI response has action buttons below it:
 
 * [ ] **v0.7.0** — iPadOS Adaptation: Tab bar system for multi-file editing, floating touch toolbar, virtual keyboard handling, platform detection, touch interaction adaptations, MCP SSE/HTTP only (stdio disabled), CI/CD with TestFlight → [Detailed Requirements](docs/iterations/v0.7.0-ipados-adaptation.md)
 
+* [ ] **v0.8.0** — AI Template System: Configuration-driven AI interaction with 10 categories and 71+ templates (writing, translation, study, kids, marketing, professional, games, quiz), 5 flow types (auto/input/selection/parameterized/interactive), prompt interpolation engine, i18n support → [Detailed Requirements](docs/iterations/v0.8.0-ai-templates.md)
+
+* [ ] **v0.9.0** — iPhone Adaptation: Drawer navigation (sidebar replacement), BottomSheet (AI panel/Settings), Split mode narrow-screen disable, universal IPA build (iPad + iPhone), unified Apple signing & App Store Connect CI/CD → [Detailed Requirements](docs/iterations/v0.9.0-iphone-adaptation.md)
+
 ## Recommended IDE Setup
 
 [VS Code](https://code.visualstudio.com/) + [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
