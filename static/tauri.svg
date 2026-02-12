@@ -56,7 +56,14 @@
       <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur"/>
       <feComposite in="SourceGraphic" in2="blur" operator="over"/>
     </filter>
+
+    <!-- macOS-style rounded corner mask (22.37% radius ≈ 114px for 512) -->
+    <clipPath id="iconMask">
+      <rect width="512" height="512" rx="114" ry="114"/>
+    </clipPath>
   </defs>
+
+  <g clip-path="url(#iconMask)">
 
   <!-- ===== Background: solid deep navy blue ===== -->
   <rect width="512" height="512" fill="#0a0e1a"/>
@@ -135,4 +142,6 @@
 
   <!-- Valley center -->
   <circle cx="256" cy="278" r="2.5" fill="#4fc3f7" opacity="0.5" filter="url(#particleGlow)"/>
+
+  </g>
 </svg>
