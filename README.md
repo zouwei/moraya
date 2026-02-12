@@ -151,7 +151,7 @@ cd src-tauri && cargo check
 | Toggle Visual/Source | `Cmd+/`                     | `Ctrl+/`                       |
 | Toggle Split Mode    | `Cmd+Shift+/`               | `Ctrl+Shift+/`                 |
 | Toggle Sidebar       | `Cmd+\`                     | `Ctrl+\`                       |
-| Toggle AI Panel      | `Cmd+Shift+I`               | `Ctrl+Shift+I`                 |
+| Toggle AI Panel      | `Cmd+J`                     | `Ctrl+J`                 |
 | Export HTML          | `Cmd+Shift+E`               | `Ctrl+Shift+E`                 |
 | Heading 1–6          | `Cmd+1`–`6`                 | `Ctrl+1`–`6`                   |
 | Bold                 | `Cmd+B`                     | `Ctrl+B`                       |
