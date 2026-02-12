@@ -186,7 +186,7 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
     #[cfg(target_os = "macos")]
     {
         let about_metadata = AboutMetadata {
-            copyright: Some("© 2024 Moraya Contributors".into()),
+            copyright: Some("© 2026 Moraya Contributors".into()),
             credits: Some(
                 "A minimal, AI-ready Markdown editor\n\n\
                  Tech Stack\n\

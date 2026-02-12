@@ -236,9 +236,7 @@ Each AI response has action buttons below it:
 
 * [x] **v0.6.0** — Security Hardening: API Key Keychain storage, AI proxy in Rust backend, CSP tightening, MCP security hardening, path traversal protection, HTML export sanitization, error sanitization, unsafe FFI hardening → [Detailed Requirements](docs/iterations/v0.6.0-security-hardening.md)
 
-* [ ] **v0.7.0** — iPadOS Adaptation: Tab bar system for multi-file editing, floating touch toolbar, virtual keyboard handling, platform detection, touch interaction adaptations, MCP SSE/HTTP only (stdio disabled), CI/CD with TestFlight → [Detailed Requirements](docs/iterations/v0.7.0-ipados-adaptation.md)
-
-* [ ] **v0.8.0** — iPhone Adaptation: Drawer navigation (sidebar replacement), BottomSheet (AI panel/Settings), Split mode narrow-screen disable, universal IPA build (iPad + iPhone), unified Apple signing & App Store Connect CI/CD → [Detailed Requirements](docs/iterations/v0.8.0-iphone-adaptation.md)
+* [x] **v0.8.0** — iPhone Adaptation: Drawer navigation (sidebar replacement), BottomSheet (AI panel/Settings), Split mode narrow-screen disable, universal IPA build (iPad + iPhone), unified Apple signing & App Store Connect CI/CD → [Detailed Requirements](docs/iterations/v0.8.0-iphone-adaptation.md)
 
 ## Recommended IDE Setup
 
