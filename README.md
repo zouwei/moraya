@@ -236,7 +236,7 @@ Each AI response has action buttons below it:
 
 * [x] **v0.6.0** — Security Hardening: API Key Keychain storage, AI proxy in Rust backend, CSP tightening, MCP security hardening, path traversal protection, HTML export sanitization, error sanitization, unsafe FFI hardening → [Detailed Requirements](docs/iterations/v0.6.0-security-hardening.md)
 
-* [x] **v0.8.0** — iPhone Adaptation: Drawer navigation (sidebar replacement), BottomSheet (AI panel/Settings), Split mode narrow-screen disable, universal IPA build (iPad + iPhone), unified Apple signing & App Store Connect CI/CD → [Detailed Requirements](docs/iterations/v0.8.0-iphone-adaptation.md)
+* [x] **v0.8.0** — iPhone Adaptation: Drawer navigation (sidebar replacement), BottomSheet (AI panel/Settings), Split mode narrow-screen disable, universal IPA build (iPad + iPhone), unified Apple signing & App Store Connect CI/CD → [Detailed Requirements](docs/iterations/v0.8.0-ai-templates.md)
 
 ## Recommended IDE Setup
 
