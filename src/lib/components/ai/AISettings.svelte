@@ -766,7 +766,7 @@
     border-radius: 6px;
     cursor: pointer;
     font-size: var(--font-size-xs);
-    transition: all var(--transition-fast);
+    transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), opacity var(--transition-fast);
   }
 
   .add-model-btn:hover {
@@ -879,7 +879,7 @@
     border-radius: 4px;
     cursor: pointer;
     font-size: var(--font-size-xs);
-    transition: all var(--transition-fast);
+    transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), opacity var(--transition-fast);
   }
 
   .test-btn:hover:not(:disabled) {

@@ -585,6 +585,13 @@ ${tr('welcome.tip')}
       document.documentElement.style.setProperty('--font-size-base', `${newSize}px`);
       return;
     }
+
+    if (mod && event.key === '0' && !event.shiftKey) {
+      event.preventDefault();
+      settingsStore.update({ fontSize: 16 });
+      document.documentElement.style.setProperty('--font-size-base', '16px');
+      return;
+    }
   }
 
   async function handleOpenFile() {
@@ -841,7 +848,10 @@ ${tr('welcome.tip')}
     const visualScroll = splitVisualEl.querySelector('.editor-wrapper') as HTMLElement;
     if (!sourceScroll || !visualScroll) return;
 
+    let scrollRaf: number | undefined;
+
     function syncFrom(source: HTMLElement, target: HTMLElement) {
+      // Batch DOM reads then write to avoid layout thrashing
       const maxScroll = source.scrollHeight - source.clientHeight;
       const ratio = maxScroll > 0 ? source.scrollTop / maxScroll : 0;
       const targetMax = target.scrollHeight - target.clientHeight;
@@ -849,24 +859,35 @@ ${tr('welcome.tip')}
     }
 
     const onSourceScroll = () => {
-      if (activeScrollPane === 'source') syncFrom(sourceScroll, visualScroll);
+      if (activeScrollPane !== 'source') return;
+      if (scrollRaf) return; // RAF-throttle: skip if pending
+      scrollRaf = requestAnimationFrame(() => {
+        scrollRaf = undefined;
+        syncFrom(sourceScroll, visualScroll);
+      });
     };
     const onVisualScroll = () => {
-      if (activeScrollPane === 'visual') syncFrom(visualScroll, sourceScroll);
+      if (activeScrollPane !== 'visual') return;
+      if (scrollRaf) return;
+      scrollRaf = requestAnimationFrame(() => {
+        scrollRaf = undefined;
+        syncFrom(visualScroll, sourceScroll);
+      });
     };
 
     const onSourceEnter = () => { activeScrollPane = 'source'; };
     const onVisualEnter = () => { activeScrollPane = 'visual'; };
     const onPaneLeave = () => { activeScrollPane = null; };
 
-    sourceScroll.addEventListener('scroll', onSourceScroll);
-    visualScroll.addEventListener('scroll', onVisualScroll);
+    sourceScroll.addEventListener('scroll', onSourceScroll, { passive: true });
+    visualScroll.addEventListener('scroll', onVisualScroll, { passive: true });
     sourceScroll.addEventListener('mouseenter', onSourceEnter);
     visualScroll.addEventListener('mouseenter', onVisualEnter);
     sourceScroll.addEventListener('mouseleave', onPaneLeave);
     visualScroll.addEventListener('mouseleave', onPaneLeave);
 
     return () => {
+      if (scrollRaf) cancelAnimationFrame(scrollRaf);
       sourceScroll.removeEventListener('scroll', onSourceScroll);
       visualScroll.removeEventListener('scroll', onVisualScroll);
       sourceScroll.removeEventListener('mouseenter', onSourceEnter);

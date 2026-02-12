@@ -457,7 +457,7 @@
     color: var(--text-secondary);
     cursor: pointer;
     font-size: 0.75rem;
-    transition: all var(--transition-fast);
+    transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), opacity var(--transition-fast);
   }
 
   .action-btn:hover {
@@ -512,7 +512,7 @@
     color: var(--text-secondary);
     cursor: pointer;
     font-size: var(--font-size-sm);
-    transition: all var(--transition-fast);
+    transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), opacity var(--transition-fast);
   }
 
   .add-option:hover {
@@ -526,7 +526,7 @@
     border-radius: 4px;
     cursor: pointer;
     font-size: var(--font-size-sm);
-    transition: all var(--transition-fast);
+    transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), opacity var(--transition-fast);
   }
 
   .btn-add {

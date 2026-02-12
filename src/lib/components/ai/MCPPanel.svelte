@@ -1069,7 +1069,7 @@
     font-weight: 500;
     cursor: pointer;
     border-bottom: 2px solid transparent;
-    transition: all var(--transition-fast);
+    transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), opacity var(--transition-fast);
   }
 
   .tab:hover { color: var(--text-secondary); }
@@ -1252,7 +1252,7 @@
     background: transparent;
     border-radius: 6px;
     cursor: pointer;
-    transition: all var(--transition-fast);
+    transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), opacity var(--transition-fast);
     text-align: left;
   }
 

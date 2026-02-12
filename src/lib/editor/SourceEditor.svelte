@@ -17,6 +17,8 @@
   let tabSize = $state(4);
   let editorLineWidth = $state(800);
   let textareaEl: HTMLTextAreaElement | undefined = $state();
+  let resizeRaf: number | undefined; // RAF throttle for auto-resize
+  let cachedLineHeight: number | undefined; // cache getComputedStyle result
 
   settingsStore.subscribe(state => {
     showLineNumbers = state.showLineNumbers;
@@ -26,10 +28,19 @@
 
   let lineCount = $derived(content.split('\n').length);
 
-  function autoResize() {
+  function autoResizeImmediate() {
     if (!textareaEl) return;
     textareaEl.style.height = 'auto';
     textareaEl.style.height = textareaEl.scrollHeight + 'px';
+  }
+
+  // RAF-throttled version to avoid sync reflow per keystroke
+  function autoResize() {
+    if (resizeRaf) return;
+    resizeRaf = requestAnimationFrame(() => {
+      resizeRaf = undefined;
+      autoResizeImmediate();
+    });
   }
 
   function handleInput(event: Event) {
@@ -79,6 +90,7 @@
   });
 
   onDestroy(() => {
+    if (resizeRaf) cancelAnimationFrame(resizeRaf);
     if (textareaEl) {
       editorStore.setCursorOffset(textareaEl.selectionStart);
     }
@@ -159,9 +171,12 @@
     const match = searchMatches[idx];
     textareaEl.focus();
     textareaEl.setSelectionRange(match.from, match.to);
-    // Scroll textarea to show selection
+    // Scroll textarea to show selection (cache lineHeight to avoid repeated getComputedStyle)
     const linesBefore = content.substring(0, match.from).split('\n').length;
-    const lineHeight = parseFloat(getComputedStyle(textareaEl).lineHeight) || 24;
+    if (!cachedLineHeight && textareaEl) {
+      cachedLineHeight = parseFloat(getComputedStyle(textareaEl).lineHeight) || 24;
+    }
+    const lineHeight = cachedLineHeight || 24;
     const scrollTarget = (linesBefore - 3) * lineHeight;
     const outer = textareaEl.closest('.source-editor-outer') as HTMLElement | null;
     if (outer) {

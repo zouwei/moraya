@@ -79,7 +79,7 @@
     font-weight: 500;
     cursor: pointer;
     border-radius: 4px;
-    transition: all var(--transition-fast);
+    transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), opacity var(--transition-fast);
     white-space: nowrap;
   }
 

@@ -87,6 +87,7 @@
 
     try {
       prompts = await generateImagePrompts(textAIConfig, content, imageCount, imageStyle, imageMode);
+      hasGenerated = true;
     } catch (e) {
       promptError = e instanceof Error ? e.message : 'Failed to generate prompts';
     } finally {
@@ -196,14 +197,7 @@
     onInsert(selected, insertMode);
   }
 
-  let hasInitialized = false;
-  $effect(() => {
-    // Auto-generate prompts on first mount only
-    if (!hasInitialized) {
-      hasInitialized = true;
-      handleGeneratePrompts();
-    }
-  });
+  let hasGenerated = $state(false);
 
   const selectedCount = $derived(generatedImages.filter(img => img.selected && img.url).length);
 </script>
@@ -239,14 +233,14 @@
               <button
                 class="mode-btn"
                 class:active={imageMode === m}
-                onclick={() => { imageMode = m; imageStyle = 'auto'; prompts = []; handleGeneratePrompts(); }}
+                onclick={() => { imageMode = m; imageStyle = 'auto'; prompts = []; }}
               >
                 {tr(`imageGen.mode_${m}`)}
               </button>
             {/each}
             <div class="mode-row-spacer"></div>
             <label class="mini-label" for="imggen-style">{tr('imageGen.styleLabel')}</label>
-            <select id="imggen-style" class="mini-select style-select" bind:value={imageStyle} onchange={() => { prompts = []; handleGeneratePrompts(); }}>
+            <select id="imggen-style" class="mini-select style-select" bind:value={imageStyle} onchange={() => { prompts = []; }}>
               {#each availableStyles as s}
                 <option value={s}>{tr(`imageGen.style_${s}`)}</option>
               {/each}
@@ -272,7 +266,7 @@
             </div>
             <div class="step-controls">
               <label class="mini-label" for="imggen-count">{tr('imageGen.countLabel')}</label>
-              <select id="imggen-count" class="mini-select style-select" bind:value={imageCount} onchange={() => { prompts = []; handleGeneratePrompts(); }}>
+              <select id="imggen-count" class="mini-select style-select" bind:value={imageCount} onchange={() => { prompts = []; }}>
                 {#each Array.from({length: 10}, (_, i) => i + 1) as n}
                   <option value={n}>{n}</option>
                 {/each}
@@ -383,10 +377,16 @@
       {/if}
       <div class="footer-spacer"></div>
       {#if step === 1}
-        <button class="btn btn-secondary" onclick={handleGeneratePrompts}>↻ {tr('seo.regenerate')}</button>
-        <button class="btn btn-primary" onclick={goToStep2} disabled={prompts.length === 0 || isGeneratingPrompts}>
-          {tr('imageGen.next')}
-        </button>
+        {#if hasGenerated}
+          <button class="btn btn-secondary" onclick={handleGeneratePrompts} disabled={isGeneratingPrompts}>↻ {tr('seo.regenerate')}</button>
+          <button class="btn btn-primary" onclick={goToStep2} disabled={prompts.length === 0 || isGeneratingPrompts}>
+            {tr('imageGen.next')}
+          </button>
+        {:else}
+          <button class="btn btn-primary" onclick={handleGeneratePrompts} disabled={isGeneratingPrompts}>
+            {tr('imageGen.generate')}
+          </button>
+        {/if}
       {:else if step === 2}
         <button class="btn btn-primary" onclick={goToStep3} disabled={selectedCount === 0 || isGeneratingImages}>
           {tr('imageGen.next')}
@@ -537,7 +537,7 @@
     color: var(--text-secondary);
     font-size: var(--font-size-xs);
     cursor: pointer;
-    transition: all var(--transition-fast);
+    transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), opacity var(--transition-fast);
     white-space: nowrap;
   }
 
@@ -808,7 +808,7 @@
     border-radius: 4px;
     cursor: pointer;
     font-size: var(--font-size-sm);
-    transition: all var(--transition-fast);
+    transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), opacity var(--transition-fast);
   }
 
   .btn-secondary {

@@ -37,6 +37,8 @@
   let showCommands = $state(false);
   let messagesEl = $state<HTMLDivElement | undefined>(undefined);
   let inputEl = $state<HTMLTextAreaElement | undefined>(undefined);
+  let scrollRaf: number | undefined; // RAF throttle for auto-scroll
+  let resizeRaf: number | undefined; // RAF throttle for textarea auto-resize
   let mcpToolCount = $state(0);
   let providerConfigs = $state<AIProviderConfig[]>([]);
   let activeConfigId = $state<string | null>(null);
@@ -94,13 +96,16 @@
     aiStore.setActiveConfig(id);
   }
 
-  // Auto-scroll during streaming when user is at bottom
+  // Auto-scroll during streaming when user is at bottom (RAF-batched)
   $effect(() => {
-    // Access streamingContent and chatMessages to track changes
     const _ = streamingContent;
     const __ = chatMessages.length;
     if (userAtBottom && messagesEl) {
-      messagesEl.scrollTop = messagesEl.scrollHeight;
+      if (scrollRaf) return; // skip if already pending
+      scrollRaf = requestAnimationFrame(() => {
+        scrollRaf = undefined;
+        if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
+      });
     }
   });
 
@@ -173,8 +178,13 @@
 
   function autoResizeInput() {
     if (!inputEl) return;
-    inputEl.style.height = 'auto';
-    inputEl.style.height = Math.min(inputEl.scrollHeight, maxInputHeight) + 'px';
+    if (resizeRaf) return; // RAF-throttle to avoid sync reflow per keystroke
+    resizeRaf = requestAnimationFrame(() => {
+      resizeRaf = undefined;
+      if (!inputEl) return;
+      inputEl.style.height = 'auto';
+      inputEl.style.height = Math.min(inputEl.scrollHeight, maxInputHeight) + 'px';
+    });
   }
 
   function resetInputHeight() {
@@ -590,7 +600,7 @@
     border-radius: 6px;
     cursor: pointer;
     font-size: var(--font-size-xs);
-    transition: all var(--transition-fast);
+    transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), opacity var(--transition-fast);
   }
 
   .quick-cmd:hover {

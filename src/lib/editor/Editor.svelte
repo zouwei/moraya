@@ -52,6 +52,54 @@
   let internalChange = false; // flag to avoid replaceAll loop on Milkdown's own onChange
   let syncingFromExternal = false; // flag to suppress onChange during replaceAll from source editor
   let syncResetTimer: ReturnType<typeof setTimeout> | undefined; // delayed reset for syncingFromExternal
+  let lastSyncWasExternal = false; // true when last content came from source editor (split mode)
+  let externalSyncTimer: ReturnType<typeof setTimeout> | undefined; // debounce for external content sync
+  let tableToolbarRaf: number | undefined; // RAF throttle for table toolbar updates
+
+  /**
+   * Convert single newlines to hard breaks (trailing two spaces + newline)
+   * so the visual editor renders line breaks where the source has them.
+   * Skips fenced code blocks to avoid adding trailing spaces to code.
+   */
+  function toHardBreaks(md: string): string {
+    const lines = md.split('\n');
+    const result: string[] = [];
+    let inCode = false;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+
+      // Toggle on fenced code block boundaries (``` or ~~~)
+      if (/^\s{0,3}(`{3,}|~{3,})/.test(line)) {
+        inCode = !inCode;
+        result.push(line);
+        continue;
+      }
+
+      if (inCode) {
+        result.push(line);
+        continue;
+      }
+
+      // Add hard break (two trailing spaces) when:
+      // - current line is non-empty
+      // - next line exists and is non-empty (single newline, not paragraph break)
+      // - line doesn't already end with two+ spaces (existing hard break)
+      const nextLine = lines[i + 1];
+      if (
+        line.length > 0 &&
+        !line.endsWith('  ') &&
+        nextLine !== undefined &&
+        nextLine.length > 0
+      ) {
+        result.push(line + '  ');
+      } else {
+        result.push(line);
+      }
+    }
+
+    return result.join('\n');
+  }
   let showTableToolbar = $state(false);
   let tableToolbarPosition = $state({ top: 0, left: 0 });
 
@@ -89,7 +137,7 @@
     }
   }
 
-  function updateTableToolbar() {
+  function updateTableToolbarImmediate() {
     if (!editor) return;
     const inTable = isInsideTable();
     if (inTable) {
@@ -107,6 +155,15 @@
     } else {
       showTableToolbar = false;
     }
+  }
+
+  // RAF-throttled version for high-frequency events (keyup)
+  function updateTableToolbar() {
+    if (tableToolbarRaf) return;
+    tableToolbarRaf = requestAnimationFrame(() => {
+      tableToolbarRaf = undefined;
+      updateTableToolbarImmediate();
+    });
   }
 
   function runCommand(cmd: any, payload?: any) {
@@ -524,6 +581,7 @@
       defaultValue: content,
       onChange: (markdown) => {
         if (syncingFromExternal) return; // Don't push reformatted text back to source editor
+        lastSyncWasExternal = false; // User typed in visual editor
         internalChange = true;
         content = markdown;
         onContentChange?.(markdown);
@@ -670,26 +728,34 @@
   });
 
   // ── Sync external content changes to Milkdown (split mode) ──
+  // Debounced to avoid rebuilding the ProseMirror document on every keystroke.
+  function applySyncToMilkdown(md: string) {
+    if (!editor || !isReady) return;
+    const milkdownContent = getMarkdown(editor);
+    const visualContent = toHardBreaks(md);
+    if (visualContent !== milkdownContent) {
+      try {
+        syncingFromExternal = true;
+        lastSyncWasExternal = true;
+        if (syncResetTimer) clearTimeout(syncResetTimer);
+        editor.action(replaceAll(visualContent));
+      } catch { /* ignore during init */ }
+      // The lazy-change plugin debounces onChange by 100ms (setup.ts).
+      // Keep syncingFromExternal=true until after that fires so the
+      // reformatted markdown doesn't flow back to the source editor.
+      syncResetTimer = setTimeout(() => { syncingFromExternal = false; }, 200);
+    }
+  }
+
   $effect(() => {
     const current = content;
     if (internalChange) {
       internalChange = false;
       return;
     }
-    if (editor && isReady) {
-      const milkdownContent = getMarkdown(editor);
-      if (current !== milkdownContent) {
-        try {
-          syncingFromExternal = true;
-          if (syncResetTimer) clearTimeout(syncResetTimer);
-          editor.action(replaceAll(current));
-        } catch { /* ignore during init */ }
-        // The lazy-change plugin debounces onChange by 100ms (setup.ts).
-        // Keep syncingFromExternal=true until after that fires so the
-        // reformatted markdown doesn't flow back to the source editor.
-        syncResetTimer = setTimeout(() => { syncingFromExternal = false; }, 200);
-      }
-    }
+    // Debounce: avoid running toHardBreaks + replaceAll on every keystroke
+    if (externalSyncTimer) clearTimeout(externalSyncTimer);
+    externalSyncTimer = setTimeout(() => applySyncToMilkdown(current), 150);
   });
 
   // ── Search / Replace ──────────────────────────────────
@@ -823,18 +889,25 @@
 
   onDestroy(() => {
     if (syncResetTimer) clearTimeout(syncResetTimer);
+    if (externalSyncTimer) clearTimeout(externalSyncTimer);
+    if (tableToolbarRaf) cancelAnimationFrame(tableToolbarRaf);
     if (editor) {
       // Flush content: sync ProseMirror doc to parent before destruction.
       // The lazy change plugin debounces onChange by 100ms, so if the user
       // types then immediately switches mode, the last edits haven't been
       // synced yet. This ensures no content is lost.
-      try {
-        const markdown = getMarkdown(editor);
-        content = markdown;
-        onContentChange?.(markdown);
-        editorStore.setContent(markdown);
-      } catch {
-        // Serialization may fail if editor is partially destroyed
+      // Skip flush when lastSyncWasExternal=true (split mode, source editor
+      // is the source of truth) to avoid polluting content with hard-break
+      // trailing spaces added by toHardBreaks().
+      if (!lastSyncWasExternal) {
+        try {
+          const markdown = getMarkdown(editor);
+          content = markdown;
+          onContentChange?.(markdown);
+          editorStore.setContent(markdown);
+        } catch {
+          // Serialization may fail if editor is partially destroyed
+        }
       }
 
       // Save cursor position

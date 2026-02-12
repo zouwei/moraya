@@ -141,24 +141,31 @@ cd src-tauri && cargo check
 
 ## Keyboard Shortcuts
 
-| Action               | macOS                       | Windows/Linux                  |
-| -------------------- | --------------------------- | ------------------------------ |
-| New                  | `Cmd+N`                     | `Ctrl+N`                       |
-| Open                 | `Cmd+O`                     | `Ctrl+O`                       |
-| Save                 | `Cmd+S`                     | `Ctrl+S`                       |
-| Save As              | `Cmd+Shift+S`               | `Ctrl+Shift+S`                 |
-| Settings             | `Cmd+,`                     | `Ctrl+,`                       |
-| Toggle Visual/Source | `Cmd+/`                     | `Ctrl+/`                       |
-| Toggle Split Mode    | `Cmd+Shift+/`               | `Ctrl+Shift+/`                 |
-| Toggle Sidebar       | `Cmd+\`                     | `Ctrl+\`                       |
-| Toggle AI Panel      | `Cmd+J`                     | `Ctrl+J`                 |
-| Export HTML          | `Cmd+Shift+E`               | `Ctrl+Shift+E`                 |
-| Heading 1–6          | `Cmd+1`–`6`                 | `Ctrl+1`–`6`                   |
-| Bold                 | `Cmd+B`                     | `Ctrl+B`                       |
-| Italic               | `Cmd+I`                     | `Ctrl+I`                       |
-| Inline Code          | `Cmd+E`                     | `Ctrl+E`                       |
-| Link                 | `Cmd+K`                     | `Ctrl+K`                       |
-| Zoom In/Out/Reset    | `Cmd+=` / `Cmd+-` / `Cmd+0` | `Ctrl+=` / `Ctrl+-` / `Ctrl+0` |
+| Action               | macOS              | Windows/Linux        |
+| -------------------- | ------------------ | -------------------- |
+| New                  | `Cmd+N`            | `Ctrl+N`             |
+| New Window           | `Cmd+Shift+N`      | `Ctrl+Shift+N`       |
+| Open                 | `Cmd+O`            | `Ctrl+O`             |
+| Save                 | `Cmd+S`            | `Ctrl+S`             |
+| Save As              | `Cmd+Shift+S`      | `Ctrl+Shift+S`       |
+| Settings             | `Cmd+,`            | `Ctrl+,`             |
+| Find                 | `Cmd+F`            | `Ctrl+F`             |
+| Replace              | `Cmd+H`            | `Ctrl+H`             |
+| Toggle Visual/Source | `Cmd+/`            | `Ctrl+/`             |
+| Toggle Split Mode    | `Cmd+Shift+/`      | `Ctrl+Shift+/`       |
+| Toggle Sidebar       | `Cmd+\`            | `Ctrl+\`             |
+| Toggle AI Panel      | `Cmd+J`            | `Ctrl+J`             |
+| Export HTML          | `Cmd+Shift+E`      | `Ctrl+Shift+E`       |
+| Heading 1–6          | `Cmd+1`–`6`        | `Ctrl+1`–`6`         |
+| Bold                 | `Cmd+B`            | `Ctrl+B`             |
+| Italic               | `Cmd+I`            | `Ctrl+I`             |
+| Strikethrough        | `Cmd+Shift+X`      | `Ctrl+Shift+X`       |
+| Inline Code          | `Cmd+E`            | `Ctrl+E`             |
+| Link                 | `Cmd+K`            | `Ctrl+K`             |
+| Insert Image         | `Cmd+Shift+G`      | `Ctrl+Shift+G`       |
+| Code Block           | `Cmd+Shift+K`      | `Ctrl+Shift+K`       |
+| Quote                | `Cmd+Shift+Q`      | `Ctrl+Shift+Q`       |
+| Zoom In/Out/Reset    | `Cmd+=`/`-`/`0`    | `Ctrl+=`/`-`/`0`     |
 
 ## AI Assisted Writing
 
@@ -184,7 +191,7 @@ Moraya has built-in AI-powered writing assistance with multi-provider support an
 
 ### Usage
 
-**Open the AI panel** with `Cmd+Shift+I` (`Ctrl+Shift+I` on Windows/Linux), or via the menu View → Toggle AI Panel. A 340px chat sidebar will appear on the right.
+**Open the AI panel** with `Cmd+J` (`Ctrl+J` on Windows/Linux), or via the menu View → Toggle AI Panel. A 340px chat sidebar will appear on the right.
 
 **Free-form chat** — Type any question in the input box and press `Enter`. AI responds in real-time with streaming output.
 
@@ -215,13 +222,7 @@ Each AI response has action buttons below it:
 
 ## Development Roadmap
 
-* [x] **Phase 1** — Core Editor: WYSIWYG Markdown editing, math, file ops, sidebar, settings, export, themes
-
-* [x] **Phase 2** — AI Integration: Multi-provider LLM API, streaming, chat panel, AI commands
-
-* [x] **Phase 3** — MCP Ecosystem: MCP client (3 transports), server management
-
-* [x] **Phase 4** — Editor Enhancement: Source/Visual/Split modes, table toolbar, native menu, i18n, scroll sync
+* [x] **v0.1.0** — Core Platform: WYSIWYG editor (Milkdown), math rendering (KaTeX), multi-provider AI chat (Claude/OpenAI/Gemini/DeepSeek/Ollama), MCP client (stdio/SSE/HTTP), Source/Visual/Split modes, native menu, i18n → [Detailed Requirements](docs/iterations/v0.1.0-core-platform.md)
 
 * [x] **v0.2.0** — Publish Workflow: SEO assistant, AI image generation, multi-target publishing → [Detailed Requirements](docs/iterations/v0.2.0-publish-workflow.md)
 
@@ -232,6 +233,8 @@ Each AI response has action buttons below it:
 * [x] **v0.4.0** — Dynamic MCP Container: AI-driven dynamic MCP service creation, lightweight Node.js runtime, 4 internal AI tools, hybrid lifecycle management → [Detailed Requirements](docs/iterations/v0.4.0-mcp-container.md)
 
 * [x] **v0.5.0** — RSS Feed: Auto-update RSS feed when publishing articles, per-target RSS config, zero-dependency XML generation → [Detailed Requirements](docs/iterations/v0.5.0-rss-feed.md)
+
+* [x] **v0.6.0** — Security Hardening: API Key Keychain storage, AI proxy in Rust backend, CSP tightening, MCP security hardening, path traversal protection, HTML export sanitization, error sanitization, unsafe FFI hardening → [Detailed Requirements](docs/iterations/v0.6.0-security-hardening.md)
 
 ## Recommended IDE Setup
 
