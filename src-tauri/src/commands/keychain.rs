@@ -1,38 +1,48 @@
-const SERVICE_NAME: &str = "com.moraya.app";
+use super::ai_proxy::AIProxyState;
 
-/// Store a secret in the OS keychain.
-/// Key naming convention: `ai-key:{configId}` or `image-key:{configId}`
+/// Store a secret. Updates in-memory cache and persists entire secrets map
+/// to the single keychain entry.
 #[tauri::command]
-pub fn keychain_set(key: String, value: String) -> Result<(), String> {
-    let entry =
-        keyring::Entry::new(SERVICE_NAME, &key).map_err(|_| "Failed to access keychain")?;
-    entry
-        .set_password(&value)
-        .map_err(|_| "Failed to store secret in keychain")?;
-    Ok(())
+pub fn keychain_set(
+    state: tauri::State<'_, AIProxyState>,
+    key: String,
+    value: String,
+) -> Result<(), String> {
+    state.ensure_secrets_loaded();
+
+    if let Ok(mut cache) = state.key_cache.lock() {
+        cache.insert(key, value);
+    }
+
+    state.persist_secrets()
 }
 
-/// Retrieve a secret from the OS keychain.
-/// Returns None if the key doesn't exist.
+/// Retrieve a secret from the in-memory cache (loaded from keychain on first access).
 #[tauri::command]
-pub fn keychain_get(key: String) -> Result<Option<String>, String> {
-    let entry =
-        keyring::Entry::new(SERVICE_NAME, &key).map_err(|_| "Failed to access keychain")?;
-    match entry.get_password() {
-        Ok(password) => Ok(Some(password)),
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(_) => Err("Failed to retrieve secret from keychain".to_string()),
+pub fn keychain_get(
+    state: tauri::State<'_, AIProxyState>,
+    key: String,
+) -> Result<Option<String>, String> {
+    state.ensure_secrets_loaded();
+
+    if let Ok(cache) = state.key_cache.lock() {
+        return Ok(cache.get(&key).cloned());
     }
+
+    Ok(None)
 }
 
-/// Delete a secret from the OS keychain.
+/// Delete a secret. Removes from in-memory cache and persists.
 #[tauri::command]
-pub fn keychain_delete(key: String) -> Result<(), String> {
-    let entry =
-        keyring::Entry::new(SERVICE_NAME, &key).map_err(|_| "Failed to access keychain")?;
-    match entry.delete_credential() {
-        Ok(()) => Ok(()),
-        Err(keyring::Error::NoEntry) => Ok(()), // Already deleted
-        Err(_) => Err("Failed to delete secret from keychain".to_string()),
+pub fn keychain_delete(
+    state: tauri::State<'_, AIProxyState>,
+    key: String,
+) -> Result<(), String> {
+    state.ensure_secrets_loaded();
+
+    if let Ok(mut cache) = state.key_cache.lock() {
+        cache.remove(&key);
     }
+
+    state.persist_secrets()
 }

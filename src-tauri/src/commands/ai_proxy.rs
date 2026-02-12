@@ -3,38 +3,86 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::ipc::Channel;
 
-const SERVICE_NAME: &str = "com.moraya.app";
+pub(crate) const SERVICE_NAME: &str = "com.moraya.app";
 const AI_KEY_PREFIX: &str = "ai-key:";
+const SECRETS_KEY: &str = "moraya-secrets";
 const REQUEST_TIMEOUT_SECS: u64 = 180;
 
-/// Shared state for aborting in-flight streaming requests.
+/// Shared state for aborting in-flight streaming requests and caching API keys.
+///
+/// All secrets are stored in a **single** keychain entry (`moraya-secrets`)
+/// as a JSON map. This ensures only ONE keychain authorization prompt per
+/// app session, instead of one per API key.
 pub struct AIProxyState {
     abort_flags: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    /// In-memory mirror of the single keychain entry.
+    pub(crate) key_cache: Mutex<HashMap<String, String>>,
+    /// Whether the single keychain entry has been loaded into key_cache.
+    secrets_loaded: AtomicBool,
 }
 
 impl AIProxyState {
     pub fn new() -> Self {
         Self {
             abort_flags: Mutex::new(HashMap::new()),
+            key_cache: Mutex::new(HashMap::new()),
+            secrets_loaded: AtomicBool::new(false),
         }
+    }
+
+    /// Load all secrets from the single keychain entry on first access.
+    /// Subsequent calls are no-ops (already cached).
+    pub(crate) fn ensure_secrets_loaded(&self) {
+        if self
+            .secrets_loaded
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return; // Already loaded
+        }
+
+        let entry = match keyring::Entry::new(SERVICE_NAME, SECRETS_KEY) {
+            Ok(e) => e,
+            Err(_) => return,
+        };
+
+        let json = match entry.get_password() {
+            Ok(j) => j,
+            Err(_) => return, // No entry or access denied — start with empty cache
+        };
+
+        if let Ok(map) = serde_json::from_str::<HashMap<String, String>>(&json) {
+            if let Ok(mut cache) = self.key_cache.lock() {
+                for (k, v) in map {
+                    cache.insert(k, v);
+                }
+            }
+        }
+    }
+
+    /// Persist the entire key cache to the single keychain entry.
+    pub(crate) fn persist_secrets(&self) -> Result<(), String> {
+        let json = {
+            let cache = self
+                .key_cache
+                .lock()
+                .map_err(|_| "Lock error".to_string())?;
+            serde_json::to_string(&*cache)
+                .map_err(|_| "Failed to serialize secrets".to_string())?
+        };
+
+        let entry = keyring::Entry::new(SERVICE_NAME, SECRETS_KEY)
+            .map_err(|_| "Failed to access keychain".to_string())?;
+        entry
+            .set_password(&json)
+            .map_err(|_| "Failed to store in keychain".to_string())?;
+        Ok(())
     }
 }
 
 impl Default for AIProxyState {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-/// Get API key from OS keychain. Returns empty string if no entry (e.g. Ollama).
-fn get_api_key(prefix: &str, config_id: &str) -> Result<String, String> {
-    let key_name = format!("{}{}", prefix, config_id);
-    let entry = keyring::Entry::new(SERVICE_NAME, &key_name)
-        .map_err(|_| "Failed to access keychain".to_string())?;
-    match entry.get_password() {
-        Ok(key) => Ok(key),
-        Err(keyring::Error::NoEntry) => Ok(String::new()),
-        Err(_) => Err("Failed to retrieve API key".to_string()),
     }
 }
 
@@ -94,8 +142,10 @@ fn build_request(
     req
 }
 
-/// Resolve the API key: use override if provided, otherwise look up keychain.
+/// Resolve the API key: use override if provided, otherwise read from the
+/// in-memory secrets cache (populated from the single keychain entry).
 fn resolve_api_key(
+    state: &AIProxyState,
     config_id: &str,
     key_prefix: Option<&str>,
     api_key_override: Option<&str>,
@@ -105,14 +155,27 @@ fn resolve_api_key(
             return Ok(key.to_string());
         }
     }
+
+    state.ensure_secrets_loaded();
+
     let prefix = key_prefix.unwrap_or(AI_KEY_PREFIX);
-    get_api_key(prefix, config_id)
+    let cache_key = format!("{}{}", prefix, config_id);
+
+    if let Ok(cache) = state.key_cache.lock() {
+        if let Some(cached) = cache.get(&cache_key) {
+            return Ok(cached.clone());
+        }
+    }
+
+    // No key found — empty string (e.g. Ollama needs no auth)
+    Ok(String::new())
 }
 
 /// Non-streaming AI API proxy.
 /// Frontend builds URL/body/headers (without auth); Rust injects auth from keychain.
 #[tauri::command]
 pub async fn ai_proxy_fetch(
+    state: tauri::State<'_, AIProxyState>,
     config_id: String,
     key_prefix: Option<String>,
     api_key_override: Option<String>,
@@ -123,6 +186,7 @@ pub async fn ai_proxy_fetch(
     method: Option<String>,
 ) -> Result<String, String> {
     let api_key = resolve_api_key(
+        &state,
         &config_id,
         key_prefix.as_deref(),
         api_key_override.as_deref(),
@@ -167,7 +231,7 @@ pub async fn ai_proxy_stream(
     body: String,
     headers: Option<HashMap<String, String>>,
 ) -> Result<(), String> {
-    let api_key = resolve_api_key(&config_id, None, api_key_override.as_deref())?;
+    let api_key = resolve_api_key(&state, &config_id, None, api_key_override.as_deref())?;
     let client = build_client()?;
     let hdrs = headers.unwrap_or_default();
     let req = build_request(&client, &provider, &api_key, &url, &body, &hdrs, "POST");
