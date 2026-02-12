@@ -8,16 +8,21 @@ const AI_KEY_PREFIX: &str = "ai-key:";
 const SECRETS_KEY: &str = "moraya-secrets";
 const REQUEST_TIMEOUT_SECS: u64 = 180;
 
+/// File path for dev-mode secrets (avoids OS keychain prompts on unsigned binaries).
+fn dev_secrets_path() -> Option<std::path::PathBuf> {
+    dirs::config_dir().map(|d| d.join(SERVICE_NAME).join("dev-secrets.json"))
+}
+
 /// Shared state for aborting in-flight streaming requests and caching API keys.
 ///
-/// All secrets are stored in a **single** keychain entry (`moraya-secrets`)
-/// as a JSON map. This ensures only ONE keychain authorization prompt per
-/// app session, instead of one per API key.
+/// - **Release builds** (signed): secrets stored in OS keychain (`moraya-secrets`).
+/// - **Debug builds** (unsigned): secrets stored in a local JSON file to avoid
+///   repeated macOS keychain authorization prompts.
 pub struct AIProxyState {
     abort_flags: Mutex<HashMap<String, Arc<AtomicBool>>>,
-    /// In-memory mirror of the single keychain entry.
+    /// In-memory mirror of secrets.
     pub(crate) key_cache: Mutex<HashMap<String, String>>,
-    /// Whether the single keychain entry has been loaded into key_cache.
+    /// Whether secrets have been loaded into key_cache.
     secrets_loaded: AtomicBool,
 }
 
@@ -30,8 +35,7 @@ impl AIProxyState {
         }
     }
 
-    /// Load all secrets from the single keychain entry on first access.
-    /// Subsequent calls are no-ops (already cached).
+    /// Load all secrets on first access. Subsequent calls are no-ops.
     pub(crate) fn ensure_secrets_loaded(&self) {
         if self
             .secrets_loaded
@@ -41,26 +45,31 @@ impl AIProxyState {
             return; // Already loaded
         }
 
-        let entry = match keyring::Entry::new(SERVICE_NAME, SECRETS_KEY) {
-            Ok(e) => e,
-            Err(_) => return,
+        let json = if cfg!(debug_assertions) {
+            // Dev mode: read from local file (no keychain prompts)
+            dev_secrets_path()
+                .and_then(|p| std::fs::read_to_string(p).ok())
+                .unwrap_or_default()
+        } else {
+            // Release mode: read from OS keychain
+            keyring::Entry::new(SERVICE_NAME, SECRETS_KEY)
+                .ok()
+                .and_then(|e| e.get_password().ok())
+                .unwrap_or_default()
         };
 
-        let json = match entry.get_password() {
-            Ok(j) => j,
-            Err(_) => return, // No entry or access denied — start with empty cache
-        };
-
-        if let Ok(map) = serde_json::from_str::<HashMap<String, String>>(&json) {
-            if let Ok(mut cache) = self.key_cache.lock() {
-                for (k, v) in map {
-                    cache.insert(k, v);
+        if !json.is_empty() {
+            if let Ok(map) = serde_json::from_str::<HashMap<String, String>>(&json) {
+                if let Ok(mut cache) = self.key_cache.lock() {
+                    for (k, v) in map {
+                        cache.insert(k, v);
+                    }
                 }
             }
         }
     }
 
-    /// Persist the entire key cache to the single keychain entry.
+    /// Persist the entire key cache.
     pub(crate) fn persist_secrets(&self) -> Result<(), String> {
         let json = {
             let cache = self
@@ -71,11 +80,23 @@ impl AIProxyState {
                 .map_err(|_| "Failed to serialize secrets".to_string())?
         };
 
-        let entry = keyring::Entry::new(SERVICE_NAME, SECRETS_KEY)
-            .map_err(|_| "Failed to access keychain".to_string())?;
-        entry
-            .set_password(&json)
-            .map_err(|_| "Failed to store in keychain".to_string())?;
+        if cfg!(debug_assertions) {
+            // Dev mode: write to local file
+            if let Some(path) = dev_secrets_path() {
+                if let Some(parent) = path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                std::fs::write(&path, &json)
+                    .map_err(|_| "Failed to write dev secrets file".to_string())?;
+            }
+        } else {
+            // Release mode: write to OS keychain
+            let entry = keyring::Entry::new(SERVICE_NAME, SECRETS_KEY)
+                .map_err(|_| "Failed to access keychain".to_string())?;
+            entry
+                .set_password(&json)
+                .map_err(|_| "Failed to store in keychain".to_string())?;
+        }
         Ok(())
     }
 }

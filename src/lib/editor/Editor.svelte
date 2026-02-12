@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import type { Editor as MilkdownEditor } from '@milkdown/core';
   import { editorViewCtx } from '@milkdown/core';
   import { TextSelection, AllSelection } from '@milkdown/prose/state';
@@ -50,6 +50,8 @@
 
   let isReady = $state(false);
   let internalChange = false; // flag to avoid replaceAll loop on Milkdown's own onChange
+  let syncingFromExternal = false; // flag to suppress onChange during replaceAll from source editor
+  let syncResetTimer: ReturnType<typeof setTimeout> | undefined; // delayed reset for syncingFromExternal
   let showTableToolbar = $state(false);
   let tableToolbarPosition = $state({ top: 0, left: 0 });
 
@@ -521,6 +523,7 @@
       root: editorEl,
       defaultValue: content,
       onChange: (markdown) => {
+        if (syncingFromExternal) return; // Don't push reformatted text back to source editor
         internalChange = true;
         content = markdown;
         onContentChange?.(markdown);
@@ -537,29 +540,33 @@
     isReady = true;
     onEditorReady?.(editor);
 
-    // Restore cursor position from store and focus
+    // Restore cursor position from store and focus (delay for DOM readiness)
     const proseMirrorEl = editorEl.querySelector('.ProseMirror') as HTMLElement | null;
     const savedOffset = editorStore.getState().cursorOffset;
-    try {
-      editor.action((ctx) => {
-        const view = ctx.get(editorViewCtx);
-        const docSize = view.state.doc.content.size;
-        // Map markdown offset to ProseMirror position using fraction
-        const fraction = content.length > 0 ? savedOffset / content.length : 0;
-        let pmPos = Math.round(fraction * docSize);
-        // Clamp to valid range (1 .. docSize-1)
-        pmPos = Math.max(1, Math.min(pmPos, Math.max(1, docSize - 1)));
-        // Resolve to nearest valid text position
-        const resolved = view.state.doc.resolve(pmPos);
-        const sel = TextSelection.near(resolved);
-        const tr = view.state.tr.setSelection(sel);
-        view.dispatch(tr);
-        view.focus();
-      });
-    } catch {
-      // Fallback: just focus
-      if (proseMirrorEl) proseMirrorEl.focus();
-    }
+    await tick();
+    requestAnimationFrame(() => {
+      if (!editor) return;
+      try {
+        editor.action((ctx) => {
+          const view = ctx.get(editorViewCtx);
+          const docSize = view.state.doc.content.size;
+          // Map markdown offset to ProseMirror position using fraction
+          const fraction = content.length > 0 ? savedOffset / content.length : 0;
+          let pmPos = Math.round(fraction * docSize);
+          // Clamp to valid range (1 .. docSize-1)
+          pmPos = Math.max(1, Math.min(pmPos, Math.max(1, docSize - 1)));
+          // Resolve to nearest valid text position
+          const resolved = view.state.doc.resolve(pmPos);
+          const sel = TextSelection.near(resolved);
+          const tr = view.state.tr.setSelection(sel);
+          view.dispatch(tr);
+          view.focus();
+        });
+      } catch {
+        // Fallback: just focus
+        if (proseMirrorEl) proseMirrorEl.focus();
+      }
+    });
 
     // Scroll to top for new files (cursorOffset === 0)
     if (savedOffset === 0) {
@@ -672,7 +679,15 @@
     if (editor && isReady) {
       const milkdownContent = getMarkdown(editor);
       if (current !== milkdownContent) {
-        try { editor.action(replaceAll(current)); } catch { /* ignore during init */ }
+        try {
+          syncingFromExternal = true;
+          if (syncResetTimer) clearTimeout(syncResetTimer);
+          editor.action(replaceAll(current));
+        } catch { /* ignore during init */ }
+        // The lazy-change plugin debounces onChange by 100ms (setup.ts).
+        // Keep syncingFromExternal=true until after that fires so the
+        // reformatted markdown doesn't flow back to the source editor.
+        syncResetTimer = setTimeout(() => { syncingFromExternal = false; }, 200);
       }
     }
   });
@@ -807,6 +822,7 @@
   }
 
   onDestroy(() => {
+    if (syncResetTimer) clearTimeout(syncResetTimer);
     if (editor) {
       // Flush content: sync ProseMirror doc to parent before destruction.
       // The lazy change plugin debounces onChange by 100ms, so if the user

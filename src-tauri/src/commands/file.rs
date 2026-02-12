@@ -20,6 +20,19 @@ fn sanitize_io_error(e: std::io::Error) -> String {
     }
 }
 
+/// Strip the `\\?\` extended-length path prefix that Windows' `canonicalize` adds.
+/// On non-Windows platforms this is a no-op.
+fn strip_unc_prefix(p: PathBuf) -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        let s = p.to_string_lossy();
+        if let Some(stripped) = s.strip_prefix(r"\\?\") {
+            return PathBuf::from(stripped);
+        }
+    }
+    p
+}
+
 /// Validate that a path is safe to access:
 /// 1. Canonicalize the path (resolve `..` and symlinks)
 /// 2. Ensure the resolved path is within the user's home directory
@@ -35,6 +48,9 @@ fn validate_path(path: &str) -> Result<PathBuf, String> {
             Ok(canonical_parent.join(Path::new(path).file_name().unwrap_or_default()))
         })
         .map_err(|e: String| e)?;
+
+    // On Windows, canonicalize returns \\?\C:\... but home_dir returns C:\...
+    let canonical = strip_unc_prefix(canonical);
 
     let home = dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
 

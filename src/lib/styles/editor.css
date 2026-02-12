@@ -337,8 +337,10 @@
   50% { opacity: 0; }
 }
 
-.ProseMirror:focus > p:only-child:empty::before,
-.ProseMirror:focus > p:only-child:has(> br:only-child)::before {
+/* Only apply on macOS (WebKit) — on Windows/Linux (Chromium) the native caret works fine
+   and this CSS would create a double/ghost cursor. */
+.platform-macos .ProseMirror:focus > p:only-child:empty::before,
+.platform-macos .ProseMirror:focus > p:only-child:has(> br:only-child)::before {
   content: '';
   display: inline-block;
   width: 1.5px;

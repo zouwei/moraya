@@ -503,8 +503,8 @@ ${tr('welcome.tip')}
       return;
     }
 
-    // AI Panel toggle: Cmd+Shift+I (not Cmd+I which is italic)
-    if (mod && event.shiftKey && event.key === 'I') {
+    // AI Panel toggle: Cmd+J (avoids Ctrl+Shift+I DevTools conflict on Windows)
+    if (mod && !event.shiftKey && event.key === 'j') {
       event.preventDefault();
       showAIPanel = !showAIPanel;
       return;
@@ -543,6 +543,27 @@ ${tr('welcome.tip')}
     if (mod && event.shiftKey && event.key === 'G') {
       event.preventDefault();
       showImageDialog = true;
+      return;
+    }
+
+    // Heading 1-6: Cmd+1 through Cmd+6 (fallback for menu accelerator)
+    if (mod && !event.shiftKey && event.key >= '1' && event.key <= '6') {
+      event.preventDefault();
+      runEditorCommand(wrapInHeadingCommand, parseInt(event.key));
+      return;
+    }
+
+    // Code block: Cmd+Shift+K (fallback for menu accelerator)
+    if (mod && event.shiftKey && event.key === 'K') {
+      event.preventDefault();
+      runEditorCommand(createCodeBlockCommand);
+      return;
+    }
+
+    // Quote: Cmd+Shift+Q (fallback for menu accelerator)
+    if (mod && event.shiftKey && event.key === 'Q') {
+      event.preventDefault();
+      runEditorCommand(wrapInBlockquoteCommand);
       return;
     }
 
