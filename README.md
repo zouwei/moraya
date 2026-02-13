@@ -236,7 +236,11 @@ Each AI response has action buttons below it:
 
 * [x] **v0.6.0** — Security Hardening: API Key Keychain storage, AI proxy in Rust backend, CSP tightening, MCP security hardening, path traversal protection, HTML export sanitization, error sanitization, unsafe FFI hardening → [Detailed Requirements](docs/iterations/v0.6.0-security-hardening.md)
 
-* [x] **v0.8.0** — iPhone Adaptation: Drawer navigation (sidebar replacement), BottomSheet (AI panel/Settings), Split mode narrow-screen disable, universal IPA build (iPad + iPhone), unified Apple signing & App Store Connect CI/CD → [Detailed Requirements](docs/iterations/v0.8.0-ai-templates.md)
+* [x] **v0.8.0** — AI Template System: 10 categories, 71+ templates, 5 flow types, configuration-driven AI interactions → [Detailed Requirements](docs/iterations/v0.8.0-ai-templates.md)
+
+* [x] **v0.9.0** — Code Block Enhancement: Language label, language selector, copy button, CodeBlock NodeView toolbar → [Detailed Requirements](docs/iterations/v0.9.0-code-block-enhancement.md)
+
+* [ ] **v0.10.0** — Mermaid Diagrams: 9 diagram types, edit/preview dual mode, lazy-loaded rendering, theme adaptation → [Detailed Requirements](docs/iterations/v0.10.0-mermaid-diagrams.md)
 
 ## Recommended IDE Setup
 

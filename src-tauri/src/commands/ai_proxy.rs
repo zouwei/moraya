@@ -13,10 +13,92 @@ fn dev_secrets_path() -> Option<std::path::PathBuf> {
     dirs::config_dir().map(|d| d.join(SERVICE_NAME).join("dev-secrets.json"))
 }
 
+// ---------------------------------------------------------------------------
+// Platform-specific keychain helpers (release builds only)
+// ---------------------------------------------------------------------------
+//
+// macOS: the `keyring` crate creates keychain items with an ACL tied to the
+// calling binary's code signature.  After an overwrite-install the signature
+// changes and macOS shows a password dialog.  To avoid this we use the
+// `security` CLI with the `-A` flag ("allow all applications").  The secrets
+// are still encrypted at rest inside the login keychain.
+//
+// Windows / Linux: the `keyring` crate works without ACL issues on updates.
+
+#[cfg(target_os = "macos")]
+fn read_os_secrets() -> String {
+    std::process::Command::new("security")
+        .args([
+            "find-generic-password",
+            "-s", SERVICE_NAME,
+            "-a", SECRETS_KEY,
+            "-w",
+        ])
+        .output()
+        .ok()
+        .and_then(|o| {
+            if o.status.success() {
+                String::from_utf8(o.stdout)
+                    .ok()
+                    .map(|s| s.trim_end().to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_default()
+}
+
+#[cfg(target_os = "macos")]
+fn write_os_secrets(json: &str) -> Result<(), String> {
+    // Delete existing entry first (works regardless of old ACL)
+    let _ = std::process::Command::new("security")
+        .args([
+            "delete-generic-password",
+            "-s", SERVICE_NAME,
+            "-a", SECRETS_KEY,
+        ])
+        .output();
+
+    // Add new entry with -A (allow all applications — avoids per-binary ACL)
+    let output = std::process::Command::new("security")
+        .args([
+            "add-generic-password",
+            "-s", SERVICE_NAME,
+            "-a", SECRETS_KEY,
+            "-w", json,
+            "-A",
+        ])
+        .output()
+        .map_err(|_| "Failed to access keychain".to_string())?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err("Failed to store in keychain".to_string())
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn read_os_secrets() -> String {
+    keyring::Entry::new(SERVICE_NAME, SECRETS_KEY)
+        .ok()
+        .and_then(|e| e.get_password().ok())
+        .unwrap_or_default()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn write_os_secrets(json: &str) -> Result<(), String> {
+    let entry = keyring::Entry::new(SERVICE_NAME, SECRETS_KEY)
+        .map_err(|_| "Failed to access keychain".to_string())?;
+    entry
+        .set_password(json)
+        .map_err(|_| "Failed to store in keychain".to_string())
+}
+
 /// Shared state for aborting in-flight streaming requests and caching API keys.
 ///
-/// - **Release builds** (signed): secrets stored in OS keychain (`moraya-secrets`).
-/// - **Debug builds** (unsigned): secrets stored in a local JSON file to avoid
+/// - **Release builds**: secrets stored in OS keychain (`moraya-secrets`).
+/// - **Debug builds**: secrets stored in a local JSON file to avoid
 ///   repeated macOS keychain authorization prompts.
 pub struct AIProxyState {
     abort_flags: Mutex<HashMap<String, Arc<AtomicBool>>>,
@@ -51,11 +133,7 @@ impl AIProxyState {
                 .and_then(|p| std::fs::read_to_string(p).ok())
                 .unwrap_or_default()
         } else {
-            // Release mode: read from OS keychain
-            keyring::Entry::new(SERVICE_NAME, SECRETS_KEY)
-                .ok()
-                .and_then(|e| e.get_password().ok())
-                .unwrap_or_default()
+            read_os_secrets()
         };
 
         if !json.is_empty() {
@@ -90,12 +168,7 @@ impl AIProxyState {
                     .map_err(|_| "Failed to write dev secrets file".to_string())?;
             }
         } else {
-            // Release mode: write to OS keychain
-            let entry = keyring::Entry::new(SERVICE_NAME, SECRETS_KEY)
-                .map_err(|_| "Failed to access keychain".to_string())?;
-            entry
-                .set_password(&json)
-                .map_err(|_| "Failed to store in keychain".to_string())?;
+            write_os_secrets(&json)?;
         }
         Ok(())
     }

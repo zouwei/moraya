@@ -75,8 +75,213 @@
   color: var(--text-primary);
 }
 
-/* Code blocks */
-.moraya-editor pre {
+/* Code blocks — NodeView wrapper
+   Background/border-radius on wrapper (not pre) so the toolbar area at top
+   is seamlessly part of the code block. Toolbar uses position:absolute top:0
+   inside the wrapper (not bottom:100% above it) to avoid overflow clipping
+   from .editor-wrapper's overflow-y:auto. */
+.moraya-editor .code-block-wrapper {
+  position: relative;
+  margin: 1em 0;
+  padding-top: 1.5rem;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+}
+
+.moraya-editor .code-block-wrapper.ProseMirror-selectednode {
+  outline: 2px solid var(--accent-color);
+}
+
+.moraya-editor .code-block-toolbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.15rem 0.75rem;
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  user-select: none;
+  border-radius: 6px 6px 0 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+/* Show toolbar on hover, node selection, or when language picker is open */
+.moraya-editor .code-block-wrapper:hover .code-block-toolbar,
+.moraya-editor .code-block-wrapper.ProseMirror-selectednode .code-block-toolbar,
+.moraya-editor .code-block-wrapper.picker-open .code-block-toolbar {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.moraya-editor .code-lang-label {
+  cursor: pointer;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.moraya-editor .code-lang-label:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.moraya-editor .code-copy-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 0.15rem 0.3rem;
+  border-radius: 3px;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.moraya-editor .code-copy-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.moraya-editor .code-copy-btn svg:last-child { display: none; }
+.moraya-editor .code-copy-btn.copied svg:first-child { display: none; }
+.moraya-editor .code-copy-btn.copied svg:last-child { display: block; }
+.moraya-editor .code-copy-btn.copied {
+  color: #22863a;
+  background: rgba(34, 134, 58, 0.12);
+}
+
+/* Language picker dropdown (mounted to document.body, not inside .moraya-editor) */
+.code-lang-picker {
+  z-index: 9999;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  width: 200px;
+  max-height: 280px;
+  display: flex;
+  flex-direction: column;
+}
+
+.code-lang-search {
+  padding: 0.35rem;
+  border-bottom: 1px solid var(--border-light);
+  flex-shrink: 0;
+}
+
+.code-lang-search-input {
+  width: 100%;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 0.25rem 0.4rem;
+  font-size: var(--font-size-xs);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  outline: none;
+  font-family: var(--font-sans);
+}
+
+.code-lang-search-input:focus {
+  border-color: var(--accent-color);
+}
+
+.code-lang-list {
+  overflow-y: auto;
+  flex: 1;
+}
+
+.code-lang-group-label {
+  padding: 0.25rem 0.5rem;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.code-lang-divider {
+  height: 1px;
+  background: var(--border-light);
+  margin: 0.15rem 0;
+}
+
+.code-lang-option {
+  padding: 0.3rem 0.5rem;
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  transition: background var(--transition-fast);
+}
+
+.code-lang-option:hover {
+  background: var(--bg-hover);
+}
+
+.code-lang-option.selected {
+  color: var(--accent-color);
+  font-weight: 500;
+}
+
+.code-lang-empty {
+  padding: 0.5rem;
+  text-align: center;
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.code-lang-suggestion {
+  padding: 0.3rem 0.5rem;
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  color: var(--accent-color);
+  transition: background var(--transition-fast);
+}
+
+.code-lang-suggestion:hover {
+  background: var(--bg-hover);
+}
+
+.code-lang-suggestion .suggestion-icon {
+  font-size: 10px;
+  margin-right: 2px;
+}
+
+.code-lang-suggestion .suggestion-hint {
+  color: var(--text-muted);
+  font-size: 10px;
+  margin-left: 4px;
+}
+
+/* Code block <pre> inside NodeView wrapper (wrapper provides background) */
+.moraya-editor .code-block-pre {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  line-height: 1.6;
+  padding: 0 1.2em 0.75em;
+  margin: 0;
+  overflow-x: auto;
+  background: transparent;
+  border-radius: 0;
+}
+
+.moraya-editor .code-block-code {
+  padding: 0;
+  background: none;
+  border-radius: 0;
+  color: inherit;
+}
+
+/* Fallback: bare <pre> without NodeView (e.g. during initialization) */
+.moraya-editor pre:not(.code-block-pre) {
   font-family: var(--font-mono);
   font-size: 0.9em;
   line-height: 1.6;
@@ -87,7 +292,7 @@
   overflow-x: auto;
 }
 
-.moraya-editor pre code {
+.moraya-editor pre:not(.code-block-pre) code {
   padding: 0;
   background: none;
   border-radius: 0;
@@ -108,13 +313,13 @@
 .moraya-editor pre .hljs-comment { color: var(--hljs-comment); font-style: italic; }
 
 .moraya-editor pre .hljs-title,
-.moraya-editor pre .hljs-title\.class_,
-.moraya-editor pre .hljs-title\.function_ { color: var(--hljs-title); }
+.moraya-editor pre .hljs-title.class_,
+.moraya-editor pre .hljs-title.function_ { color: var(--hljs-title); }
 
 .moraya-editor pre .hljs-function { color: var(--hljs-function); }
 
 .moraya-editor pre .hljs-variable,
-.moraya-editor pre .hljs-variable\.language_ { color: var(--hljs-variable); }
+.moraya-editor pre .hljs-variable.language_ { color: var(--hljs-variable); }
 
 .moraya-editor pre .hljs-type,
 .moraya-editor pre .hljs-class { color: var(--hljs-type); }
@@ -329,9 +534,9 @@
 /* WebKit caret fix: WKWebView does not paint the native caret inside a <p>
    that only contains a <br> (i.e. an empty paragraph). The element IS focused
    and keystrokes DO register, but the blinking cursor is not rendered.
-   Fix: show a CSS-animated fake caret via ::before when the editor is focused
-   and contains only a single empty paragraph. The fake caret disappears as soon
-   as the user types, because the <br> is replaced by a text node. */
+   Fix: a ProseMirror plugin (caretFixPlugin in setup.ts) adds the
+   'caret-empty-para' class to whichever empty paragraph contains the cursor.
+   CSS then renders a fake animated caret via ::before. */
 @keyframes moraya-blink-caret {
   from, to { opacity: 1; }
   50% { opacity: 0; }
@@ -339,8 +544,8 @@
 
 /* Only apply on macOS (WebKit) — on Windows/Linux (Chromium) the native caret works fine
    and this CSS would create a double/ghost cursor. */
-.platform-macos .ProseMirror:focus > p:only-child:empty::before,
-.platform-macos .ProseMirror:focus > p:only-child:has(> br:only-child)::before {
+.platform-macos .ProseMirror:focus .caret-empty-para:empty::before,
+.platform-macos .ProseMirror:focus .caret-empty-para:has(> br:only-child)::before {
   content: '';
   display: inline-block;
   width: 1.5px;

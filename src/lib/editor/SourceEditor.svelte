@@ -30,8 +30,13 @@
 
   function autoResizeImmediate() {
     if (!textareaEl) return;
+    // Save scroll position: setting height='auto' temporarily collapses the textarea,
+    // which can cause the outer scroll container to lose its scrollTop.
+    const outer = textareaEl.closest('.source-editor-outer') as HTMLElement | null;
+    const savedScroll = outer?.scrollTop ?? 0;
     textareaEl.style.height = 'auto';
     textareaEl.style.height = textareaEl.scrollHeight + 'px';
+    if (outer) outer.scrollTop = savedScroll;
   }
 
   // RAF-throttled version to avoid sync reflow per keystroke
@@ -45,11 +50,21 @@
 
   function handleInput(event: Event) {
     const textarea = event.target as HTMLTextAreaElement;
+    const cursorStart = textarea.selectionStart;
+    const cursorEnd = textarea.selectionEnd;
     content = textarea.value;
     onContentChange?.(content);
     editorStore.setDirty(true);
     editorStore.setContent(content);
     autoResize();
+    // Restore cursor after Svelte re-renders the value={content} binding,
+    // which can reset cursor position (especially on paste).
+    tick().then(() => {
+      if (textareaEl) {
+        textareaEl.selectionStart = cursorStart;
+        textareaEl.selectionEnd = cursorEnd;
+      }
+    });
   }
 
   function handleKeydown(event: KeyboardEvent) {

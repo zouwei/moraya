@@ -8,6 +8,7 @@ import { cursor } from '@milkdown/plugin-cursor';
 import { enterHandlerPlugin } from './plugins/enter-handler';
 import { $prose } from '@milkdown/utils';
 import { Plugin, PluginKey } from '@milkdown/prose/state';
+import { Decoration, DecorationSet } from '@milkdown/prose/view';
 
 // ── Tier 1: Enhancement plugins (dynamic imports, loaded in parallel) ──
 
@@ -16,6 +17,7 @@ type MilkdownPlugin = any;
 
 interface Tier1Plugins {
   highlight?: MilkdownPlugin;
+  codeBlockView?: MilkdownPlugin;
   emoji?: MilkdownPlugin;
   math?: MilkdownPlugin;
   defList?: MilkdownPlugin[];
@@ -35,12 +37,14 @@ export function preloadEnhancementPlugins(): Promise<Tier1Plugins> {
 
   tier1Loading = Promise.allSettled([
     import('./plugins/highlight'),
+    import('./plugins/code-block-view'),
     import('./plugins/emoji'),
     import('./plugins/definition-list'),
     import('@milkdown/plugin-math'),
-  ]).then(([hl, em, dl, ma]) => {
+  ]).then(([hl, cbv, em, dl, ma]) => {
     const plugins: Tier1Plugins = {};
     if (hl.status === 'fulfilled') plugins.highlight = hl.value.highlightPlugin;
+    if (cbv.status === 'fulfilled') plugins.codeBlockView = cbv.value.codeBlockViewPlugin;
     if (em.status === 'fulfilled') plugins.emoji = em.value.emojiPlugin;
     if (dl.status === 'fulfilled') {
       const m = dl.value;
@@ -100,6 +104,78 @@ function createLazyChangePlugin(onChange: (markdown: string) => void) {
   });
 }
 
+/**
+ * WKWebView caret fix: macOS WebView does not render the native blinking caret
+ * inside empty paragraphs (containing only a <br>). This plugin adds a
+ * 'caret-empty-para' decoration to the empty paragraph under the cursor,
+ * allowing CSS to display a fake animated caret.
+ */
+/**
+ * Scroll-after-paste fix: Milkdown's clipboard plugin handles paste and
+ * returns true (consuming the event), so a plugin-level handlePaste never
+ * fires. Instead, use a capture-phase DOM paste listener to detect paste,
+ * then scroll .editor-wrapper to the cursor after the document updates.
+ */
+const scrollAfterPastePlugin = $prose(() => {
+  let pendingPaste = false;
+
+  return new Plugin({
+    key: new PluginKey('scroll-after-paste'),
+    view(editorView) {
+      function onPaste() { pendingPaste = true; }
+      editorView.dom.addEventListener('paste', onPaste, true);
+
+      return {
+        update(view, prevState) {
+          if (!pendingPaste || view.state.doc.eq(prevState.doc)) return;
+          pendingPaste = false;
+          requestAnimationFrame(() => {
+            try {
+              const { from } = view.state.selection;
+              const coords = view.coordsAtPos(from);
+              const wrapper = view.dom.closest('.editor-wrapper') as HTMLElement | null;
+              if (!wrapper) return;
+              const rect = wrapper.getBoundingClientRect();
+              if (coords.top < rect.top || coords.bottom > rect.bottom) {
+                wrapper.scrollTop += coords.top - rect.top - rect.height / 2;
+              }
+            } catch { /* ignore */ }
+          });
+        },
+        destroy() {
+          editorView.dom.removeEventListener('paste', onPaste, true);
+        },
+      };
+    },
+  });
+});
+
+const caretFixPlugin = $prose(() => {
+  const isMac = typeof document !== 'undefined' &&
+    document.body.classList.contains('platform-macos');
+
+  return new Plugin({
+    key: new PluginKey('moraya-caret-fix'),
+    props: {
+      decorations(state) {
+        if (!isMac) return DecorationSet.empty;
+        const { selection } = state;
+        if (!selection.empty) return DecorationSet.empty;
+
+        const { $from } = selection;
+        const parent = $from.parent;
+        if (parent.type.name === 'paragraph' && parent.content.size === 0) {
+          const pos = $from.before();
+          return DecorationSet.create(state.doc, [
+            Decoration.node(pos, pos + parent.nodeSize, { class: 'caret-empty-para' }),
+          ]);
+        }
+        return DecorationSet.empty;
+      },
+    },
+  });
+});
+
 export interface EditorOptions {
   root: HTMLElement;
   defaultValue?: string;
@@ -133,7 +209,9 @@ export async function createEditor(options: EditorOptions): Promise<Editor> {
     .use(history)
     .use(clipboard)
     .use(cursor)
-    .use(enterHandlerPlugin);
+    .use(enterHandlerPlugin)
+    .use(caretFixPlugin)
+    .use(scrollAfterPastePlugin);
 
   // Lazy change detection: serializes once per animation frame instead of per keystroke
   if (onChange) {
@@ -142,6 +220,7 @@ export async function createEditor(options: EditorOptions): Promise<Editor> {
 
   // Tier 1: Enhancement plugins (only attach successfully loaded ones)
   if (tier1.highlight) builder = builder.use(tier1.highlight);
+  if (tier1.codeBlockView) builder = builder.use(tier1.codeBlockView);
   if (tier1.emoji) builder = builder.use(tier1.emoji);
   if (tier1.math) builder = builder.use(tier1.math);
   if (tier1.defList) {

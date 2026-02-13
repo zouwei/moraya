@@ -73,9 +73,22 @@ hljs.registerLanguage('tsx', typescript);
 const highlightPluginKey = new PluginKey('syntax-highlight');
 
 interface HljsNode {
-  kind?: string;
+  scope?: string;
   children?: (HljsNode | string)[];
-  value?: string;
+}
+
+/**
+ * Convert a highlight.js scope string to CSS class names.
+ * "keyword" → ["hljs-keyword"]
+ * "title.function" → ["hljs-title", "function_"]
+ */
+function scopeToClasses(scope: string): string[] {
+  const parts = scope.split('.');
+  const classes = [`hljs-${parts[0]}`];
+  for (let i = 1; i < parts.length; i++) {
+    classes.push(`${parts[i]}_`);
+  }
+  return classes;
 }
 
 /**
@@ -90,13 +103,13 @@ function flattenHljsTree(nodes: (HljsNode | string)[], parentClasses: string[] =
         result.push({ text: node, classes: parentClasses });
       }
     } else {
-      const classes = node.kind ? [...parentClasses, `hljs-${node.kind}`] : parentClasses;
+      // highlight.js v11 uses `scope` (e.g. "keyword", "title.function").
+      // Dotted scopes become multiple classes: "title.function" → "hljs-title function_"
+      const classes = node.scope
+        ? [...parentClasses, ...scopeToClasses(node.scope)]
+        : parentClasses;
       if (node.children) {
         result.push(...flattenHljsTree(node.children, classes));
-      } else if (node.value) {
-        if (node.value.length > 0) {
-          result.push({ text: node.value, classes });
-        }
       }
     }
   }
