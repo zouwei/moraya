@@ -1013,7 +1013,6 @@
   .editor-root {
     max-width: min(800px, 100%);
     margin: 0 auto;
-    min-height: 100%;
     word-wrap: break-word;
     overflow-wrap: break-word;
   }

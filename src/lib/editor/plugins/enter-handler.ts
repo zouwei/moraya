@@ -11,7 +11,8 @@
  */
 
 import { $prose } from '@milkdown/utils';
-import { Plugin, PluginKey } from '@milkdown/prose/state';
+import { Plugin, PluginKey, TextSelection } from '@milkdown/prose/state';
+import type { Schema, Node as PmNode } from '@milkdown/prose/model';
 import {
   splitBlock,
   chainCommands,
@@ -21,6 +22,57 @@ import {
 } from '@milkdown/prose/commands';
 
 const enterHandlerKey = new PluginKey('enter-handler');
+
+/**
+ * Parse a pipe-delimited table header line into cell texts.
+ * Returns null if the text is not a valid table header (needs >= 2 columns,
+ * must start/end with |, rejects separator-only rows like | --- | --- |).
+ */
+function parsePipeTableHeader(text: string): string[] | null {
+  if (!/^\|(.+\|)+\s*$/.test(text)) return null;
+
+  const cells = text.split('|').slice(1, -1).map(s => s.trim());
+  if (cells.length < 2) return null;
+
+  // Reject separator-only rows (e.g. | --- | :---: | ---: |)
+  if (cells.every(c => /^:?-+:?$/.test(c))) return null;
+
+  return cells;
+}
+
+/**
+ * Build a GFM table node from header text values using raw ProseMirror schema.
+ * Creates: header row (pre-filled) + one empty data row.
+ */
+function buildTableFromHeaders(schema: Schema, headers: string[]): PmNode | null {
+  const tableType = schema.nodes.table;
+  const headerRowType = schema.nodes.table_header_row;
+  const dataRowType = schema.nodes.table_row;
+  const headerCellType = schema.nodes.table_header;
+  const dataCellType = schema.nodes.table_cell;
+  const paragraphType = schema.nodes.paragraph;
+
+  if (!tableType || !headerRowType || !dataRowType ||
+      !headerCellType || !dataCellType || !paragraphType) {
+    return null;
+  }
+
+  const headerCells = headers.map(text => {
+    const para = text
+      ? paragraphType.create(null, schema.text(text))
+      : paragraphType.create();
+    return headerCellType.create({ alignment: 'left' }, para);
+  });
+
+  const emptyCells = headers.map(() =>
+    dataCellType.createAndFill({ alignment: 'left' })!
+  );
+
+  const headerRow = headerRowType.create(null, headerCells);
+  const dataRow = dataRowType.create(null, emptyCells);
+
+  return tableType.create(null, [headerRow, dataRow]);
+}
 
 /**
  * Milkdown plugin that intercepts Enter at the props level (higher priority than keymaps).
@@ -90,6 +142,35 @@ export const enterHandlerPlugin = $prose(() => {
                 tr.replaceWith(pos, end, codeBlockType.create({ language }));
                 view.dispatch(tr);
                 return true;
+              }
+            }
+
+            // Pipe-separated table header: | col1 | col2 | ... |
+            const headers = parsePipeTableHeader(text);
+            if (headers) {
+              // Ensure the parent context allows a table node (not inside blockquote/table cell)
+              const $para = view.state.doc.resolve($from.before());
+              const parentNode = $para.node($para.depth);
+              const tableType = view.state.schema.nodes.table;
+              if (tableType && parentNode.type.contentMatch.matchType(tableType)) {
+                const tableNode = buildTableFromHeaders(view.state.schema, headers);
+                if (tableNode) {
+                  const pos = $from.before();
+                  const end = $from.after();
+                  const tr = view.state.tr;
+                  tr.replaceWith(pos, end, tableNode);
+
+                  // Place cursor in first cell of the data row
+                  const inserted = tr.doc.nodeAt(pos);
+                  if (inserted && inserted.childCount >= 2) {
+                    const headerRowSize = inserted.child(0).nodeSize;
+                    const $dataRow = tr.doc.resolve(pos + 1 + headerRowSize + 1);
+                    tr.setSelection(TextSelection.near($dataRow));
+                  }
+                  tr.scrollIntoView();
+                  view.dispatch(tr);
+                  return true;
+                }
               }
             }
           }
