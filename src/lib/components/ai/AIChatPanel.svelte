@@ -282,7 +282,9 @@
       resizeRaf = undefined;
       if (!inputEl) return;
       inputEl.style.height = 'auto';
-      inputEl.style.height = Math.min(inputEl.scrollHeight, maxInputHeight) + 'px';
+      const scrollH = inputEl.scrollHeight;
+      inputEl.style.height = Math.min(scrollH, maxInputHeight) + 'px';
+      inputEl.style.overflowY = scrollH > maxInputHeight ? 'auto' : 'hidden';
     });
   }
 
@@ -1087,7 +1089,7 @@
     color: var(--text-primary);
     line-height: 1.4;
     outline: none;
-    overflow-y: auto;
+    overflow-y: hidden;
   }
 
   .ai-input:focus {
