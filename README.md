@@ -240,7 +240,7 @@ Each AI response has action buttons below it:
 
 * [x] **v0.9.0** — Code Block Enhancement: Language label, language selector, copy button, CodeBlock NodeView toolbar → [Detailed Requirements](docs/iterations/v0.9.0-code-block-enhancement.md)
 
-* [ ] **v0.10.0** — Mermaid Diagrams: 9 diagram types, edit/preview dual mode, lazy-loaded rendering, theme adaptation → [Detailed Requirements](docs/iterations/v0.10.0-mermaid-diagrams.md)
+* [x] **v0.10.0** — Mermaid Diagrams: 9 diagram types, edit/preview dual mode, lazy-loaded rendering, theme adaptation → [Detailed Requirements](docs/iterations/v0.10.0-mermaid-diagrams.md)
 
 ## Recommended IDE Setup
 

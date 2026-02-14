@@ -407,6 +407,13 @@
     "replace": "Replace",
     "replaceAll": "Replace All"
   },
+  "mermaid": {
+    "loading": "Loading diagram...",
+    "error": "Diagram render failed",
+    "edit": "Edit",
+    "preview": "Preview",
+    "empty": "Empty diagram"
+  },
   "export": {
     "exportAs": "Export as {format}",
     "pdf": "PDF",

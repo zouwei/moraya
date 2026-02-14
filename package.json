@@ -1,6 +1,6 @@
 {
   "name": "moraya",
-  "version": "0.9.1",
+  "version": "0.10.0",
   "description": "",
   "type": "module",
   "scripts": {
@@ -42,6 +42,7 @@
     "html2canvas": "^1.4.1",
     "jspdf": "^4.1.0",
     "katex": "^0.16.28",
+    "mermaid": "^11.12.2",
     "node-emoji": "^2.2.0",
     "remark-definition-list": "^2.0.0"
   },

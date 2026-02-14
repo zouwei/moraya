@@ -922,7 +922,91 @@ ${tr('welcome.tip')}
     }
   }
 
-  // Split mode scroll sync — only sync from the pane the user is hovering
+  // Split mode scroll sync — block-level anchor mapping
+  //
+  // Instead of mapping by global scroll fraction (which breaks when content
+  // heights diverge, e.g. mermaid code blocks → tall SVG diagrams), we:
+  //   1. Walk ProseMirror's top-level DOM children to get visual Y positions
+  //   2. Estimate each block's source line count from its DOM content
+  //   3. Build (sourceY, visualY) anchor pairs
+  //   4. Interpolate between the nearest two anchors when scrolling
+
+  type ScrollAnchor = { sourceY: number; visualY: number };
+
+  function buildBlockAnchors(
+    sourceScroll: HTMLElement,
+    visualScroll: HTMLElement,
+  ): ScrollAnchor[] {
+    const textarea = sourceScroll.querySelector('.source-textarea') as HTMLTextAreaElement;
+    const pm = visualScroll.querySelector('.ProseMirror') as HTMLElement;
+    if (!textarea || !pm) return [];
+
+    const lineHeight = parseFloat(getComputedStyle(textarea).lineHeight) || 24;
+    const srcRect = sourceScroll.getBoundingClientRect();
+    const visRect = visualScroll.getBoundingClientRect();
+    const srcST = sourceScroll.scrollTop;
+    const visST = visualScroll.scrollTop;
+    const textareaTop = textarea.getBoundingClientRect().top - srcRect.top + srcST;
+
+    const anchors: ScrollAnchor[] = [{ sourceY: 0, visualY: 0 }];
+    let currentLine = 0;
+
+    for (const child of pm.children) {
+      const el = child as HTMLElement;
+      const vY = el.getBoundingClientRect().top - visRect.top + visST;
+      const sY = textareaTop + currentLine * lineHeight;
+      anchors.push({ sourceY: sY, visualY: vY });
+
+      // Estimate how many source lines this block occupies
+      const tag = el.tagName.toLowerCase();
+      if (el.classList.contains('code-block-wrapper')) {
+        const codeEl = el.querySelector('.code-block-code');
+        const codeLines = (codeEl?.textContent || '').split('\n').length;
+        currentLine += codeLines + 2; // + opening/closing fence
+      } else if (tag === 'table') {
+        currentLine += el.querySelectorAll('tr').length + 1; // +1 separator
+      } else if (/^h[1-6]$/.test(tag)) {
+        currentLine += 1;
+      } else if (tag === 'hr') {
+        currentLine += 1;
+      } else if (tag === 'ul' || tag === 'ol') {
+        currentLine += el.querySelectorAll('li').length;
+      } else if (tag === 'blockquote') {
+        currentLine += (el.textContent || '').split('\n').length;
+      } else {
+        currentLine += Math.max(1, (el.textContent || '').split('\n').length);
+      }
+      currentLine += 1; // blank line separator
+    }
+
+    anchors.push({
+      sourceY: sourceScroll.scrollHeight,
+      visualY: visualScroll.scrollHeight,
+    });
+    return anchors;
+  }
+
+  function interpolateAnchors(
+    anchors: ScrollAnchor[],
+    scrollTop: number,
+    fromKey: 'sourceY' | 'visualY',
+    toKey: 'sourceY' | 'visualY',
+  ): number {
+    if (anchors.length < 2) return scrollTop;
+    // Find bounding segment
+    for (let i = 1; i < anchors.length; i++) {
+      if (scrollTop <= anchors[i][fromKey]) {
+        const lo = anchors[i - 1];
+        const hi = anchors[i];
+        const range = hi[fromKey] - lo[fromKey];
+        const t = range > 0 ? (scrollTop - lo[fromKey]) / range : 0;
+        return lo[toKey] + t * (hi[toKey] - lo[toKey]);
+      }
+    }
+    // Past last anchor
+    return anchors[anchors.length - 1][toKey];
+  }
+
   function setupScrollSync() {
     if (!splitSourceEl || !splitVisualEl) return;
     const sourceScroll = splitSourceEl.querySelector('.source-editor-outer') as HTMLElement;
@@ -930,29 +1014,55 @@ ${tr('welcome.tip')}
     if (!sourceScroll || !visualScroll) return;
 
     let scrollRaf: number | undefined;
+    let cachedAnchors: ScrollAnchor[] | null = null;
 
-    function syncFrom(source: HTMLElement, target: HTMLElement) {
-      // Batch DOM reads then write to avoid layout thrashing
-      const maxScroll = source.scrollHeight - source.clientHeight;
-      const ratio = maxScroll > 0 ? source.scrollTop / maxScroll : 0;
-      const targetMax = target.scrollHeight - target.clientHeight;
-      target.scrollTop = ratio * targetMax;
+    function invalidate() { cachedAnchors = null; }
+
+    function getAnchors(): ScrollAnchor[] {
+      if (!cachedAnchors) cachedAnchors = buildBlockAnchors(sourceScroll, visualScroll);
+      return cachedAnchors;
     }
+
+    // Invalidate anchors when visual DOM changes (content edits, mermaid renders)
+    const pm = visualScroll.querySelector('.ProseMirror');
+    const observer = pm ? new MutationObserver(invalidate) : null;
+    observer?.observe(pm!, { childList: true, subtree: true, attributes: false });
+
+    // Also invalidate on resize (layout reflow changes block heights)
+    const resizeObs = new ResizeObserver(invalidate);
+    resizeObs.observe(sourceScroll);
+    resizeObs.observe(visualScroll);
 
     const onSourceScroll = () => {
       if (activeScrollPane !== 'source') return;
-      if (scrollRaf) return; // RAF-throttle: skip if pending
+      if (scrollRaf) return;
       scrollRaf = requestAnimationFrame(() => {
         scrollRaf = undefined;
-        syncFrom(sourceScroll, visualScroll);
+        const anchors = getAnchors();
+        if (anchors.length < 2) {
+          // Fallback to fraction-based
+          const max = sourceScroll.scrollHeight - sourceScroll.clientHeight;
+          const ratio = max > 0 ? sourceScroll.scrollTop / max : 0;
+          visualScroll.scrollTop = ratio * (visualScroll.scrollHeight - visualScroll.clientHeight);
+        } else {
+          visualScroll.scrollTop = interpolateAnchors(anchors, sourceScroll.scrollTop, 'sourceY', 'visualY');
+        }
       });
     };
+
     const onVisualScroll = () => {
       if (activeScrollPane !== 'visual') return;
       if (scrollRaf) return;
       scrollRaf = requestAnimationFrame(() => {
         scrollRaf = undefined;
-        syncFrom(visualScroll, sourceScroll);
+        const anchors = getAnchors();
+        if (anchors.length < 2) {
+          const max = visualScroll.scrollHeight - visualScroll.clientHeight;
+          const ratio = max > 0 ? visualScroll.scrollTop / max : 0;
+          sourceScroll.scrollTop = ratio * (sourceScroll.scrollHeight - sourceScroll.clientHeight);
+        } else {
+          sourceScroll.scrollTop = interpolateAnchors(anchors, visualScroll.scrollTop, 'visualY', 'sourceY');
+        }
       });
     };
 
@@ -969,6 +1079,8 @@ ${tr('welcome.tip')}
 
     return () => {
       if (scrollRaf) cancelAnimationFrame(scrollRaf);
+      observer?.disconnect();
+      resizeObs.disconnect();
       sourceScroll.removeEventListener('scroll', onSourceScroll);
       visualScroll.removeEventListener('scroll', onVisualScroll);
       sourceScroll.removeEventListener('mouseenter', onSourceEnter);

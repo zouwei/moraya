@@ -8,6 +8,40 @@
 
 import { $view } from '@milkdown/utils';
 import { codeBlockSchema } from '@milkdown/preset-commonmark';
+import type { renderMermaid as RenderFn, updateMermaidTheme as UpdateThemeFn } from './mermaid-renderer';
+
+// ── Mermaid lazy-load wrapper ─────────────────────
+
+type MermaidApi = { renderMermaid: typeof RenderFn; updateMermaidTheme: typeof UpdateThemeFn };
+let mermaidApi: MermaidApi | null = null;
+let mermaidLoading: Promise<MermaidApi | null> | null = null;
+
+function loadMermaidApi() {
+  if (mermaidApi) return Promise.resolve(mermaidApi);
+  if (mermaidLoading) return mermaidLoading;
+  mermaidLoading = import('./mermaid-renderer').then(mod => {
+    mermaidApi = mod;
+    return mermaidApi;
+  });
+  return mermaidLoading;
+}
+
+// Theme change listener: re-render all mermaid previews when theme switches
+let themeObserverInstalled = false;
+const mermaidReRenderCallbacks = new Set<() => void>();
+
+function installThemeObserver() {
+  if (themeObserverInstalled) return;
+  themeObserverInstalled = true;
+  const observer = new MutationObserver(() => {
+    if (mermaidApi) mermaidApi.updateMermaidTheme();
+    for (const cb of mermaidReRenderCallbacks) cb();
+  });
+  observer.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['data-theme'],
+  });
+}
 
 // ── Language registry ─────────────────────────────
 
@@ -273,6 +307,14 @@ function createLanguagePicker(
   return { destroy };
 }
 
+// ── Text escape helper ────────────────────────────
+
+function escapeText(str: string): string {
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
 // ── Copy button helper ────────────────────────────
 
 function handleCopy(btn: HTMLButtonElement, codeEl: HTMLElement) {
@@ -308,6 +350,11 @@ export const codeBlockViewPlugin = $view(codeBlockSchema.node, () => {
     langLabel.textContent = findLanguageLabel(node.attrs.language || '');
     langLabel.title = 'Change language';
 
+    // Mermaid toggle button (inserted before copy button)
+    const toggleBtn = document.createElement('button');
+    toggleBtn.className = 'mermaid-toggle-btn';
+    toggleBtn.type = 'button';
+
     // Copy button
     const copyBtn = document.createElement('button');
     copyBtn.className = 'code-copy-btn';
@@ -322,8 +369,14 @@ export const codeBlockViewPlugin = $view(codeBlockSchema.node, () => {
       '<path d="M20 6L9 17l-5-5"/>' +
       '</svg>';
 
+    // Toolbar right-side group: toggleBtn + copyBtn
+    const toolbarRight = document.createElement('div');
+    toolbarRight.className = 'code-toolbar-right';
+    toolbarRight.appendChild(toggleBtn);
+    toolbarRight.appendChild(copyBtn);
+
     toolbar.appendChild(langLabel);
-    toolbar.appendChild(copyBtn);
+    toolbar.appendChild(toolbarRight);
 
     const pre = document.createElement('pre');
     pre.className = 'code-block-pre';
@@ -331,8 +384,81 @@ export const codeBlockViewPlugin = $view(codeBlockSchema.node, () => {
     code.className = 'code-block-code';
     pre.appendChild(code);
 
+    // Mermaid preview container
+    const mermaidPreview = document.createElement('div');
+    mermaidPreview.className = 'mermaid-preview';
+    mermaidPreview.setAttribute('contenteditable', 'false');
+    mermaidPreview.style.display = 'none';
+
     wrapper.appendChild(toolbar);
     wrapper.appendChild(pre);
+    wrapper.appendChild(mermaidPreview);
+
+    // ── Mermaid state ──
+    let isEditing = false;
+    let isMermaid = (node.attrs.language === 'mermaid');
+    let lastRenderedCode = '';
+    let renderTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function syncMermaidMode() {
+      const showPreview = isMermaid && !isEditing;
+      pre.style.display = showPreview ? 'none' : '';
+      mermaidPreview.style.display = showPreview ? 'flex' : 'none';
+      // CSS default is display:none; must set inline to override
+      toggleBtn.style.display = isMermaid ? 'inline-flex' : 'none';
+      wrapper.classList.toggle('mermaid-preview-mode', showPreview);
+      toggleBtn.textContent = isEditing ? '👁 Preview' : '✏️ Edit';
+      if (showPreview) triggerMermaidRender();
+    }
+
+    function triggerMermaidRender() {
+      const codeText = code.textContent || '';
+      if (!codeText.trim()) {
+        mermaidPreview.innerHTML = '<div class="mermaid-empty">Empty diagram</div>';
+        lastRenderedCode = '';
+        return;
+      }
+      if (codeText === lastRenderedCode) return;
+      lastRenderedCode = codeText;
+
+      // Debounce rapid re-renders
+      if (renderTimer) clearTimeout(renderTimer);
+      renderTimer = setTimeout(async () => {
+        mermaidPreview.innerHTML = '<div class="mermaid-loading"><div class="mermaid-spinner"></div>Loading diagram...</div>';
+        try {
+          const api = await loadMermaidApi();
+          if (!api) return;
+          const result = await api.renderMermaid(codeText);
+          // Guard: content may have changed during async render
+          if (code.textContent !== codeText) return;
+          if ('svg' in result) {
+            mermaidPreview.innerHTML = result.svg;
+          } else {
+            mermaidPreview.innerHTML = `<div class="mermaid-error">${escapeText(result.error)}</div>`;
+          }
+        } catch {
+          mermaidPreview.innerHTML = '<div class="mermaid-error">Render failed</div>';
+        }
+      }, 150);
+    }
+
+    // Theme change: re-render this block
+    function onThemeChange() {
+      if (isMermaid && !isEditing) {
+        lastRenderedCode = ''; // force re-render
+        triggerMermaidRender();
+      }
+    }
+
+    if (isMermaid) {
+      installThemeObserver();
+      mermaidReRenderCallbacks.add(onThemeChange);
+      // Defer: ProseMirror populates contentDOM AFTER NodeView factory returns,
+      // so code.textContent is empty here. Wait one frame for content to arrive.
+      requestAnimationFrame(() => syncMermaidMode());
+    } else {
+      syncMermaidMode();
+    }
 
     // ── Language picker ──
     let activePicker: { destroy: () => void } | null = null;
@@ -373,6 +499,24 @@ export const codeBlockViewPlugin = $view(codeBlockSchema.node, () => {
       });
     });
 
+    // ── Mermaid toggle button ──
+    toggleBtn.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      isEditing = !isEditing;
+      syncMermaidMode();
+      if (isEditing) view.focus();
+    });
+
+    // Click SVG preview → enter edit mode
+    mermaidPreview.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      isEditing = true;
+      syncMermaidMode();
+      view.focus();
+    });
+
     // ── Copy button ──
     copyBtn.addEventListener('mousedown', (e) => {
       e.preventDefault();
@@ -399,9 +543,22 @@ export const codeBlockViewPlugin = $view(codeBlockSchema.node, () => {
 
       update(updatedNode) {
         if (updatedNode.type.name !== 'code_block') return false;
-        // Sync current node reference for language picker
         node = updatedNode;
         langLabel.textContent = findLanguageLabel(updatedNode.attrs.language || '');
+
+        // Mermaid detection & mode sync
+        const wasMermaid = isMermaid;
+        isMermaid = (updatedNode.attrs.language === 'mermaid');
+        if (isMermaid !== wasMermaid) {
+          isEditing = false;
+          if (isMermaid) {
+            installThemeObserver();
+            mermaidReRenderCallbacks.add(onThemeChange);
+          } else {
+            mermaidReRenderCallbacks.delete(onThemeChange);
+          }
+        }
+        syncMermaidMode();
         return true;
       },
 
@@ -418,6 +575,8 @@ export const codeBlockViewPlugin = $view(codeBlockSchema.node, () => {
           activePicker.destroy();
           activePicker = null;
         }
+        if (renderTimer) clearTimeout(renderTimer);
+        mermaidReRenderCallbacks.delete(onThemeChange);
       },
     };
   };

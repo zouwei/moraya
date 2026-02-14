@@ -34,8 +34,10 @@ export const exportOptions: ExportOption[] = [
  * Convert Markdown to HTML with Moraya styling.
  * Uses KaTeX for math rendering and proper code block handling.
  */
-export function markdownToHtml(markdown: string, includeStyles: boolean = true): string {
-  const bodyHtml = sanitizeHtml(markdownToHtmlBody(markdown));
+export async function markdownToHtml(markdown: string, includeStyles: boolean = true): Promise<string> {
+  const rawHtml = markdownToHtmlBody(markdown);
+  const renderedHtml = await renderMermaidInHtml(rawHtml);
+  const bodyHtml = sanitizeHtml(renderedHtml);
 
   if (!includeStyles) {
     return `<!DOCTYPE html>
@@ -97,7 +99,11 @@ export function markdownToHtmlBody(md: string): string {
   let html = md;
 
   // 1. Code blocks (``` ... ```) — protect from further processing
+  // Mermaid blocks get a wrapper div for async SVG rendering during export
   html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_m, lang, code) => {
+    if (lang === 'mermaid') {
+      return ph(`<div class="mermaid-export"><pre><code class="language-mermaid">${escapeHtml(code.trimEnd())}</code></pre></div>`);
+    }
     const escaped = escapeHtml(code.trimEnd());
     const langAttr = lang ? ` class="language-${lang}"` : '';
     return ph(`<pre><code${langAttr}>${escaped}</code></pre>`);
@@ -201,6 +207,35 @@ export function markdownToHtmlBody(md: string): string {
   return html;
 }
 
+/**
+ * Render mermaid code blocks in HTML to inline SVG.
+ * Finds `<div class="mermaid-export" data-mermaid-index="N">` placeholders
+ * and replaces their content with rendered SVG. Fails gracefully — unrenderable
+ * blocks keep the original `<pre><code>` fallback.
+ */
+async function renderMermaidInHtml(html: string): Promise<string> {
+  if (!html.includes('mermaid-export')) return html;
+  try {
+    const { renderMermaid } = await import('$lib/editor/plugins/mermaid-renderer');
+    // Find all mermaid-export blocks and extract their code
+    const regex = /<div class="mermaid-export"><pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre><\/div>/g;
+    let match;
+    const renders: { full: string; code: string }[] = [];
+    while ((match = regex.exec(html)) !== null) {
+      renders.push({ full: match[0], code: unescapeHtml(match[1]) });
+    }
+    for (const r of renders) {
+      const result = await renderMermaid(r.code);
+      if ('svg' in result) {
+        html = html.replace(r.full, `<div class="mermaid-export">${result.svg}</div>`);
+      }
+    }
+  } catch {
+    // Mermaid not available — keep code blocks as-is
+  }
+  return html;
+}
+
 function escapeHtml(str: string): string {
   return str
     .replace(/&/g, '&amp;')
@@ -208,6 +243,15 @@ function escapeHtml(str: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+function unescapeHtml(str: string): string {
+  return str
+    .replace(/&#039;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&gt;/g, '>')
+    .replace(/&lt;/g, '<')
+    .replace(/&amp;/g, '&');
 }
 
 /** Dangerous URL protocols that must be rejected in href/src attributes */
@@ -333,7 +377,7 @@ async function getDocumentCanvas(markdown: string): Promise<HTMLCanvasElement> {
   try {
     return await captureEditorToCanvas();
   } catch {
-    const htmlContent = markdownToHtml(markdown, true);
+    const htmlContent = await markdownToHtml(markdown, true);
     return await renderHtmlToCanvas(htmlContent);
   }
 }
@@ -415,10 +459,10 @@ export async function exportDocument(markdown: string, format: ExportFormat): Pr
 
   switch (format) {
     case 'html':
-      await invoke('write_file', { path, content: markdownToHtml(markdown, true) });
+      await invoke('write_file', { path, content: await markdownToHtml(markdown, true) });
       break;
     case 'html-plain':
-      await invoke('write_file', { path, content: markdownToHtml(markdown, false) });
+      await invoke('write_file', { path, content: await markdownToHtml(markdown, false) });
       break;
     case 'latex':
       await invoke('write_file', { path, content: markdownToLatex(markdown) });
@@ -430,7 +474,7 @@ export async function exportDocument(markdown: string, format: ExportFormat): Pr
       await exportAsImage(markdown, path);
       break;
     case 'doc':
-      await invoke('write_file', { path, content: markdownToHtml(markdown, true) });
+      await invoke('write_file', { path, content: await markdownToHtml(markdown, true) });
       break;
     default:
       await invoke('write_file', { path, content: markdown });

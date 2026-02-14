@@ -407,6 +407,13 @@
     "replace": "替换",
     "replaceAll": "全部替换"
   },
+  "mermaid": {
+    "loading": "图表加载中...",
+    "error": "图表渲染失败",
+    "edit": "编辑",
+    "preview": "预览",
+    "empty": "空图表"
+  },
   "export": {
     "exportAs": "导出为 {format}",
     "pdf": "PDF",
