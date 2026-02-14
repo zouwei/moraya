@@ -539,7 +539,9 @@ ${tr('welcome.tip')}
     // View shortcuts
     if (mod && event.key === '\\') {
       event.preventDefault();
-      settingsStore.toggleSidebar();
+      // In Tauri, the native menu accelerator (CmdOrCtrl+\) handles this via
+      // menu:view_sidebar event. Only toggle here for non-Tauri environments.
+      if (!isTauri) settingsStore.toggleSidebar();
       return;
     }
 
@@ -567,7 +569,9 @@ ${tr('welcome.tip')}
     // AI Panel toggle: Cmd+J (avoids Ctrl+Shift+I DevTools conflict on Windows)
     if (mod && !event.shiftKey && event.key === 'j') {
       event.preventDefault();
-      showAIPanel = !showAIPanel;
+      // In Tauri, the native menu accelerator (CmdOrCtrl+J) handles this via
+      // menu:view_ai_panel event. Only toggle here for non-Tauri environments.
+      if (!isTauri) showAIPanel = !showAIPanel;
       return;
     }
 
@@ -753,13 +757,17 @@ ${tr('welcome.tip')}
 
   async function handleInsertImage(data: { src: string; alt: string }) {
     showImageDialog = false;
-    const src = isLocalPath(data.src) ? await readImageAsBlobUrl(data.src) : data.src;
-    const mode = editorStore.getState().editorMode;
-    if (mode === 'source') {
-      const imgMarkdown = `![${data.alt}](${src})`;
-      content = content.trimEnd() + '\n\n' + imgMarkdown + '\n';
-    } else {
-      runEditorCommand(insertImageCommand, { src, alt: data.alt });
+    try {
+      const src = isLocalPath(data.src) ? await readImageAsBlobUrl(data.src) : data.src;
+      const mode = editorStore.getState().editorMode;
+      if (mode === 'source') {
+        const imgMarkdown = `![${data.alt}](${src})`;
+        content = content.trimEnd() + '\n\n' + imgMarkdown + '\n';
+      } else {
+        runEditorCommand(insertImageCommand, { src, alt: data.alt });
+      }
+    } catch (e) {
+      console.warn('[Image] handleInsertImage failed:', e);
     }
   }
 

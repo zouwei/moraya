@@ -2,22 +2,22 @@
 
 **Moraya** is a free, open-source, ultra-lightweight (~10MB) WYSIWYG Markdown editor built with Rust + Tauri v2. Inspired by minimalist seamless editing, it delivers an elegant writing experience while integrating **the most advanced local AI ecosystem and MCP (Model Context Protocol) capabilities** — turning your editor into a powerful, privacy-first AI agent platform.
 
-> **mora** (Latin: "a moment") + **ya** (Chinese: "elegance") = **Moraya**\\\\\
+> **mora** (Latin: "a moment") + **ya** (Chinese: "elegance") = **Moraya**\
 > Privacy-first • Fully local • Infinitely extensible AI
 
-![Visual Editor](https://raw.githubusercontent.com/zouwei/resource/master/images/moraya/20260208-143332.-image.png)\\\
-![AI Chat Panel](https://raw.githubusercontent.com/zouwei/resource/master/images/moraya/20260208-143226.-image.png)\\\
+![Visual Editor](https://raw.githubusercontent.com/zouwei/resource/master/images/moraya/20260208-143332.-image.png)
+![AI Chat Panel](https://raw.githubusercontent.com/zouwei/resource/master/images/moraya/20260208-143226.-image.png)
 ![MCP Marketplace](https://raw.githubusercontent.com/zouwei/resource/master/images/moraya/20260208-143349.-image.png)
 
-![](blob:tauri://localhost/9bd68561-bb34-4a9b-a3fd-a218eecf836a)
+![](https://raw.githubusercontent.com/zouwei/resource/master/images/moraya/20260214-165318.-image.png)
 
-![](blob:tauri://localhost/c48023bf-366f-4e02-99d5-5cf1cfb5901d)
+![](https://raw.githubusercontent.com/zouwei/resource/master/images/moraya/20260214-165329.-image.png)
 
 ## Why Moraya? Key Advantages
 
 * **Ultra-Lightweight & Native Performance** — \~10MB installer, instant launch, tiny memory footprint.
 
-* **True Instant WYSIWYG** — Type `# `     and see a heading instantly (Milkdown/ProseMirror-powered).
+* **True Instant WYSIWYG** — Type `# `                  and see a heading instantly (Milkdown/ProseMirror-powered).
 
 * **Most Powerful Local AI Integration** — Multi-provider streaming chat (Claude, OpenAI, Gemini, DeepSeek, Ollama, custom endpoints), 71+ AI templates across 10 categories, AI image generation, and smart writing commands.
 

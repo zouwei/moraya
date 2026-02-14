@@ -86,10 +86,12 @@
       // - current line is non-empty
       // - next line exists and is non-empty (single newline, not paragraph break)
       // - line doesn't already end with two+ spaces (existing hard break)
+      // - line doesn't already end with backslash (backslash hard break syntax)
       const nextLine = lines[i + 1];
       if (
         line.length > 0 &&
         !line.endsWith('  ') &&
+        !line.endsWith('\\') &&
         nextLine !== undefined &&
         nextLine.length > 0
       ) {
@@ -233,8 +235,8 @@
         const tr = view.state.tr.insert(pos, node);
         view.dispatch(tr);
       });
-    } catch {
-      // Fallback: insert at current selection
+    } catch (e) {
+      console.warn('[Image] insertImageAtPos failed:', e);
     }
   }
 
@@ -248,8 +250,8 @@
         const tr = view.state.tr.insert(view.state.doc.content.size, node);
         view.dispatch(tr);
       });
-    } catch {
-      // Insert failed
+    } catch (e) {
+      console.warn('[Image] insertImageAtEnd failed:', e);
     }
   }
 
@@ -264,8 +266,8 @@
         const tr = view.state.tr.insert(from, node);
         view.dispatch(tr);
       });
-    } catch {
-      // Fallback
+    } catch (e) {
+      console.warn('[Image] insertImageAtCursor failed:', e);
     }
   }
 
@@ -288,8 +290,8 @@
           view.dispatch(tr);
         }
       });
-    } catch {
-      // Upload failed silently
+    } catch (e) {
+      console.warn('[Image] uploadAndReplace failed:', e);
     }
   }
 
@@ -703,8 +705,8 @@
           });
           if (posResult) dropPos = posResult.pos;
         });
-      } catch {
-        // Position resolution failed
+      } catch (e) {
+        console.warn('[Image] Drop position resolution failed:', e);
       }
 
       // Read each image file and insert as blob URL
@@ -722,8 +724,8 @@
           if (target?.autoUpload) {
             uploadAndReplace(blobUrl, targetToConfig(target));
           }
-        } catch {
-          // Failed to read image file
+        } catch (e) {
+          console.warn('[Image] Failed to read/insert image file:', imgPath, e);
         }
       }
     });
@@ -749,8 +751,18 @@
     }
   }
 
+  // Track whether $effect has run at least once (skip first run = initial mount).
+  // On mount, the editor is already initialized with `defaultValue: content`,
+  // so applying replaceAll immediately would double-process the markdown and
+  // corrupt backslash escapes.
+  let effectMounted = false;
+
   $effect(() => {
     const current = content;
+    if (!effectMounted) {
+      effectMounted = true;
+      return;
+    }
     if (internalChange) {
       internalChange = false;
       return;

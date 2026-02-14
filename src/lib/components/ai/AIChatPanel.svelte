@@ -291,6 +291,7 @@
   function resetInputHeight() {
     if (!inputEl) return;
     inputEl.style.height = 'auto';
+    inputEl.style.overflowY = 'hidden';
   }
 
   // Compute max height for 5 lines based on line-height
