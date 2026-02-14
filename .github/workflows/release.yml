@@ -95,11 +95,6 @@ jobs:
 
             Run the `.msi` installer.
 
-            ### iPad
-
-            Available on TestFlight. [Join Beta →](https://testflight.apple.com/join/XXXXX)
-
-            Or download the `.ipa` file below for Ad Hoc sideloading.
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}

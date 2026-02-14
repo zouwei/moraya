@@ -1,6 +1,6 @@
 # Moraya — The Local AI-Era Minimalist Markdown Editor
 
-**Moraya** is a free, open-source, ultra-lightweight (~5MB) WYSIWYG Markdown editor built with Rust + Tauri v2. Inspired by minimalist seamless editing, it delivers an elegant writing experience while integrating **the most advanced local AI ecosystem and MCP (Model Context Protocol) capabilities** — turning your editor into a powerful, privacy-first AI agent platform.
+**Moraya** is a free, open-source, ultra-lightweight (~10MB) WYSIWYG Markdown editor built with Rust + Tauri v2. Inspired by minimalist seamless editing, it delivers an elegant writing experience while integrating **the most advanced local AI ecosystem and MCP (Model Context Protocol) capabilities** — turning your editor into a powerful, privacy-first AI agent platform.
 
 > **mora** (Latin: "a moment") + **ya** (Chinese: "elegance") = **Moraya**\
 > Privacy-first • Fully local • Infinitely extensible AI
@@ -12,46 +12,110 @@
 
 ## Why Moraya? Key Advantages
 
-* **Ultra-Lightweight & Native Performance** — \~5MB installer, instant launch, tiny memory footprint.
+* **Ultra-Lightweight & Native Performance** — \~10MB installer, instant launch, tiny memory footprint.
 
-* **True Instant WYSIWYG** — Type `# `    and see a heading instantly (Milkdown/ProseMirror-powered).
+* **True Instant WYSIWYG** — Type `# `   and see a heading instantly (Milkdown/ProseMirror-powered).
 
-* **Most Powerful Local AI Integration** — Multi-provider streaming chat (Claude, OpenAI, Gemini, DeepSeek, Ollama, custom endpoints) with smart commands and AI image generation.
+* **Most Powerful Local AI Integration** — Multi-provider streaming chat (Claude, OpenAI, Gemini, DeepSeek, Ollama, custom endpoints), 71+ AI templates across 10 categories, AI image generation, and smart writing commands.
 
 * **Leading MCP Ecosystem** — Dynamic MCP container, one-click Marketplace (Official, LobeHub, Smithery), autonomous local AI services, tool calling, and custom agent workflows — all fully self-hosted.
 
 * **Complete Modern Workflow** — Visual/Source/Split modes, publishing tools, SEO assistant, AI images, and automatic RSS feeds.
 
-* **Privacy by Design** — Everything can run offline with local models; your data never leaves your machine.
+* **Security by Design** — API keys stored in OS Keychain, all API calls proxied through Rust backend, CSP enforcement, path traversal protection. Everything can run offline with local models; your data never leaves your machine.
 
 ## Features
 
-* **Three Editor Modes** — Visual (WYSIWYG), Source (raw Markdown), Split (synced side-by-side). Toggle with `Cmd+/` or `Ctrl+/`.
+### Editor
 
-* **Full Math Support** — Inline and block LaTeX via KaTeX.
+* **Three Editor Modes** — Visual (WYSIWYG), Source (raw Markdown), Split (synced side-by-side with block-level scroll anchoring). Toggle with `Cmd+/` or `Ctrl+/`.
 
-* **GFM Extensions** — Tables with floating toolbar, task lists, strikethrough, and more.
+* **Full Markdown Support** — CommonMark + GFM extensions: tables with floating toolbar, task lists, strikethrough, emoji, definition lists.
 
-* **AI-Powered Writing** — Streaming chat panel, quick commands (`/write`, `/continue`, `/summarize`, etc.), insert/replace/copy actions.
+* **Math Rendering** — Inline and block LaTeX via KaTeX.
 
-* **MCP Protocol** — stdio/SSE/HTTP transports, dynamic container, marketplace browsing, one-click server installation.
+* **Code Blocks** — Syntax highlighting, language selector dropdown (25+ languages), one-click copy, hover toolbar.
 
-* **Internationalization** — English & Simplified Chinese (auto-detect).
+* **Mermaid Diagrams** — 9 diagram types (flowchart, sequence, gantt, state, class, ER, pie, mindmap, journey) with edit/preview dual mode, lazy-loaded rendering (\~1.2MB loaded only on first use), and automatic theme adaptation.
 
-* **Native Menus & Shortcuts** — Full macOS/Windows/Linux menus and minimalist keyboard bindings, soon iPados.
+* **Image Tools** — Floating toolbar for resizing, right-click context menu, drag-and-drop.
 
-* **Themes** — Light/Dark with system sync.
+* **Find & Replace** — Full-text search and replace within documents.
 
-  * **Export** — HTML & LaTeX built-in; PDF/DOCX/IMAGE.
+### AI-Powered Writing
 
-* **Frameless Window** — Custom title bar with native traffic lights.
+* **Multi-Provider Support** — Claude, OpenAI, Gemini, DeepSeek, Ollama, and any OpenAI-compatible endpoint. Multi-model configuration with active/inactive switching.
+
+* **71+ AI Templates** — 10 categories (Writing, Translation, Student, Kids, Marketing, Professional, Personal, Chinese Games, English Games, Quiz) with 5 flow types (auto, input, selection, parameterized, interactive).
+
+* **Streaming Chat Panel** — Real-time AI responses with insert/replace/copy actions.
+
+* **AI + MCP Tool Integration** — LLM can call MCP tools with auto-retry loop, enabling autonomous AI workflows.
+
+* **AI Image Generation** — 5 modes (article, design, storyboard, product, moodboard) × 10 styles each, with 7 aspect ratios and 3 resolution levels. Supports OpenAI DALL-E, Grok, and custom providers.
+
+### MCP Ecosystem
+
+* **Three Transports** — stdio, SSE, and HTTP for maximum compatibility.
+
+* **Marketplace** — Browse and one-click install MCP servers from 3 data sources (Official Registry, LobeHub, Smithery).
+
+* **Dynamic MCP Container** — AI can create MCP services on-the-fly with a lightweight Node.js runtime. 4 internal tools: create, save, list, and remove services.
+
+* **Built-in Presets** — Filesystem, Fetch, Git, Memory one-click setup.
+
+* **Claude Desktop JSON Import** — Paste `mcpServers` JSON config to auto-add servers.
+
+* **Knowledge Base Sync** — Sync content with MCP servers for context-aware AI.
+
+### Publishing Workflow
+
+* **Multi-Target Publishing** — Publish to GitHub repos and custom APIs with front matter and file naming templates.
+
+* **SEO Assistant** — AI-generated titles, excerpts, tags, slug, and meta descriptions.
+
+* **Image Hosting** — Auto-upload to SM.MS, Imgur, GitHub, or custom providers.
+
+* **RSS Feed** — Auto-update RSS 2.0 feed on publish (zero-dependency XML generation).
+
+### Security
+
+* **OS Keychain Storage** — API keys stored in native secure storage (macOS Keychain, Windows Credential Manager, Linux Secret Service). The OS may prompt for your system password when Moraya first accesses the Keychain — this is the operating system verifying your identity before granting access to securely stored credentials, not Moraya itself requesting a password.
+
+* **Rust AI Proxy** — All external API calls routed through Rust backend; keys never exposed in WebView.
+
+* **CSP Enforcement** — `script-src 'self'`, `connect-src` locked to IPC and localhost.
+
+* **MCP Hardening** — Command validation, startup confirmation dialogs, environment variable filtering, zombie process prevention, buffer limits.
+
+* **Path Traversal Protection** — All file operations validate and canonicalize paths.
+
+* **HTML Export Sanitization** — DOMParser-based XSS prevention on export.
+
+### Platform & UI
+
+* **Cross-Platform** — macOS, Windows, Linux via Tauri v2.
+
+* **Frameless Window** — Custom title bar with native macOS traffic lights.
+
+* **Multi-Window** — Multiple editor windows with macOS Dock right-click menu support.
+
+* **Auto-Update** — Silent daily update checks with one-click install.
+
+* **Native Menus & Shortcuts** — Full platform-native menus (File, Edit, Paragraph, Format, View, Help).
+
+* **Themes** — Light, Dark, and system-sync modes.
+
+* **Internationalization** — English & Simplified Chinese with auto-detection.
+
+* **Export** — HTML and LaTeX built-in; PDF/DOCX/EPUB via future pandoc integration.
 
 ## Architecture Overview
 
 ```
 ┌────────────────────────────────────────┐
 │         Tauri WebView (Frontend)       │
-│   Svelte 5 + Milkdown + TypeScript     │
+│   Svelte 5 + Milkdown + TypeScript    │
 │                                        │
 │  ┌───────────┐ ┌───────┐ ┌──────────┐  │
 │  │  Editor   │ │  AI   │ │ Settings │  │
@@ -85,6 +149,7 @@
 | Frontend        | Svelte 5 + SvelteKit (SPA via adapter-static) | ^5.0.0 / ^2.9.0 |
 | Editor Engine   | Milkdown v7 (ProseMirror-based)               | ^7.18.0         |
 | Math Rendering  | KaTeX                                         | ^0.16.28        |
+| Diagrams        | Mermaid (lazy-loaded)                         | ^11.x           |
 | Build Tool      | Vite                                          | ^6.0.3          |
 | Package Manager | pnpm                                          | 10.x            |
 | Language        | TypeScript (strict mode)                      | \~5.6.2         |
@@ -167,11 +232,7 @@ cd src-tauri && cargo check
 | Quote                | `Cmd+Shift+Q`   | `Ctrl+Shift+Q`   |
 | Zoom In/Out/Reset    | `Cmd+=`/`-`/`0` | `Ctrl+=`/`-`/`0` |
 
-## AI Assisted Writing
-
-Moraya has built-in AI-powered writing assistance with multi-provider support and streaming responses.
-
-### Configuration
+## AI Configuration
 
 1. Open Settings (`Cmd+,` / `Ctrl+,`)
 2. Select the **AI** tab
@@ -186,39 +247,8 @@ Moraya has built-in AI-powered writing assistance with multi-provider support an
 | Ollama (Local)   | No               | Requires Ollama running locally        |
 | Custom API       | Optional         | Any OpenAI-compatible endpoint         |
 
-1. Click **Test Connection** to verify the configuration
+1. Click **Test Connection** to verify
 2. Adjust Max Tokens and Temperature as needed
-
-### Usage
-
-**Open the AI panel** with `Cmd+J` (`Ctrl+J` on Windows/Linux), or via the menu View → Toggle AI Panel. A 340px chat sidebar will appear on the right.
-
-**Free-form chat** — Type any question in the input box and press `Enter`. AI responds in real-time with streaming output.
-
-**Quick commands** — Type `/` in the input box to open the command palette:
-
-| Command        | Description                                | Requires Selection |
-| -------------- | ------------------------------------------ | ------------------ |
-| `/write`       | Generate content from a prompt             | No                 |
-| `/continue`    | Continue writing from the current document | No                 |
-| `/outline`     | Generate an article outline                | No                 |
-| `/summarize`   | Summarize selected text                    | Yes                |
-| `/translate`   | Translate between Chinese and English      | Yes                |
-| `/improve`     | Improve writing quality                    | Yes                |
-| `/fix-grammar` | Fix grammar and spelling errors            | Yes                |
-| `/simplify`    | Simplify complex text                      | Yes                |
-| `/expand`      | Expand on a topic with more details        | Yes                |
-| `/explain`     | Explain selected text                      | Yes                |
-
-### Applying AI Results
-
-Each AI response has action buttons below it:
-
-* **Insert into editor** — Append the AI response to the end of the document
-
-* **Replace selection** — Replace the currently selected text with the AI response
-
-* **Copy** — Copy the response to the clipboard
 
 ## Development Roadmap
 
@@ -242,12 +272,6 @@ Each AI response has action buttons below it:
 
 * [x] **v0.10.0** — Mermaid Diagrams: 9 diagram types, edit/preview dual mode, lazy-loaded rendering, theme adaptation → [Detailed Requirements](docs/iterations/v0.10.0-mermaid-diagrams.md)
 
-## Recommended IDE Setup
-
-[VS Code](https://code.visualstudio.com/) + [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
-
 ## License
 
 [Apache License 2.0](LICENSE)
-
-<mark>
