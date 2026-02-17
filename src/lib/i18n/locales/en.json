@@ -74,7 +74,8 @@
     "sourceMode": "Source",
     "visualMode": "Visual",
     "splitMode": "Split",
-    "publishWorkflow": "AI Workflow"
+    "publishWorkflow": "AI Workflow",
+    "aiTooltip": "AI"
   },
   "editor": {
     "sourceMode": "Source Mode",

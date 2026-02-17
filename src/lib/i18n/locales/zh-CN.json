@@ -74,7 +74,8 @@
     "sourceMode": "源码",
     "visualMode": "可视化",
     "splitMode": "对比",
-    "publishWorkflow": "AI工作流"
+    "publishWorkflow": "AI工作流",
+    "aiTooltip": "AI"
   },
   "editor": {
     "sourceMode": "源码模式",

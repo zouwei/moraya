@@ -2,14 +2,32 @@
   import { editorStore, type EditorMode } from '../stores/editor-store';
   import { updateStore } from '$lib/services/update-service';
   import { t } from '$lib/i18n';
+  import { isMacOS, isIPadOS } from '$lib/utils/platform';
 
   let {
     onPublishWorkflow,
     onShowUpdateDialog,
+    onToggleAI,
+    aiPanelOpen = false,
+    aiConfigured = false,
+    aiLoading = false,
+    aiError = false,
   }: {
     onPublishWorkflow?: () => void;
     onShowUpdateDialog?: () => void;
+    onToggleAI?: () => void;
+    aiPanelOpen?: boolean;
+    aiConfigured?: boolean;
+    aiLoading?: boolean;
+    aiError?: boolean;
   } = $props();
+
+  const aiShortcutHint = isMacOS || isIPadOS ? '⌘J' : 'Ctrl+J';
+
+  function getAITooltip(): string {
+    const label = $t('statusbar.aiTooltip');
+    return `${label} (${aiShortcutHint})`;
+  }
 
   let wordCount = $state(0);
   let charCount = $state(0);
@@ -69,6 +87,23 @@
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <span class="update-indicator" onclick={onShowUpdateDialog} title={$t('update.newVersionAvailable')}>
         &#x2B06;&#xFE0F;
+      </span>
+    {/if}
+    {#if onToggleAI}
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <span
+        class="ai-sparkle"
+        class:active={aiPanelOpen}
+        class:unconfigured={!aiConfigured}
+        class:loading={aiLoading}
+        class:error={aiError && !aiLoading}
+        onclick={onToggleAI}
+        title={getAITooltip()}
+      >
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+          <path d="M8 0L9.5 5.5L16 8L9.5 9.5L8 16L6.5 9.5L0 8L6.5 5.5Z"/>
+        </svg>
       </span>
     {/if}
     <span class="status-item">{$t('statusbar.format')}</span>
@@ -162,6 +197,40 @@
     50% { opacity: 0.5; }
   }
 
+  /* AI Sparkle indicator */
+  .ai-sparkle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0.1rem 0.3rem;
+    border-radius: 3px;
+    color: var(--text-muted);
+    transition: color var(--transition-fast), background var(--transition-fast);
+  }
+
+  .ai-sparkle:hover {
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+  }
+
+  .ai-sparkle.unconfigured {
+    opacity: 0.4;
+  }
+
+  .ai-sparkle.active {
+    color: var(--accent-color);
+  }
+
+  .ai-sparkle.loading {
+    color: var(--accent-color);
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  .ai-sparkle.error {
+    color: var(--warning-color, #e8a838);
+  }
+
   /* iPadOS: taller statusbar to match TouchToolbar visual weight */
   :global(.platform-ipados) .statusbar {
     height: 40px;
@@ -188,5 +257,10 @@
     padding: 0 0.6rem;
     height: 28px;
     border-radius: 5px;
+  }
+
+  :global(.platform-ipados) .ai-sparkle svg {
+    width: 16px;
+    height: 16px;
   }
 </style>

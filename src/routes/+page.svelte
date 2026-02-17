@@ -34,7 +34,7 @@
   import type { PublishResult } from '$lib/services/publish/types';
   import { editorStore } from '$lib/stores/editor-store';
   import { settingsStore, initSettingsStore } from '$lib/stores/settings-store';
-  import { initAIStore } from '$lib/services/ai';
+  import { initAIStore, aiStore } from '$lib/services/ai';
   import { initMCPStore, connectAllServers } from '$lib/services/mcp';
   import { initContainerManager, cleanupTempServices } from '$lib/services/mcp/container-manager';
   import { preloadEnhancementPlugins } from '$lib/editor/setup';
@@ -174,6 +174,17 @@ ${tr('welcome.tip')}
   let currentFileName = $state($t('common.untitled'));
   let selectedText = $state('');
   let editorMode = $state<EditorMode>('visual');
+
+  // AI store state for sparkle indicator
+  let aiConfigured = $state(false);
+  let aiLoading = $state(false);
+  let aiError = $state(false);
+
+  aiStore.subscribe(state => {
+    aiConfigured = state.isConfigured;
+    aiLoading = state.isLoading;
+    aiError = !!state.error;
+  });
 
   // Publish workflow state
   let showWorkflow = $state(false);
@@ -1365,7 +1376,6 @@ ${tr('welcome.tip')}
           <div class="split-source" bind:this={splitSourceEl}>
             <SourceEditor bind:this={splitSourceRef} bind:content onContentChange={handleContentChange} hideScrollbar />
           </div>
-          <div class="split-divider"></div>
           <div class="split-visual" bind:this={splitVisualEl}>
             <Editor bind:this={splitVisualRef} bind:content onEditorReady={handleEditorReady} onContentChange={handleContentChange} />
           </div>
@@ -1404,7 +1414,15 @@ ${tr('welcome.tip')}
     <TouchToolbar onCommand={handleTouchCommand} />
   {/if}
 
-  <StatusBar onPublishWorkflow={handlePublishWorkflow} onShowUpdateDialog={() => showUpdateDialog = true} />
+  <StatusBar
+    onPublishWorkflow={handlePublishWorkflow}
+    onShowUpdateDialog={() => showUpdateDialog = true}
+    onToggleAI={() => showAIPanel = !showAIPanel}
+    aiPanelOpen={showAIPanel}
+    {aiConfigured}
+    {aiLoading}
+    {aiError}
+  />
 </div>
 
 {#if showSettings}
@@ -1487,8 +1505,24 @@ ${tr('welcome.tip')}
     }
   }
 
-  /* macOS: offset content below native traffic lights (TitleBarStyle::Overlay) */
-  :global(.platform-macos) .app-container {
+  /* macOS: offset content below native traffic lights (TitleBarStyle::Overlay).
+     Padding is applied to individual content panes (not .app-container) so that
+     structural borders (sidebar border-right, split divider border-left) extend
+     flush to the top of the window. */
+  :global(.platform-macos) .editor-area {
+    padding-top: 28px;
+  }
+
+  :global(.platform-macos) .editor-area:has(.split-container) {
+    padding-top: 0;
+  }
+
+  :global(.platform-macos) .split-source,
+  :global(.platform-macos) .split-visual {
+    padding-top: 28px;
+  }
+
+  :global(.platform-macos) .app-body > :global(.sidebar) {
     padding-top: 28px;
   }
 
@@ -1502,6 +1536,7 @@ ${tr('welcome.tip')}
     flex: 1;
     display: flex;
     flex-direction: column;
+    min-height: 0;
     overflow: hidden;
     background: var(--bg-primary);
   }
@@ -1510,27 +1545,25 @@ ${tr('welcome.tip')}
   .split-container {
     flex: 1;
     display: flex;
+    min-height: 0;
     overflow: hidden;
   }
 
   .split-source {
-    flex: 0 0 38.2%;
+    flex: 382;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     overflow: hidden;
-  }
-
-  .split-divider {
-    width: 1px;
-    background: var(--border-color);
-    flex-shrink: 0;
   }
 
   .split-visual {
-    flex: 0 0 61.8%;
+    flex: 618;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    border-left: 1px solid var(--border-color);
   }
 
   .dialog-visibility {
