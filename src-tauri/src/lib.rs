@@ -55,11 +55,7 @@ fn fit_window_to_screen(window: &tauri::WebviewWindow) {
 
 #[tauri::command]
 fn set_editor_mode_menu(_app: tauri::AppHandle, _mode: String) {
-    // Only update checkmarks on macOS — safe because AppKit's set_checked()
-    // does NOT trigger on_menu_event.
-    // On Windows/Linux (muda), set_checked() CAN trigger on_menu_event,
-    // creating an infinite mode-toggle feedback loop.
-    #[cfg(target_os = "macos")]
+    #[cfg(not(target_os = "ios"))]
     menu::update_mode_checks(&_app, &_mode);
 }
 
@@ -294,12 +290,13 @@ pub fn run() {
                 // Handle menu events — emit to the main window
                 let app_handle_for_events = app.handle().clone();
                 app.on_menu_event(move |_app, event| {
-                    let id = event.id().0.as_str();
+                    // Skip spurious events fired by GTK's set_checked() during
+                    // programmatic checkmark updates (update_mode_checks).
+                    if menu::is_updating_mode_checks() {
+                        return;
+                    }
 
-                    // NOTE: mode check marks are NOT updated here.
-                    // On Windows, programmatic set_checked() triggers on_menu_event
-                    // again, creating a feedback loop. Instead, the frontend $effect
-                    // calls set_editor_mode_menu to update checks after mode changes.
+                    let id = event.id().0.as_str();
 
                     // Emit as global event to all webviews
                     let _ = app_handle_for_events.emit(&format!("menu:{}", id), ());

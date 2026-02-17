@@ -9,6 +9,7 @@
     onShowUpdateDialog,
     onToggleAI,
     onModeChange,
+    currentMode = 'visual' as EditorMode,
     aiPanelOpen = false,
     aiConfigured = false,
     aiLoading = false,
@@ -18,6 +19,7 @@
     onShowUpdateDialog?: () => void;
     onToggleAI?: () => void;
     onModeChange?: (mode: EditorMode) => void;
+    currentMode?: EditorMode;
     aiPanelOpen?: boolean;
     aiConfigured?: boolean;
     aiLoading?: boolean;
@@ -33,13 +35,11 @@
 
   let wordCount = $state(0);
   let charCount = $state(0);
-  let editorMode = $state<EditorMode>('visual');
   let updateAvailable = $state(false);
 
   editorStore.subscribe(state => {
     wordCount = state.wordCount;
     charCount = state.charCount;
-    editorMode = state.editorMode;
   });
 
   updateStore.subscribe(state => {
@@ -70,7 +70,7 @@
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <span
           class="mode-btn"
-          class:active={editorMode === mode}
+          class:active={currentMode === mode}
           onclick={() => {
             if (onModeChange) {
               onModeChange(mode);

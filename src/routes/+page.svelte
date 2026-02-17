@@ -428,10 +428,9 @@ ${tr('welcome.tip')}
     });
   }
 
-  // Sync native menu checkmarks when editor mode changes.
-  // macOS only — on Windows/Linux mode items are regular MenuItems (no checkmarks).
+  // Sync native menu checkmarks when editor mode changes (all desktop platforms).
   $effect(() => {
-    if (!isTauri || !isMacOS) return;
+    if (!isTauri) return;
     invoke('set_editor_mode_menu', { mode: editorMode }).catch(() => {});
   });
 
@@ -1431,6 +1430,7 @@ ${tr('welcome.tip')}
     onShowUpdateDialog={() => showUpdateDialog = true}
     onToggleAI={() => showAIPanel = !showAIPanel}
     onModeChange={(mode) => { editorMode = mode; editorStore.setEditorMode(mode); }}
+    currentMode={editorMode}
     aiPanelOpen={showAIPanel}
     {aiConfigured}
     {aiLoading}

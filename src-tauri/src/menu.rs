@@ -1,8 +1,20 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{
     menu::{AboutMetadata, CheckMenuItem, Menu, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu},
     AppHandle, Wry,
 };
+
+/// Guard flag: true while `update_mode_checks` is running.
+/// On Linux (GTK), `set_checked()` synchronously triggers the "activate" signal,
+/// which fires `on_menu_event`. This flag lets the event handler skip those
+/// spurious events to avoid a feedback loop.
+static UPDATING_MODE_CHECKS: AtomicBool = AtomicBool::new(false);
+
+/// Returns true when mode checkmarks are being programmatically updated.
+pub fn is_updating_mode_checks() -> bool {
+    UPDATING_MODE_CHECKS.load(Ordering::SeqCst)
+}
 
 pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
     // File menu
@@ -133,12 +145,10 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
     )?;
 
     // View menu — mode items
-    // Shortcut hints are label text (not accelerators) — use platform-appropriate symbols
-    //
-    // macOS: CheckMenuItem with programmatic checkmark sync (update_mode_checks).
-    // Windows/Linux: regular MenuItem — muda's CheckMenuItem auto-toggles on click
-    // without mutual exclusion, creating permanently inconsistent checkmarks and
-    // potentially blocking further menu events. Regular MenuItem avoids this entirely.
+    // Shortcut hints are label text (not accelerators) — use platform-appropriate symbols.
+    // CheckMenuItem on all platforms with programmatic checkmark sync via update_mode_checks.
+    // On Linux (GTK), set_checked() can trigger on_menu_event; the UPDATING_MODE_CHECKS
+    // flag in the event handler prevents the resulting feedback loop.
     #[cfg(target_os = "macos")]
     let (visual_label, source_label, split_label) = (
         "Visual Mode          ⌘/",
@@ -152,20 +162,9 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
         "Split Mode       Ctrl+Shift+/",
     );
 
-    // Mode items: CheckMenuItem on macOS, regular MenuItem on Windows/Linux
-    #[cfg(target_os = "macos")]
     let mode_visual = CheckMenuItem::with_id(app, "view_mode_visual", visual_label, true, true, None::<&str>)?;
-    #[cfg(target_os = "macos")]
     let mode_source = CheckMenuItem::with_id(app, "view_mode_source", source_label, true, false, None::<&str>)?;
-    #[cfg(target_os = "macos")]
     let mode_split = CheckMenuItem::with_id(app, "view_mode_split", split_label, true, false, None::<&str>)?;
-
-    #[cfg(not(target_os = "macos"))]
-    let mode_visual = MenuItem::with_id(app, "view_mode_visual", visual_label, true, None::<&str>)?;
-    #[cfg(not(target_os = "macos"))]
-    let mode_source = MenuItem::with_id(app, "view_mode_source", source_label, true, None::<&str>)?;
-    #[cfg(not(target_os = "macos"))]
-    let mode_split = MenuItem::with_id(app, "view_mode_split", split_label, true, None::<&str>)?;
 
     let view_menu = Submenu::with_id_and_items(
         app,
@@ -290,9 +289,14 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
 
 /// Update the check state of the three mode menu items.
 /// `active_mode` should be "visual", "source", or "split".
+///
+/// Sets [`UPDATING_MODE_CHECKS`] while running so the `on_menu_event` handler
+/// can skip spurious events caused by GTK's synchronous "activate" signal.
 pub fn update_mode_checks(app: &AppHandle, active_mode: &str) {
     let mode_ids = ["view_mode_visual", "view_mode_source", "view_mode_split"];
     let active_id = format!("view_mode_{}", active_mode);
+
+    UPDATING_MODE_CHECKS.store(true, Ordering::SeqCst);
 
     if let Some(menu) = app.menu() {
         // Search through all items including submenus
@@ -313,6 +317,8 @@ pub fn update_mode_checks(app: &AppHandle, active_mode: &str) {
             }
         }
     }
+
+    UPDATING_MODE_CHECKS.store(false, Ordering::SeqCst);
 }
 
 /// Set the checked state of a single CheckMenuItem by its ID.
