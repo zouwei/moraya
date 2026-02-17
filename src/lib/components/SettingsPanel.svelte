@@ -7,14 +7,18 @@
   import ImageHostingSettings from './ImageHostingSettings.svelte';
   import PublishSettings from './PublishSettings.svelte';
 
+  type Tab = 'general' | 'editor' | 'appearance' | 'ai' | 'mcp' | 'image' | 'publish';
+
   let {
     onClose,
+    initialTab = 'general' as Tab,
   }: {
     onClose: () => void;
+    initialTab?: Tab;
   } = $props();
 
-  type Tab = 'general' | 'editor' | 'appearance' | 'ai' | 'mcp' | 'image' | 'publish';
-  let activeTab = $state<Tab>('general');
+  // eslint-disable-next-line svelte/state-referenced-locally -- intentional initial capture
+  let activeTab = $state<Tab>(initialTab);
 
   let theme = $state<Theme>('system');
   let colorTheme = $state('default-light');

@@ -24,6 +24,35 @@ pub struct MainWindowReady(pub AtomicBool);
 /// Atomic counter for generating unique window labels.
 static WINDOW_COUNTER: AtomicU32 = AtomicU32::new(0);
 
+/// Windows/Linux: shrink window if it exceeds the available screen area.
+/// Reserves space for OS taskbar (~48px) and window decorations (~52px).
+#[cfg(all(not(target_os = "macos"), not(target_os = "ios")))]
+fn fit_window_to_screen(window: &tauri::WebviewWindow) {
+    use tauri::WebviewWindow;
+    let _ = &window; // suppress unused import warning in cfg-off builds
+    if let Ok(Some(monitor)) = WebviewWindow::current_monitor(window) {
+        let scale = monitor.scale_factor();
+        let monitor_h = monitor.size().height as f64 / scale;
+        let monitor_w = monitor.size().width as f64 / scale;
+
+        // Reserve ~100 logical px for taskbar + title bar + menu bar + borders
+        let max_h = monitor_h - 100.0;
+        let max_w = monitor_w - 20.0;
+
+        if let Ok(current) = WebviewWindow::inner_size(window) {
+            let cur_w = current.width as f64 / scale;
+            let cur_h = current.height as f64 / scale;
+            let new_w = if cur_w > max_w && max_w >= 600.0 { max_w } else { cur_w };
+            let new_h = if cur_h > max_h && max_h >= 400.0 { max_h } else { cur_h };
+
+            if (new_w - cur_w).abs() > 1.0 || (new_h - cur_h).abs() > 1.0 {
+                let _ = window.set_size(tauri::LogicalSize::new(new_w, new_h));
+                let _ = window.center();
+            }
+        }
+    }
+}
+
 #[tauri::command]
 fn set_editor_mode_menu(_app: tauri::AppHandle, _mode: String) {
     #[cfg(not(target_os = "ios"))]
@@ -119,9 +148,10 @@ pub(crate) fn create_editor_window(
     }
 
     // Windows/Linux: enable decorations for native title bar + menu bar
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(all(not(target_os = "macos"), not(target_os = "ios")))]
     {
         let _ = window.set_decorations(true);
+        fit_window_to_screen(&window);
     }
 
     Ok(label)
@@ -241,6 +271,7 @@ pub fn run() {
                 #[cfg(all(not(target_os = "macos"), not(target_os = "ios")))]
                 {
                     let _ = window.set_decorations(true);
+                    fit_window_to_screen(&window);
                 }
 
                 // Create and set native menu

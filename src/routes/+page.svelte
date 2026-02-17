@@ -164,6 +164,7 @@ ${tr('welcome.tip')}
   let content = $state('');
   let showSidebar = $state(false);
   let showSettings = $state(false);
+  let settingsInitialTab = $state<'general' | 'ai'>('general');
   let showAIPanel = $state(false);
   let showImageDialog = $state(false);
   let showSearch = $state(false);
@@ -1405,6 +1406,7 @@ ${tr('welcome.tip')}
           {selectedText}
           onInsert={handleAIInsert}
           onReplace={handleAIReplace}
+          onOpenSettings={() => { settingsInitialTab = 'ai'; showSettings = true; }}
         />
       {/await}
     {/if}
@@ -1427,7 +1429,7 @@ ${tr('welcome.tip')}
 
 {#if showSettings}
   {#await import('$lib/components/SettingsPanel.svelte') then { default: SettingsPanel }}
-    <SettingsPanel onClose={() => showSettings = false} />
+    <SettingsPanel initialTab={settingsInitialTab} onClose={() => { showSettings = false; settingsInitialTab = 'general'; }} />
   {/await}
 {/if}
 

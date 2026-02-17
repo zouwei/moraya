@@ -21,11 +21,13 @@
     selectedText = '',
     onInsert,
     onReplace,
+    onOpenSettings,
   }: {
     documentContent?: string;
     selectedText?: string;
     onInsert?: (text: string) => void;
     onReplace?: (text: string) => void;
+    onOpenSettings?: () => void;
   } = $props();
 
   let chatMessages = $state<ChatMessage[]>([]);
@@ -338,17 +340,22 @@
         <span class="mcp-badge" title="{mcpToolCount} MCP tools available">{mcpToolCount} tools</span>
       {/if}
     </div>
-    <button class="ai-btn" onclick={clearChat} title={$t('ai.clearChat')}>
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-        <path d="M4 1V0h6v1h4v2H0V1h4zm1 3h1v8H5V4zm3 0h1v8H8V4zM1 3h12l-1 11H2L1 3z"/>
-      </svg>
-    </button>
+    {#if chatMessages.length > 0}
+      <button class="ai-btn" onclick={clearChat} title={$t('ai.clearChat')}>
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+          <path d="M4 1V0h6v1h4v2H0V1h4zm1 3h1v8H5V4zm3 0h1v8H8V4zM1 3h12l-1 11H2L1 3z"/>
+        </svg>
+      </button>
+    {/if}
   </div>
 
   {#if !isConfigured}
     <div class="ai-unconfigured">
       <p>{$t('ai.unconfigured')}</p>
       <p class="hint">{$t('ai.unconfiguredHint')}</p>
+      {#if onOpenSettings}
+        <button class="open-settings-btn" onclick={onOpenSettings}>{$t('ai.openSettings')}</button>
+      {/if}
     </div>
   {:else}
     <div class="ai-messages" bind:this={messagesEl} onscroll={handleMessagesScroll}>
@@ -644,6 +651,22 @@
     color: var(--text-muted);
     font-size: var(--font-size-sm);
     gap: 0.5rem;
+  }
+
+  .open-settings-btn {
+    margin-top: 0.5rem;
+    padding: 0.4rem 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    transition: background var(--transition-fast);
+  }
+
+  .open-settings-btn:hover {
+    background: var(--bg-hover);
   }
 
   .hint {

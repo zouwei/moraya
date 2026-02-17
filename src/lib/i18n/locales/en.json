@@ -94,10 +94,11 @@
     "alignRight": "Align Right"
   },
   "ai": {
-    "title": "Moraya AI",
+    "title": "AI Assistant",
     "clearChat": "Clear chat",
     "unconfigured": "AI is not configured.",
-    "unconfiguredHint": "Open Settings (Cmd+,) and configure your API key to enable AI features.",
+    "unconfiguredHint": "Configure your API key in Settings to enable AI features.",
+    "openSettings": "Open AI Settings",
     "welcomeTitle": "How can I help?",
     "welcomeHint": "Type a message or use {kbd} for commands",
     "you": "You",

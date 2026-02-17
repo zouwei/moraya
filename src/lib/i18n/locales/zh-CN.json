@@ -94,10 +94,11 @@
     "alignRight": "右对齐"
   },
   "ai": {
-    "title": "Moraya AI",
+    "title": "AI 助手",
     "clearChat": "清空对话",
     "unconfigured": "AI 未配置。",
-    "unconfiguredHint": "打开设置（Cmd+,）并配置 API 密钥以启用 AI 功能。",
+    "unconfiguredHint": "请在设置中配置 API 密钥以启用 AI 功能。",
+    "openSettings": "打开 AI 设置",
     "welcomeTitle": "有什么可以帮您？",
     "welcomeHint": "输入消息或使用 {kbd} 查看命令",
     "you": "你",

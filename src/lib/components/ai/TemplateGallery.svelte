@@ -59,8 +59,8 @@
 </script>
 
 <div class="template-gallery">
-  <div class="gallery-header">
-    {#if view === 'list' && !searchQuery.trim()}
+  {#if view === 'list' && !searchQuery.trim()}
+    <div class="gallery-header">
       <button class="back-btn" onclick={handleBack}>
         <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
           <path d="M9.5 1L3.5 7l6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>
@@ -68,10 +68,8 @@
         <span>{$t('templates.gallery.back')}</span>
       </button>
       <span class="category-title">{selectedCategory?.icon} {selectedCategory ? $t(selectedCategory.nameKey) : ''}</span>
-    {:else}
-      <span class="gallery-title">{$t('templates.gallery.title')}</span>
-    {/if}
-  </div>
+    </div>
+  {/if}
 
   <div class="search-bar">
     <svg class="search-icon" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
@@ -134,12 +132,6 @@
     gap: 0.5rem;
     padding: 0.75rem 0.75rem 0.25rem;
     min-height: 1.75rem;
-  }
-
-  .gallery-title {
-    font-size: var(--font-size-lg);
-    font-weight: 600;
-    color: var(--text-primary);
   }
 
   .back-btn {

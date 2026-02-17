@@ -215,7 +215,13 @@
   }
 
   .ai-sparkle.unconfigured {
-    opacity: 0.4;
+    opacity: 0.5;
+  }
+
+  .ai-sparkle.unconfigured svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.2;
   }
 
   .ai-sparkle.active {
