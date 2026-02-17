@@ -35,7 +35,7 @@
 
   // Step 1 state
   let prompts = $state<ImagePrompt[]>([]);
-  let imageCount = $state(5);
+  let imageCount = $state(6);
   let imageStyle = $state<ImageStyle>('auto');
   let imageMode = $state<ImageGenMode>('article');
   let isGeneratingPrompts = $state(false);

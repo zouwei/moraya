@@ -46,7 +46,7 @@
   import { getCurrentWebview } from '@tauri-apps/api/webview';
   import { openUrl } from '@tauri-apps/plugin-opener';
   import { t } from '$lib/i18n';
-  import { getPlatformClass, isIPadOS, isTauri, isVirtualKeyboardVisible } from '$lib/utils/platform';
+  import { getPlatformClass, isIPadOS, isMacOS, isTauri, isVirtualKeyboardVisible } from '$lib/utils/platform';
   import TabBar from '$lib/components/TabBar.svelte';
   import TouchToolbar from '$lib/editor/TouchToolbar.svelte';
   import { tabsStore } from '$lib/stores/tabs-store';
@@ -563,15 +563,18 @@ ${tr('welcome.tip')}
       return;
     }
 
-    // Toggle source/visual mode: Cmd+/ (without shift)
-    if (mod && !event.shiftKey && event.key === '/') {
+    // Toggle source/visual mode: Cmd+/ (macOS) or Ctrl+/ (Windows/Linux)
+    // On macOS, only metaKey triggers — ctrlKey would also insert '/' into the editor
+    // Check event.code for Windows keyboard layout compatibility
+    const slashMod = isMacOS ? event.metaKey : event.ctrlKey;
+    if (slashMod && !event.shiftKey && (event.key === '/' || event.code === 'Slash')) {
       event.preventDefault();
       editorStore.toggleEditorMode();
       return;
     }
 
     // Split mode: Cmd+Shift+/ (Shift+/ produces '?' on most keyboards)
-    if (mod && event.shiftKey && (event.key === '/' || event.key === '?')) {
+    if (slashMod && event.shiftKey && (event.key === '/' || event.key === '?' || event.code === 'Slash')) {
       event.preventDefault();
       const current = editorStore.getState().editorMode;
       editorStore.setEditorMode(current === 'split' ? 'visual' : 'split');
