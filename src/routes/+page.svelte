@@ -484,10 +484,10 @@ ${tr('welcome.tip')}
       fmt_code: tr('menu.code'),
       fmt_link: tr('menu.link'),
       fmt_image: tr('menu.image'),
-      // View menu
-      view_mode_visual: tr('menu.visualMode'),
-      view_mode_source: tr('menu.sourceMode'),
-      view_mode_split: tr('menu.splitMode'),
+      // View menu — append platform-appropriate shortcut hints
+      view_mode_visual: tr('menu.visualMode') + (isMacOS ? '          ⌘/' : '          Ctrl+/'),
+      view_mode_source: tr('menu.sourceMode') + (isMacOS ? '         ⌘/' : '         Ctrl+/'),
+      view_mode_split: tr('menu.splitMode') + (isMacOS ? '       ⇧⌘/' : '       Ctrl+Shift+/'),
       view_sidebar: tr('menu.toggleSidebar'),
       view_ai_panel: tr('menu.toggleAIPanel'),
       view_zoom_in: tr('menu.zoomIn'),
@@ -1285,9 +1285,7 @@ ${tr('welcome.tip')}
       };
 
       Object.entries(menuHandlers).forEach(([event, handler]) => {
-        listen(event, () => {
-          if (document.hasFocus()) handler();
-        }).then(unlisten => menuUnlisteners.push(unlisten));
+        listen(event, () => handler()).then(unlisten => menuUnlisteners.push(unlisten));
       });
 
       // Helper: load a file by path and sync to all editor modes

@@ -133,15 +133,28 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
     )?;
 
     // View menu — mode items use CheckMenuItem
+    // Shortcut hints are label text (not accelerators) — use platform-appropriate symbols
+    #[cfg(target_os = "macos")]
+    let (visual_label, source_label, split_label) = (
+        "Visual Mode          ⌘/",
+        "Source Mode         ⌘/",
+        "Split Mode       ⇧⌘/",
+    );
+    #[cfg(not(target_os = "macos"))]
+    let (visual_label, source_label, split_label) = (
+        "Visual Mode          Ctrl+/",
+        "Source Mode         Ctrl+/",
+        "Split Mode       Ctrl+Shift+/",
+    );
     let view_menu = Submenu::with_id_and_items(
         app,
         "menu_view",
         "View",
         true,
         &[
-            &CheckMenuItem::with_id(app, "view_mode_visual", "Visual Mode          ⌘/", true, true, None::<&str>)?,
-            &CheckMenuItem::with_id(app, "view_mode_source", "Source Mode         ⌘/", true, false, None::<&str>)?,
-            &CheckMenuItem::with_id(app, "view_mode_split", "Split Mode       ⇧⌘/", true, false, None::<&str>)?,
+            &CheckMenuItem::with_id(app, "view_mode_visual", visual_label, true, true, None::<&str>)?,
+            &CheckMenuItem::with_id(app, "view_mode_source", source_label, true, false, None::<&str>)?,
+            &CheckMenuItem::with_id(app, "view_mode_split", split_label, true, false, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
             &CheckMenuItem::with_id(app, "view_sidebar", "Toggle Sidebar", true, false, Some("CmdOrCtrl+\\"))?,
             &CheckMenuItem::with_id(app, "view_ai_panel", "Toggle AI Panel", true, false, Some("CmdOrCtrl+J"))?,
