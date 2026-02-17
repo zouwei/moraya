@@ -6,11 +6,13 @@
     currentWidth,
     onResize,
     onClose,
+    onContextMenuThrough,
   }: {
     position: { top: number; left: number };
     currentWidth: string;
     onResize: (width: string) => void;
     onClose: () => void;
+    onContextMenuThrough?: (imgEl: HTMLImageElement, x: number, y: number) => void;
   } = $props();
 
   const tr = $t;
@@ -26,11 +28,30 @@
   function handleResize(value: string) {
     onResize(value);
   }
+
+  function handleBackdropContextMenu(e: MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Temporarily hide the backdrop to find what's underneath
+    const backdrop = e.currentTarget as HTMLElement;
+    backdrop.style.display = 'none';
+    const underlying = document.elementFromPoint(e.clientX, e.clientY);
+    backdrop.style.display = '';
+
+    // Close the toolbar first
+    onClose();
+
+    // If right-click landed on an image, forward it to the parent
+    if (underlying?.tagName === 'IMG' && onContextMenuThrough) {
+      onContextMenuThrough(underlying as HTMLImageElement, e.clientX, e.clientY);
+    }
+  }
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="toolbar-backdrop" onclick={onClose}>
+<div class="toolbar-backdrop" onclick={onClose} oncontextmenu={handleBackdropContextMenu}>
   <div
     class="image-toolbar"
     style="top: {position.top}px; left: {position.left}px"

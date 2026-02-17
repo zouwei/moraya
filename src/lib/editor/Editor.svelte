@@ -325,19 +325,30 @@
     event.preventDefault();
     event.stopPropagation();
 
+    // Dismiss any existing image toolbar from a previous click
+    showImageToolbar = false;
+
     const imgEl = target as HTMLImageElement;
     imageMenuSrc = imgEl.src;
     imageMenuPosition = { top: event.clientY, left: event.clientX };
     imageMenuIsUploadable = !!settingsStore.getDefaultImageHostTarget();
     showImageMenu = true;
 
-    // Find the ProseMirror position for this image
+    // Find the ProseMirror position and move selection to the right-clicked image
     if (editor) {
       try {
         editor.action((ctx) => {
           const view = ctx.get(editorViewCtx);
           const pos = view.posAtDOM(imgEl, 0);
           contextMenuTargetPos = pos;
+
+          // Move selection near this image so focus shifts away from any previous image
+          const node = view.state.doc.nodeAt(pos);
+          if (node) {
+            const resolved = view.state.doc.resolve(pos + node.nodeSize);
+            const sel = TextSelection.near(resolved);
+            view.dispatch(view.state.tr.setSelection(sel));
+          }
         });
       } catch {
         contextMenuTargetPos = null;
@@ -554,6 +565,35 @@
     }
 
     showImageToolbar = true;
+  }
+
+  /** Handle right-click that passes through the toolbar backdrop onto an image */
+  function handleToolbarContextMenuThrough(imgEl: HTMLImageElement, x: number, y: number) {
+    showImageToolbar = false;
+
+    imageMenuSrc = imgEl.src;
+    imageMenuPosition = { top: y, left: x };
+    imageMenuIsUploadable = !!settingsStore.getDefaultImageHostTarget();
+    showImageMenu = true;
+
+    if (editor) {
+      try {
+        editor.action((ctx) => {
+          const view = ctx.get(editorViewCtx);
+          const pos = view.posAtDOM(imgEl, 0);
+          contextMenuTargetPos = pos;
+
+          const node = view.state.doc.nodeAt(pos);
+          if (node) {
+            const resolved = view.state.doc.resolve(pos + node.nodeSize);
+            const sel = TextSelection.near(resolved);
+            view.dispatch(view.state.tr.setSelection(sel));
+          }
+        });
+      } catch {
+        contextMenuTargetPos = null;
+      }
+    }
   }
 
   function handleToolbarResize(width: string) {
@@ -977,6 +1017,7 @@
     currentWidth={imageToolbarCurrentWidth}
     onResize={handleToolbarResize}
     onClose={() => showImageToolbar = false}
+    onContextMenuThrough={handleToolbarContextMenuThrough}
   />
 {/if}
 

@@ -7,7 +7,7 @@ import { clipboard } from '@milkdown/plugin-clipboard';
 import { cursor } from '@milkdown/plugin-cursor';
 import { enterHandlerPlugin } from './plugins/enter-handler';
 import { $prose } from '@milkdown/utils';
-import { Plugin, PluginKey } from '@milkdown/prose/state';
+import { Plugin, PluginKey, TextSelection } from '@milkdown/prose/state';
 import { Decoration, DecorationSet } from '@milkdown/prose/view';
 
 // ── Tier 1: Enhancement plugins (dynamic imports, loaded in parallel) ──
@@ -176,6 +176,29 @@ const caretFixPlugin = $prose(() => {
   });
 });
 
+/**
+ * Prevent ProseMirror from creating a NodeSelection (blue highlight) when
+ * clicking on images. Instead, place a TextSelection right after the image
+ * so the cursor sits next to it without visually selecting the whole node.
+ */
+const imageClickPlugin = $prose(() => {
+  return new Plugin({
+    key: new PluginKey('image-click-handler'),
+    props: {
+      handleClickOn(view, _pos, node, nodePos, event) {
+        if (node.type.name !== 'image') return false;
+        // Only intercept left-click (button 0)
+        if (event.button !== 0) return false;
+
+        const $pos = view.state.doc.resolve(nodePos + node.nodeSize);
+        const sel = TextSelection.near($pos);
+        view.dispatch(view.state.tr.setSelection(sel));
+        return true; // Prevent default NodeSelection
+      },
+    },
+  });
+});
+
 export interface EditorOptions {
   root: HTMLElement;
   defaultValue?: string;
@@ -211,7 +234,8 @@ export async function createEditor(options: EditorOptions): Promise<Editor> {
     .use(cursor)
     .use(enterHandlerPlugin)
     .use(caretFixPlugin)
-    .use(scrollAfterPastePlugin);
+    .use(scrollAfterPastePlugin)
+    .use(imageClickPlugin);
 
   // Lazy change detection: serializes once per animation frame instead of per keystroke
   if (onChange) {
