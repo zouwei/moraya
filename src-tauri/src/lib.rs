@@ -136,6 +136,7 @@ pub(crate) fn create_editor_window(
     .min_inner_size(600.0, 400.0)
     .decorations(false)
     .center()
+    .devtools(false)
     .build()
     .map_err(|e| format!("Failed to create window: {}", e))?;
 
