@@ -27,15 +27,13 @@ futures-util = "0.3"
 dirs = "6"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 open = "5"
+tauri-plugin-global-shortcut = "2"
 
 [target.'cfg(not(target_os = "ios"))'.dependencies]
 fix-path-env = { git = "https://github.com/tauri-apps/fix-path-env-rs" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = "0.2"
-
-[target.'cfg(target_os = "windows")'.dependencies]
-webview2-com = "0.38"
 
 [lints.rust.unexpected_cfgs]
 level = "warn"

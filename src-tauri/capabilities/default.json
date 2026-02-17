@@ -38,6 +38,8 @@
     "dialog:allow-message",
     "store:default",
     "opener:default",
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister",
     {
       "identifier": "http:default",
       "allow": [

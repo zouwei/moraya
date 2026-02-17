@@ -24,6 +24,12 @@ pub struct MainWindowReady(pub AtomicBool);
 /// Atomic counter for generating unique window labels.
 static WINDOW_COUNTER: AtomicU32 = AtomicU32::new(0);
 
+/// Tracks the number of focused Moraya windows (Windows only).
+/// Used to register/unregister the global Ctrl+Shift+I shortcut so it
+/// intercepts the key before WebView2 opens DevTools.
+#[cfg(target_os = "windows")]
+static FOCUSED_WINDOW_COUNT: AtomicU32 = AtomicU32::new(0);
+
 /// Windows/Linux: shrink window if it exceeds the available screen area.
 /// Reserves space for OS taskbar (~48px) and window decorations (~52px).
 #[cfg(all(not(target_os = "macos"), not(target_os = "ios")))]
@@ -140,10 +146,6 @@ pub(crate) fn create_editor_window(
     .build()
     .map_err(|e| format!("Failed to create window: {}", e))?;
 
-    // Windows: disable browser accelerator keys for new windows too
-    #[cfg(target_os = "windows")]
-    disable_browser_accelerator_keys(&window);
-
     // macOS: enable decorations for native traffic lights, then overlay
     #[cfg(target_os = "macos")]
     {
@@ -211,44 +213,6 @@ fn file_paths_from_args() -> Vec<String> {
         .collect()
 }
 
-/// Windows: disable WebView2 browser accelerator keys (Ctrl+Shift+I DevTools, etc.)
-/// via the ICoreWebView2Settings COM interfaces so our AI panel shortcut works.
-#[cfg(target_os = "windows")]
-fn disable_browser_accelerator_keys(window: &tauri::WebviewWindow) {
-    use windows::Win32::Foundation::BOOL;
-
-    match window.with_webview(|webview| {
-        unsafe {
-            use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
-            use windows::core::Interface;
-
-            // webview.controller() returns ICoreWebView2Controller directly
-            match webview.controller().CoreWebView2() {
-                Ok(core) => match core.Settings() {
-                    Ok(settings) => {
-                        // Disable DevTools (prevents F12 / Ctrl+Shift+I from opening DevTools)
-                        let _ = settings.SetAreDevToolsEnabled(BOOL(0));
-
-                        // Disable all browser accelerator keys so the key event reaches JS
-                        match settings.cast::<ICoreWebView2Settings3>() {
-                            Ok(s3) => {
-                                let _ = s3.SetAreBrowserAcceleratorKeyEnabled(BOOL(0));
-                                eprintln!("[moraya] Browser accelerator keys disabled");
-                            }
-                            Err(e) => eprintln!("[moraya] Cast to Settings3 failed: {e}"),
-                        }
-                    }
-                    Err(e) => eprintln!("[moraya] Settings() failed: {e}"),
-                }
-                Err(e) => eprintln!("[moraya] CoreWebView2() failed: {e}"),
-            }
-        }
-    }) {
-        Ok(_) => {}
-        Err(e) => eprintln!("[moraya] with_webview failed: {e}"),
-    }
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Fix PATH for macOS GUI apps (Dock/Finder don't inherit shell PATH)
@@ -264,6 +228,15 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_http::init())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(move |app, _shortcut, event| {
+                    if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        let _ = app.emit("menu:view_ai_panel", ());
+                    }
+                })
+                .build(),
+        )
         .manage(commands::mcp::MCPProcessManager::new())
         .manage(commands::ai_proxy::AIProxyState::new())
         .manage(OpenedFiles(Mutex::new(initial_files)))
@@ -298,10 +271,6 @@ pub fn run() {
         ])
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
-
-            // Windows: disable browser accelerator keys (Ctrl+Shift+I, F12, etc.)
-            #[cfg(target_os = "windows")]
-            disable_browser_accelerator_keys(&window);
 
             // Desktop: configure window decorations
             #[cfg(not(target_os = "ios"))]
@@ -356,6 +325,34 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_app, _event| {
+            // Windows: register/unregister global Ctrl+Shift+I shortcut based on
+            // window focus to intercept the key before WebView2 opens DevTools.
+            #[cfg(target_os = "windows")]
+            {
+                if let tauri::RunEvent::WindowEvent {
+                    event: tauri::WindowEvent::Focused(focused),
+                    ..
+                } = &_event
+                {
+                    use tauri_plugin_global_shortcut::{
+                        Code, GlobalShortcutExt, Modifiers, Shortcut,
+                    };
+                    let shortcut =
+                        Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyI);
+                    if *focused {
+                        let prev = FOCUSED_WINDOW_COUNT.fetch_add(1, Ordering::SeqCst);
+                        if prev == 0 {
+                            let _ = _app.global_shortcut().register(shortcut);
+                        }
+                    } else {
+                        let prev = FOCUSED_WINDOW_COUNT.fetch_sub(1, Ordering::SeqCst);
+                        if prev == 1 {
+                            let _ = _app.global_shortcut().unregister(shortcut);
+                        }
+                    }
+                }
+            }
+
             #[cfg(target_os = "macos")]
             {
                 match &_event {
