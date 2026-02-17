@@ -575,15 +575,20 @@ ${tr('welcome.tip')}
     const slashMod = isMacOS ? event.metaKey : event.ctrlKey;
     if (slashMod && !event.shiftKey && (event.key === '/' || event.code === 'Slash')) {
       event.preventDefault();
-      editorStore.toggleEditorMode();
+      // Defer mode switch to after keydown propagation completes.
+      // On Windows WebView2, unmounting the focused editor element during
+      // event propagation corrupts the event system, freezing all input.
+      setTimeout(() => editorStore.toggleEditorMode(), 0);
       return;
     }
 
     // Split mode: Cmd+Shift+/ (Shift+/ produces '?' on most keyboards)
     if (slashMod && event.shiftKey && (event.key === '/' || event.key === '?' || event.code === 'Slash')) {
       event.preventDefault();
-      const current = editorStore.getState().editorMode;
-      editorStore.setEditorMode(current === 'split' ? 'visual' : 'split');
+      setTimeout(() => {
+        const current = editorStore.getState().editorMode;
+        editorStore.setEditorMode(current === 'split' ? 'visual' : 'split');
+      }, 0);
       return;
     }
 
