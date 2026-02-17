@@ -292,13 +292,10 @@ pub fn run() {
                 app.on_menu_event(move |_app, event| {
                     let id = event.id().0.as_str();
 
-                    // Update mode check marks when a mode menu item is clicked
-                    match id {
-                        "view_mode_visual" => menu::update_mode_checks(&app_handle_for_events, "visual"),
-                        "view_mode_source" => menu::update_mode_checks(&app_handle_for_events, "source"),
-                        "view_mode_split" => menu::update_mode_checks(&app_handle_for_events, "split"),
-                        _ => {}
-                    }
+                    // NOTE: mode check marks are NOT updated here.
+                    // On Windows, programmatic set_checked() triggers on_menu_event
+                    // again, creating a feedback loop. Instead, the frontend $effect
+                    // calls set_editor_mode_menu to update checks after mode changes.
 
                     // Emit as global event to all webviews
                     let _ = app_handle_for_events.emit(&format!("menu:{}", id), ());

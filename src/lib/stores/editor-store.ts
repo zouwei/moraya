@@ -85,7 +85,7 @@ function createEditorStore() {
       }));
     },
     setEditorMode(mode: EditorMode) {
-      update(state => ({ ...state, editorMode: mode }));
+      update(state => state.editorMode === mode ? state : { ...state, editorMode: mode });
     },
     setCursorOffset(offset: number) {
       update(state => ({ ...state, cursorOffset: offset }));

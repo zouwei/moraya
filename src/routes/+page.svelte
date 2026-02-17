@@ -423,10 +423,16 @@ ${tr('welcome.tip')}
     });
   }
 
-  // Sync native menu checkmarks when editor mode changes
+  // Sync native menu checkmarks when editor mode changes.
+  // On Windows, programmatic set_checked() on CheckMenuItem can trigger
+  // on_menu_event, creating echo events. Block them with a flag.
+  let ignoreModeMenuEvents = false;
   $effect(() => {
     if (!isTauri) return;
-    invoke('set_editor_mode_menu', { mode: editorMode });
+    ignoreModeMenuEvents = true;
+    invoke('set_editor_mode_menu', { mode: editorMode }).finally(() => {
+      setTimeout(() => { ignoreModeMenuEvents = false; }, 50);
+    });
   });
 
   // Sync sidebar and AI panel check state to native menu
@@ -1238,10 +1244,10 @@ ${tr('welcome.tip')}
         'menu:fmt_code': () => runEditorCommand(toggleInlineCodeCommand),
         'menu:fmt_link': () => runEditorCommand(toggleLinkCommand, { href: '' }),
         'menu:fmt_image': () => { showImageDialog = true; },
-        // View — editor modes
-        'menu:view_mode_visual': () => editorStore.setEditorMode('visual'),
-        'menu:view_mode_source': () => editorStore.setEditorMode('source'),
-        'menu:view_mode_split': () => editorStore.setEditorMode('split'),
+        // View — editor modes (ignore echo events from programmatic set_checked on Windows)
+        'menu:view_mode_visual': () => { if (!ignoreModeMenuEvents) editorStore.setEditorMode('visual'); },
+        'menu:view_mode_source': () => { if (!ignoreModeMenuEvents) editorStore.setEditorMode('source'); },
+        'menu:view_mode_split': () => { if (!ignoreModeMenuEvents) editorStore.setEditorMode('split'); },
         // View — panels
         'menu:view_sidebar': () => settingsStore.toggleSidebar(),
         'menu:view_ai_panel': () => { showAIPanel = !showAIPanel; },
