@@ -26,7 +26,7 @@
     aiError?: boolean;
   } = $props();
 
-  const aiShortcutHint = isMacOS || isIPadOS ? '⌘J' : 'Ctrl+J';
+  const aiShortcutHint = isMacOS || isIPadOS ? '⇧⌘I' : 'Ctrl+Shift+I';
 
   function getAITooltip(): string {
     const label = $t('statusbar.aiTooltip');

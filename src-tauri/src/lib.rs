@@ -126,7 +126,8 @@ pub(crate) fn create_editor_window(
     }
 
     // Build window with same config as main
-    let window = tauri::WebviewWindowBuilder::new(
+    #[allow(unused_mut)]
+    let mut builder = tauri::WebviewWindowBuilder::new(
         app,
         &label,
         tauri::WebviewUrl::default(),
@@ -135,8 +136,15 @@ pub(crate) fn create_editor_window(
     .inner_size(1200.0, 800.0)
     .min_inner_size(600.0, 400.0)
     .decorations(false)
-    .center()
-    .build()
+    .center();
+
+    // Disable WebView2 browser accelerator keys (Ctrl+J downloads, Ctrl+Shift+I devtools, etc.)
+    #[cfg(target_os = "windows")]
+    {
+        builder = builder.browser_accelerator_keys(false);
+    }
+
+    let window = builder.build()
     .map_err(|e| format!("Failed to create window: {}", e))?;
 
     // macOS: enable decorations for native traffic lights, then overlay
@@ -254,7 +262,26 @@ pub fn run() {
             create_new_window,
         ])
         .setup(|app| {
-            let window = app.get_webview_window("main").unwrap();
+            // Create main window programmatically (tauri.conf.json has create:false)
+            // so we can set browser_accelerator_keys(false) on Windows.
+            #[allow(unused_mut)]
+            let mut main_builder = tauri::WebviewWindowBuilder::new(
+                app,
+                "main",
+                tauri::WebviewUrl::default(),
+            )
+            .title("Moraya")
+            .inner_size(1200.0, 800.0)
+            .min_inner_size(600.0, 400.0)
+            .decorations(false)
+            .center();
+
+            #[cfg(target_os = "windows")]
+            {
+                main_builder = main_builder.browser_accelerator_keys(false);
+            }
+
+            let window = main_builder.build()?;
 
             // Desktop: configure window decorations
             #[cfg(not(target_os = "ios"))]

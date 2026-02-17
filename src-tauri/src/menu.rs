@@ -177,7 +177,7 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
             &mode_split,
             &PredefinedMenuItem::separator(app)?,
             &CheckMenuItem::with_id(app, "view_sidebar", "Toggle Sidebar", true, false, Some("CmdOrCtrl+\\"))?,
-            &CheckMenuItem::with_id(app, "view_ai_panel", "Toggle AI Panel", true, false, Some("CmdOrCtrl+J"))?,
+            &CheckMenuItem::with_id(app, "view_ai_panel", "Toggle AI Panel", true, false, Some("CmdOrCtrl+Shift+I"))?,
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, "view_zoom_in", "Zoom In", true, Some("CmdOrCtrl+="))?,
             &MenuItem::with_id(app, "view_zoom_out", "Zoom Out", true, Some("CmdOrCtrl+-"))?,

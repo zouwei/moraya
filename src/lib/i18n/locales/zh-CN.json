@@ -640,7 +640,7 @@
     "shortcutSplitMode": "`Cmd+Shift+/` — 切换对比模式",
     "shortcutSidebar": "`Cmd+\\` — 切换侧边栏",
     "shortcutSettings": "`Cmd+,` — 打开设置",
-    "shortcutAI": "`Cmd+J` — 切换 AI 面板",
+    "shortcutAI": "`Cmd+Shift+I` — 切换 AI 面板",
     "shortcutExport": "`Cmd+Shift+E` — 导出为 HTML",
     "blockquoteTitle": "引用示例",
     "blockquoteContent": "写作的艺术就是发现你所相信的东西的艺术。—— 居斯塔夫·福楼拜",

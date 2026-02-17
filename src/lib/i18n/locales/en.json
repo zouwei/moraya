@@ -640,7 +640,7 @@
     "shortcutSplitMode": "`Cmd+Shift+/` — Toggle Split mode",
     "shortcutSidebar": "`Cmd+\\` — Toggle sidebar",
     "shortcutSettings": "`Cmd+,` — Open settings",
-    "shortcutAI": "`Cmd+J` — Toggle AI panel",
+    "shortcutAI": "`Cmd+Shift+I` — Toggle AI panel",
     "shortcutExport": "`Cmd+Shift+E` — Export as HTML",
     "blockquoteTitle": "Blockquote Example",
     "blockquoteContent": "The art of writing is the art of discovering what you believe. — Gustave Flaubert",

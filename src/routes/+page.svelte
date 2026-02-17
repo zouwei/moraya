@@ -556,9 +556,7 @@ ${tr('welcome.tip')}
     // View shortcuts
     if (mod && event.key === '\\') {
       event.preventDefault();
-      // In Tauri, the native menu accelerator (CmdOrCtrl+\) handles this via
-      // menu:view_sidebar event. Only toggle here for non-Tauri environments.
-      if (!isTauri) settingsStore.toggleSidebar();
+      settingsStore.toggleSidebar();
       return;
     }
 
@@ -589,12 +587,10 @@ ${tr('welcome.tip')}
       return;
     }
 
-    // AI Panel toggle: Cmd+J (avoids Ctrl+Shift+I DevTools conflict on Windows)
-    if (mod && !event.shiftKey && event.key === 'j') {
+    // AI Panel toggle: Cmd+Shift+I / Ctrl+Shift+I
+    if (mod && event.shiftKey && (event.key === 'I' || event.key === 'i')) {
       event.preventDefault();
-      // In Tauri, the native menu accelerator (CmdOrCtrl+J) handles this via
-      // menu:view_ai_panel event. Only toggle here for non-Tauri environments.
-      if (!isTauri) showAIPanel = !showAIPanel;
+      showAIPanel = !showAIPanel;
       return;
     }
 
