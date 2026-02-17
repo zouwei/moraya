@@ -12,8 +12,6 @@
   "app": {
     "windows": [
       {
-        "label": "main",
-        "create": false,
         "title": "Moraya",
         "width": 1200,
         "height": 800,

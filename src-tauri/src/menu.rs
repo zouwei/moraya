@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{
-    menu::{AboutMetadata, CheckMenuItem, Menu, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu},
+    menu::{CheckMenuItem, Menu, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu},
     AppHandle, Wry,
 };
+#[cfg(target_os = "macos")]
+use tauri::menu::AboutMetadata;
 
 /// Guard flag: true while `update_mode_checks` is running.
 /// On Linux (GTK), `set_checked()` synchronously triggers the "activate" signal,
