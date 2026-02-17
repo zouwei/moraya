@@ -211,23 +211,41 @@ fn file_paths_from_args() -> Vec<String> {
 }
 
 /// Windows: disable WebView2 browser accelerator keys (Ctrl+Shift+I DevTools, etc.)
-/// via the ICoreWebView2Settings3 COM interface so our AI panel shortcut works.
+/// via the ICoreWebView2Settings COM interfaces so our AI panel shortcut works.
 #[cfg(target_os = "windows")]
 fn disable_browser_accelerator_keys(window: &tauri::WebviewWindow) {
-    let _ = window.with_webview(|webview| {
+    use windows::Win32::Foundation::BOOL;
+
+    match window.with_webview(|webview| {
         unsafe {
             use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
-            use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller;
             use windows::core::Interface;
 
-            let controller: ICoreWebView2Controller = webview.controller().cast().unwrap();
-            let core = controller.CoreWebView2().unwrap();
-            let settings = core.Settings().unwrap();
-            if let Ok(settings3) = settings.cast::<ICoreWebView2Settings3>() {
-                let _ = settings3.SetAreBrowserAcceleratorKeyEnabled(false);
+            // webview.controller() returns ICoreWebView2Controller directly
+            match webview.controller().CoreWebView2() {
+                Ok(core) => match core.Settings() {
+                    Ok(settings) => {
+                        // Disable DevTools (prevents F12 / Ctrl+Shift+I from opening DevTools)
+                        let _ = settings.SetAreDevToolsEnabled(BOOL(0));
+
+                        // Disable all browser accelerator keys so the key event reaches JS
+                        match settings.cast::<ICoreWebView2Settings3>() {
+                            Ok(s3) => {
+                                let _ = s3.SetAreBrowserAcceleratorKeyEnabled(BOOL(0));
+                                eprintln!("[moraya] Browser accelerator keys disabled");
+                            }
+                            Err(e) => eprintln!("[moraya] Cast to Settings3 failed: {e}"),
+                        }
+                    }
+                    Err(e) => eprintln!("[moraya] Settings() failed: {e}"),
+                }
+                Err(e) => eprintln!("[moraya] CoreWebView2() failed: {e}"),
             }
         }
-    });
+    }) {
+        Ok(_) => {}
+        Err(e) => eprintln!("[moraya] with_webview failed: {e}"),
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
