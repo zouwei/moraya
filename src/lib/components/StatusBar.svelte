@@ -8,6 +8,7 @@
     onPublishWorkflow,
     onShowUpdateDialog,
     onToggleAI,
+    onModeChange,
     aiPanelOpen = false,
     aiConfigured = false,
     aiLoading = false,
@@ -16,6 +17,7 @@
     onPublishWorkflow?: () => void;
     onShowUpdateDialog?: () => void;
     onToggleAI?: () => void;
+    onModeChange?: (mode: EditorMode) => void;
     aiPanelOpen?: boolean;
     aiConfigured?: boolean;
     aiLoading?: boolean;
@@ -69,7 +71,13 @@
         <span
           class="mode-btn"
           class:active={editorMode === mode}
-          onclick={() => editorStore.setEditorMode(mode)}
+          onclick={() => {
+            if (onModeChange) {
+              onModeChange(mode);
+            } else {
+              editorStore.setEditorMode(mode);
+            }
+          }}
         >
           {$t(getModeLabel(mode))}
         </span>
