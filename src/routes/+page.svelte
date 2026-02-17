@@ -164,7 +164,7 @@ ${tr('welcome.tip')}
   let content = $state('');
   let showSidebar = $state(false);
   let showSettings = $state(false);
-  let settingsInitialTab = $state<'general' | 'ai'>('general');
+  let settingsInitialTab = $state<'general' | 'ai' | 'image'>('general');
   let showAIPanel = $state(false);
   let showImageDialog = $state(false);
   let showSearch = $state(false);
@@ -1460,6 +1460,7 @@ ${tr('welcome.tip')}
     <SEOPanel
       onClose={() => showSEOPanel = false}
       onApply={handleSEOApply}
+      onOpenSettings={() => { showSEOPanel = false; settingsInitialTab = 'ai'; showSettings = true; }}
     />
   {/await}
 {/if}
@@ -1470,6 +1471,8 @@ ${tr('welcome.tip')}
       <ImageGenDialog
         onClose={() => showImageGenDialog = false}
         onInsert={handleImageGenInsert}
+        onOpenAISettings={() => { showImageGenDialog = false; settingsInitialTab = 'ai'; showSettings = true; }}
+        onOpenImageSettings={() => { showImageGenDialog = false; settingsInitialTab = 'image'; showSettings = true; }}
       />
     {/await}
   </div>

@@ -8,9 +8,11 @@
   let {
     onClose,
     onApply,
+    onOpenSettings,
   }: {
     onClose: () => void;
     onApply: (data: SEOData) => void;
+    onOpenSettings?: () => void;
   } = $props();
 
   const tr = $t;
@@ -19,6 +21,8 @@
   let isLoading = $state(false);
   let error = $state<string | null>(null);
   let providerConfig = $state<AIProviderConfig | null>(null);
+
+  let isAIConfigured = $derived(!!(providerConfig && providerConfig.apiKey));
 
   aiStore.subscribe(state => {
     providerConfig = state.providerConfigs.find(c => c.id === state.activeConfigId) || null;
@@ -79,8 +83,10 @@
     }
   }
 
-  // Auto-generate on mount
-  generate();
+  // Auto-generate on mount (only if AI is configured)
+  if (providerConfig && providerConfig.apiKey) {
+    generate();
+  }
 </script>
 
 <div class="seo-panel">
@@ -98,6 +104,14 @@
       <div class="loading-state">
         <span class="spinner"></span>
         <span>{tr('seo.generating')}</span>
+      </div>
+    {:else if !isAIConfigured}
+      <div class="error-state">
+        <p>{tr('errors.aiNotConfigured')}</p>
+        <p class="config-hint">{tr('ai.unconfiguredHint', { shortcut: navigator.platform.includes('Mac') ? 'Cmd+,' : 'Ctrl+,' })}</p>
+        {#if onOpenSettings}
+          <button class="btn btn-settings" onclick={onOpenSettings}>{tr('ai.openSettings')}</button>
+        {/if}
       </div>
     {:else if error}
       <div class="error-state">
@@ -474,5 +488,20 @@
   .btn-retry:hover {
     background: var(--accent-color);
     color: white;
+  }
+
+  .config-hint {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    text-align: center;
+  }
+
+  .btn-settings {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+  }
+
+  .btn-settings:hover {
+    background: var(--bg-hover);
   }
 </style>

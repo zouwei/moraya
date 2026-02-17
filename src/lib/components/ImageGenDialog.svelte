@@ -18,9 +18,13 @@
   let {
     onClose,
     onInsert,
+    onOpenAISettings,
+    onOpenImageSettings,
   }: {
     onClose: () => void;
     onInsert: (images: { url: string; target: number }[], mode: InsertMode) => void;
+    onOpenAISettings?: () => void;
+    onOpenImageSettings?: () => void;
   } = $props();
 
   type InsertMode = 'paragraph' | 'end' | 'clipboard';
@@ -199,6 +203,10 @@
 
   let hasGenerated = $state(false);
 
+  let isTextAIReady = $derived(!!(textAIConfig && textAIConfig.apiKey));
+  let isImageAIReady = $derived(!!(imageConfig && imageConfig.apiKey));
+  let isBothReady = $derived(isTextAIReady && isImageAIReady);
+
   const selectedCount = $derived(generatedImages.filter(img => img.selected && img.url).length);
 </script>
 
@@ -274,7 +282,35 @@
             </div>
           </div>
 
-          {#if isGeneratingPrompts}
+          {#if !isBothReady}
+            <div class="config-status">
+              {#if !isTextAIReady}
+                <div class="config-item missing">
+                  <span>{tr('ai.textAiNotConfigured')}</span>
+                  {#if onOpenAISettings}
+                    <button class="btn btn-settings" onclick={onOpenAISettings}>{tr('ai.openSettings')}</button>
+                  {/if}
+                </div>
+              {:else}
+                <div class="config-item ready">
+                  <span>✓ {tr('ai.openSettings')}</span>
+                </div>
+              {/if}
+              {#if !isImageAIReady}
+                <div class="config-item missing">
+                  <span>{tr('ai.imageAiNotConfigured')}</span>
+                  {#if onOpenImageSettings}
+                    <button class="btn btn-settings" onclick={onOpenImageSettings}>{tr('ai.openImageSettings')}</button>
+                  {/if}
+                </div>
+              {:else}
+                <div class="config-item ready">
+                  <span>✓ {tr('ai.openImageSettings')}</span>
+                </div>
+              {/if}
+              <p class="config-hint">{tr('ai.unconfiguredHint', { shortcut: navigator.platform.includes('Mac') ? 'Cmd+,' : 'Ctrl+,' })}</p>
+            </div>
+          {:else if isGeneratingPrompts}
             <div class="loading-state">
               <span class="spinner"></span>
               <span>{tr('imageGen.generatingPrompts')}</span>
@@ -378,12 +414,12 @@
       <div class="footer-spacer"></div>
       {#if step === 1}
         {#if hasGenerated}
-          <button class="btn btn-secondary" onclick={handleGeneratePrompts} disabled={isGeneratingPrompts}>↻ {tr('seo.regenerate')}</button>
+          <button class="btn btn-secondary" onclick={handleGeneratePrompts} disabled={isGeneratingPrompts || !isBothReady}>↻ {tr('seo.regenerate')}</button>
           <button class="btn btn-primary" onclick={goToStep2} disabled={prompts.length === 0 || isGeneratingPrompts}>
             {tr('imageGen.next')}
           </button>
         {:else}
-          <button class="btn btn-primary" onclick={handleGeneratePrompts} disabled={isGeneratingPrompts}>
+          <button class="btn btn-primary" onclick={handleGeneratePrompts} disabled={isGeneratingPrompts || !isBothReady}>
             {tr('imageGen.generate')}
           </button>
         {/if}
@@ -839,5 +875,49 @@
     background: transparent;
     color: var(--accent-color);
     border-color: var(--accent-color);
+  }
+
+  .config-status {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1.5rem;
+    align-items: center;
+  }
+
+  .config-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: var(--font-size-sm);
+  }
+
+  .config-item.missing {
+    color: var(--text-muted);
+  }
+
+  .config-item.ready {
+    color: var(--accent-color);
+  }
+
+  .config-hint {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    text-align: center;
+  }
+
+  .btn-settings {
+    padding: 0.3rem 0.6rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: var(--font-size-xs);
+    cursor: pointer;
+    transition: background var(--transition-fast);
+  }
+
+  .btn-settings:hover {
+    background: var(--bg-hover);
   }
 </style>

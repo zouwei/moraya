@@ -352,7 +352,7 @@
   {#if !isConfigured}
     <div class="ai-unconfigured">
       <p>{$t('ai.unconfigured')}</p>
-      <p class="hint">{$t('ai.unconfiguredHint')}</p>
+      <p class="hint">{$t('ai.unconfiguredHint', { shortcut: navigator.platform.includes('Mac') ? 'Cmd+,' : 'Ctrl+,' })}</p>
       {#if onOpenSettings}
         <button class="open-settings-btn" onclick={onOpenSettings}>{$t('ai.openSettings')}</button>
       {/if}
