@@ -423,16 +423,11 @@ ${tr('welcome.tip')}
     });
   }
 
-  // Sync native menu checkmarks when editor mode changes.
-  // On Windows, programmatic set_checked() on CheckMenuItem can trigger
-  // on_menu_event, creating echo events. Block them with a flag.
-  let ignoreModeMenuEvents = false;
+  // Sync native menu checkmarks when editor mode changes (macOS only;
+  // on Windows the Rust command is a no-op to avoid set_checked() echo events).
   $effect(() => {
     if (!isTauri) return;
-    ignoreModeMenuEvents = true;
-    invoke('set_editor_mode_menu', { mode: editorMode }).finally(() => {
-      setTimeout(() => { ignoreModeMenuEvents = false; }, 50);
-    });
+    invoke('set_editor_mode_menu', { mode: editorMode });
   });
 
   // Sync sidebar and AI panel check state to native menu
@@ -575,20 +570,15 @@ ${tr('welcome.tip')}
     const slashMod = isMacOS ? event.metaKey : event.ctrlKey;
     if (slashMod && !event.shiftKey && (event.key === '/' || event.code === 'Slash')) {
       event.preventDefault();
-      // Defer mode switch to after keydown propagation completes.
-      // On Windows WebView2, unmounting the focused editor element during
-      // event propagation corrupts the event system, freezing all input.
-      setTimeout(() => editorStore.toggleEditorMode(), 0);
+      editorStore.toggleEditorMode();
       return;
     }
 
     // Split mode: Cmd+Shift+/ (Shift+/ produces '?' on most keyboards)
     if (slashMod && event.shiftKey && (event.key === '/' || event.key === '?' || event.code === 'Slash')) {
       event.preventDefault();
-      setTimeout(() => {
-        const current = editorStore.getState().editorMode;
-        editorStore.setEditorMode(current === 'split' ? 'visual' : 'split');
-      }, 0);
+      const current = editorStore.getState().editorMode;
+      editorStore.setEditorMode(current === 'split' ? 'visual' : 'split');
       return;
     }
 
@@ -1249,10 +1239,10 @@ ${tr('welcome.tip')}
         'menu:fmt_code': () => runEditorCommand(toggleInlineCodeCommand),
         'menu:fmt_link': () => runEditorCommand(toggleLinkCommand, { href: '' }),
         'menu:fmt_image': () => { showImageDialog = true; },
-        // View — editor modes (ignore echo events from programmatic set_checked on Windows)
-        'menu:view_mode_visual': () => { if (!ignoreModeMenuEvents) editorStore.setEditorMode('visual'); },
-        'menu:view_mode_source': () => { if (!ignoreModeMenuEvents) editorStore.setEditorMode('source'); },
-        'menu:view_mode_split': () => { if (!ignoreModeMenuEvents) editorStore.setEditorMode('split'); },
+        // View — editor modes
+        'menu:view_mode_visual': () => editorStore.setEditorMode('visual'),
+        'menu:view_mode_source': () => editorStore.setEditorMode('source'),
+        'menu:view_mode_split': () => editorStore.setEditorMode('split'),
         // View — panels
         'menu:view_sidebar': () => settingsStore.toggleSidebar(),
         'menu:view_ai_panel': () => { showAIPanel = !showAIPanel; },

@@ -55,7 +55,11 @@ fn fit_window_to_screen(window: &tauri::WebviewWindow) {
 
 #[tauri::command]
 fn set_editor_mode_menu(_app: tauri::AppHandle, _mode: String) {
-    #[cfg(not(target_os = "ios"))]
+    // Only update checkmarks on macOS — safe because AppKit's set_checked()
+    // does NOT trigger on_menu_event.
+    // On Windows/Linux (muda), set_checked() CAN trigger on_menu_event,
+    // creating an infinite mode-toggle feedback loop.
+    #[cfg(target_os = "macos")]
     menu::update_mode_checks(&_app, &_mode);
 }
 
