@@ -139,6 +139,10 @@ pub(crate) fn create_editor_window(
     .build()
     .map_err(|e| format!("Failed to create window: {}", e))?;
 
+    // Windows: disable browser accelerator keys for new windows too
+    #[cfg(target_os = "windows")]
+    disable_browser_accelerator_keys(&window);
+
     // macOS: enable decorations for native traffic lights, then overlay
     #[cfg(target_os = "macos")]
     {
@@ -206,13 +210,24 @@ fn file_paths_from_args() -> Vec<String> {
         .collect()
 }
 
-/// Disable the DevTools browser shortcut (Ctrl+Shift+I / F12) so it doesn't
-/// conflict with our AI panel toggle (Cmd/Ctrl+Shift+I).
-fn prevent_default() -> tauri::plugin::TauriPlugin<tauri::Wry> {
-    use tauri_plugin_prevent_default::Flags;
-    tauri_plugin_prevent_default::Builder::new()
-        .with_flags(Flags::DEV_TOOLS)
-        .build()
+/// Windows: disable WebView2 browser accelerator keys (Ctrl+Shift+I DevTools, etc.)
+/// via the ICoreWebView2Settings3 COM interface so our AI panel shortcut works.
+#[cfg(target_os = "windows")]
+fn disable_browser_accelerator_keys(window: &tauri::WebviewWindow) {
+    let _ = window.with_webview(|webview| {
+        unsafe {
+            use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
+            use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller;
+            use windows::core::Interface;
+
+            let controller: ICoreWebView2Controller = webview.controller().cast().unwrap();
+            let core = controller.CoreWebView2().unwrap();
+            let settings = core.Settings().unwrap();
+            if let Ok(settings3) = settings.cast::<ICoreWebView2Settings3>() {
+                let _ = settings3.SetAreBrowserAcceleratorKeyEnabled(false);
+            }
+        }
+    });
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -230,7 +245,6 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_http::init())
-        .plugin(prevent_default())
         .manage(commands::mcp::MCPProcessManager::new())
         .manage(commands::ai_proxy::AIProxyState::new())
         .manage(OpenedFiles(Mutex::new(initial_files)))
@@ -265,6 +279,10 @@ pub fn run() {
         ])
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
+
+            // Windows: disable browser accelerator keys (Ctrl+Shift+I, F12, etc.)
+            #[cfg(target_os = "windows")]
+            disable_browser_accelerator_keys(&window);
 
             // Desktop: configure window decorations
             #[cfg(not(target_os = "ios"))]
