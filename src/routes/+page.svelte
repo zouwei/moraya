@@ -396,7 +396,12 @@ ${tr('welcome.tip')}
     } else {
       currentFileName = $t('common.untitled');
     }
-    editorMode = state.editorMode;
+    // Guard: only write $state when mode actually changes to avoid re-entrancy
+    // during Svelte's render flush (e.g., when Editor.onDestroy calls setContent,
+    // which triggers this subscriber while the component tree is being updated).
+    if (editorMode !== state.editorMode) {
+      editorMode = state.editorMode;
+    }
     // Clear editor reference when switching to source-only mode
     if (state.editorMode === 'source') {
       milkdownEditor = null;
@@ -570,15 +575,20 @@ ${tr('welcome.tip')}
     const slashMod = isMacOS ? event.metaKey : event.ctrlKey;
     if (slashMod && !event.shiftKey && (event.key === '/' || event.code === 'Slash')) {
       event.preventDefault();
-      editorStore.toggleEditorMode();
+      // Direct $state update ensures Svelte picks up the change in this handler's
+      // execution context, not just through the store subscriber path.
+      const newMode: EditorMode = editorMode === 'visual' ? 'source' : 'visual';
+      editorMode = newMode;
+      editorStore.setEditorMode(newMode);
       return;
     }
 
     // Split mode: Cmd+Shift+/ (Shift+/ produces '?' on most keyboards)
     if (slashMod && event.shiftKey && (event.key === '/' || event.key === '?' || event.code === 'Slash')) {
       event.preventDefault();
-      const current = editorStore.getState().editorMode;
-      editorStore.setEditorMode(current === 'split' ? 'visual' : 'split');
+      const newMode: EditorMode = editorMode === 'split' ? 'visual' : 'split';
+      editorMode = newMode;
+      editorStore.setEditorMode(newMode);
       return;
     }
 
@@ -1239,10 +1249,10 @@ ${tr('welcome.tip')}
         'menu:fmt_code': () => runEditorCommand(toggleInlineCodeCommand),
         'menu:fmt_link': () => runEditorCommand(toggleLinkCommand, { href: '' }),
         'menu:fmt_image': () => { showImageDialog = true; },
-        // View — editor modes
-        'menu:view_mode_visual': () => editorStore.setEditorMode('visual'),
-        'menu:view_mode_source': () => editorStore.setEditorMode('source'),
-        'menu:view_mode_split': () => editorStore.setEditorMode('split'),
+        // View — editor modes (direct $state update + store update for robustness)
+        'menu:view_mode_visual': () => { editorMode = 'visual'; editorStore.setEditorMode('visual'); },
+        'menu:view_mode_source': () => { editorMode = 'source'; editorStore.setEditorMode('source'); },
+        'menu:view_mode_split': () => { editorMode = 'split'; editorStore.setEditorMode('split'); },
         // View — panels
         'menu:view_sidebar': () => settingsStore.toggleSidebar(),
         'menu:view_ai_panel': () => { showAIPanel = !showAIPanel; },
