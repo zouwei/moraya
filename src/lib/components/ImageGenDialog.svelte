@@ -18,13 +18,11 @@
   let {
     onClose,
     onInsert,
-    onOpenAISettings,
-    onOpenImageSettings,
+    onOpenSettings,
   }: {
     onClose: () => void;
     onInsert: (images: { url: string; target: number }[], mode: InsertMode) => void;
-    onOpenAISettings?: () => void;
-    onOpenImageSettings?: () => void;
+    onOpenSettings?: () => void;
   } = $props();
 
   type InsertMode = 'paragraph' | 'end' | 'clipboard';
@@ -284,31 +282,20 @@
 
           {#if !isBothReady}
             <div class="config-status">
-              {#if !isTextAIReady}
-                <div class="config-item missing">
-                  <span>{tr('ai.textAiNotConfigured')}</span>
-                  {#if onOpenAISettings}
-                    <button class="btn btn-settings" onclick={onOpenAISettings}>{tr('ai.openSettings')}</button>
-                  {/if}
-                </div>
-              {:else}
-                <div class="config-item ready">
-                  <span>✓ {tr('ai.openSettings')}</span>
-                </div>
-              {/if}
-              {#if !isImageAIReady}
-                <div class="config-item missing">
-                  <span>{tr('ai.imageAiNotConfigured')}</span>
-                  {#if onOpenImageSettings}
-                    <button class="btn btn-settings" onclick={onOpenImageSettings}>{tr('ai.openImageSettings')}</button>
-                  {/if}
-                </div>
-              {:else}
-                <div class="config-item ready">
-                  <span>✓ {tr('ai.openImageSettings')}</span>
-                </div>
-              {/if}
+              <div class="config-item" class:ready={isTextAIReady} class:missing={!isTextAIReady}>
+                <span>{isTextAIReady ? '✓' : '✗'}</span>
+                <span>{tr('ai.textAiLabel')}</span>
+              </div>
+              <div class="config-item" class:ready={isImageAIReady} class:missing={!isImageAIReady}>
+                <span>{isImageAIReady ? '✓' : '✗'}</span>
+                <span>{tr('ai.imageAiLabel')}</span>
+              </div>
               <p class="config-hint">{tr('ai.unconfiguredHint', { shortcut: navigator.platform.includes('Mac') ? 'Cmd+,' : 'Ctrl+,' })}</p>
+              {#if onOpenSettings}
+                <button class="btn btn-settings" onclick={onOpenSettings}>
+                  {!isImageAIReady && isTextAIReady ? tr('ai.openImageSettings') : tr('ai.openSettings')}
+                </button>
+              {/if}
             </div>
           {:else if isGeneratingPrompts}
             <div class="loading-state">

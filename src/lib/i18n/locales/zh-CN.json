@@ -100,8 +100,8 @@
     "unconfiguredHint": "打开设置（{shortcut}）并配置 API 密钥以启用 AI 功能。",
     "openSettings": "打开 AI 设置",
     "openImageSettings": "打开 AIGC 配置",
-    "textAiNotConfigured": "文本 AI 未配置，无法生成提示词。",
-    "imageAiNotConfigured": "图像 AI 未配置，无法生成图片。",
+    "textAiLabel": "AI 对话配置（生成提示词）",
+    "imageAiLabel": "AI 图像配置（生成图片）",
     "welcomeTitle": "有什么可以帮您？",
     "welcomeHint": "输入消息或使用 {kbd} 查看命令",
     "you": "你",
@@ -609,7 +609,7 @@
     "newVersionAvailable": "有新版本可用！点击升级。"
   },
   "errors": {
-    "aiNotConfigured": "AI 未配置。请在设置中配置 API 密钥。",
+    "aiNotConfigured": "AI 未配置。",
     "aiRequestFailed": "AI 请求失败",
     "chatRequestFailed": "对话请求失败",
     "unknownCommand": "未知 AI 命令：{command}"
