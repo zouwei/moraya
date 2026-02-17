@@ -206,6 +206,15 @@ fn file_paths_from_args() -> Vec<String> {
         .collect()
 }
 
+/// Disable the DevTools browser shortcut (Ctrl+Shift+I / F12) so it doesn't
+/// conflict with our AI panel toggle (Cmd/Ctrl+Shift+I).
+fn prevent_default() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    use tauri_plugin_prevent_default::Flags;
+    tauri_plugin_prevent_default::Builder::new()
+        .with_flags(Flags::DEV_TOOLS)
+        .build()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Fix PATH for macOS GUI apps (Dock/Finder don't inherit shell PATH)
@@ -221,6 +230,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_http::init())
+        .plugin(prevent_default())
         .manage(commands::mcp::MCPProcessManager::new())
         .manage(commands::ai_proxy::AIProxyState::new())
         .manage(OpenedFiles(Mutex::new(initial_files)))

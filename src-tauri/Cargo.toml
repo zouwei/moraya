@@ -27,6 +27,7 @@ futures-util = "0.3"
 dirs = "6"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 open = "5"
+tauri-plugin-prevent-default = "4"
 
 [target.'cfg(not(target_os = "ios"))'.dependencies]
 fix-path-env = { git = "https://github.com/tauri-apps/fix-path-env-rs" }
