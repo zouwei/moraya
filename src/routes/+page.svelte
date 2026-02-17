@@ -423,11 +423,11 @@ ${tr('welcome.tip')}
     });
   }
 
-  // Sync native menu checkmarks when editor mode changes (macOS only;
-  // on Windows the Rust command is a no-op to avoid set_checked() echo events).
+  // Sync native menu checkmarks when editor mode changes.
+  // macOS only — on Windows/Linux mode items are regular MenuItems (no checkmarks).
   $effect(() => {
-    if (!isTauri) return;
-    invoke('set_editor_mode_menu', { mode: editorMode });
+    if (!isTauri || !isMacOS) return;
+    invoke('set_editor_mode_menu', { mode: editorMode }).catch(() => {});
   });
 
   // Sync sidebar and AI panel check state to native menu

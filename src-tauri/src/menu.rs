@@ -132,8 +132,13 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
         ],
     )?;
 
-    // View menu — mode items use CheckMenuItem
+    // View menu — mode items
     // Shortcut hints are label text (not accelerators) — use platform-appropriate symbols
+    //
+    // macOS: CheckMenuItem with programmatic checkmark sync (update_mode_checks).
+    // Windows/Linux: regular MenuItem — muda's CheckMenuItem auto-toggles on click
+    // without mutual exclusion, creating permanently inconsistent checkmarks and
+    // potentially blocking further menu events. Regular MenuItem avoids this entirely.
     #[cfg(target_os = "macos")]
     let (visual_label, source_label, split_label) = (
         "Visual Mode          ⌘/",
@@ -146,15 +151,31 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
         "Source Mode         Ctrl+/",
         "Split Mode       Ctrl+Shift+/",
     );
+
+    // Mode items: CheckMenuItem on macOS, regular MenuItem on Windows/Linux
+    #[cfg(target_os = "macos")]
+    let mode_visual = CheckMenuItem::with_id(app, "view_mode_visual", visual_label, true, true, None::<&str>)?;
+    #[cfg(target_os = "macos")]
+    let mode_source = CheckMenuItem::with_id(app, "view_mode_source", source_label, true, false, None::<&str>)?;
+    #[cfg(target_os = "macos")]
+    let mode_split = CheckMenuItem::with_id(app, "view_mode_split", split_label, true, false, None::<&str>)?;
+
+    #[cfg(not(target_os = "macos"))]
+    let mode_visual = MenuItem::with_id(app, "view_mode_visual", visual_label, true, None::<&str>)?;
+    #[cfg(not(target_os = "macos"))]
+    let mode_source = MenuItem::with_id(app, "view_mode_source", source_label, true, None::<&str>)?;
+    #[cfg(not(target_os = "macos"))]
+    let mode_split = MenuItem::with_id(app, "view_mode_split", split_label, true, None::<&str>)?;
+
     let view_menu = Submenu::with_id_and_items(
         app,
         "menu_view",
         "View",
         true,
         &[
-            &CheckMenuItem::with_id(app, "view_mode_visual", visual_label, true, true, None::<&str>)?,
-            &CheckMenuItem::with_id(app, "view_mode_source", source_label, true, false, None::<&str>)?,
-            &CheckMenuItem::with_id(app, "view_mode_split", split_label, true, false, None::<&str>)?,
+            &mode_visual,
+            &mode_source,
+            &mode_split,
             &PredefinedMenuItem::separator(app)?,
             &CheckMenuItem::with_id(app, "view_sidebar", "Toggle Sidebar", true, false, Some("CmdOrCtrl+\\"))?,
             &CheckMenuItem::with_id(app, "view_ai_panel", "Toggle AI Panel", true, false, Some("CmdOrCtrl+J"))?,
