@@ -575,10 +575,7 @@ ${tr('welcome.tip')}
     const slashMod = isMacOS ? event.metaKey : event.ctrlKey;
     if (slashMod && !event.shiftKey && (event.key === '/' || event.code === 'Slash')) {
       event.preventDefault();
-      // Direct $state update ensures Svelte picks up the change in this handler's
-      // execution context, not just through the store subscriber path.
       const newMode: EditorMode = editorMode === 'visual' ? 'source' : 'visual';
-      editorMode = newMode;
       editorStore.setEditorMode(newMode);
       return;
     }
@@ -587,7 +584,6 @@ ${tr('welcome.tip')}
     if (slashMod && event.shiftKey && (event.key === '/' || event.key === '?' || event.code === 'Slash')) {
       event.preventDefault();
       const newMode: EditorMode = editorMode === 'split' ? 'visual' : 'split';
-      editorMode = newMode;
       editorStore.setEditorMode(newMode);
       return;
     }
@@ -1249,10 +1245,10 @@ ${tr('welcome.tip')}
         'menu:fmt_code': () => runEditorCommand(toggleInlineCodeCommand),
         'menu:fmt_link': () => runEditorCommand(toggleLinkCommand, { href: '' }),
         'menu:fmt_image': () => { showImageDialog = true; },
-        // View — editor modes (direct $state update + store update for robustness)
-        'menu:view_mode_visual': () => { editorMode = 'visual'; editorStore.setEditorMode('visual'); },
-        'menu:view_mode_source': () => { editorMode = 'source'; editorStore.setEditorMode('source'); },
-        'menu:view_mode_split': () => { editorMode = 'split'; editorStore.setEditorMode('split'); },
+        // View — editor modes (store update only; subscriber handles $state)
+        'menu:view_mode_visual': () => editorStore.setEditorMode('visual'),
+        'menu:view_mode_source': () => editorStore.setEditorMode('source'),
+        'menu:view_mode_split': () => editorStore.setEditorMode('split'),
         // View — panels
         'menu:view_sidebar': () => settingsStore.toggleSidebar(),
         'menu:view_ai_panel': () => { showAIPanel = !showAIPanel; },
