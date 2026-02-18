@@ -17,7 +17,7 @@
 
 * **Ultra-Lightweight & Native Performance** — \~10MB installer, instant launch, tiny memory footprint.
 
-* **True Instant WYSIWYG** — Type `# `                     and see a heading instantly (Milkdown/ProseMirror-powered).
+* **True Instant WYSIWYG** — Type `# `                      and see a heading instantly (Milkdown/ProseMirror-powered).
 
 * **Most Powerful Local AI Integration** — Multi-provider streaming chat (Claude, OpenAI, Gemini, DeepSeek, Ollama, custom endpoints), 71+ AI templates across 10 categories, AI image generation, and smart writing commands.
 
@@ -274,8 +274,6 @@ cd src-tauri && cargo check
 * [x] **v0.9.0** — Code Block Enhancement: Language label, language selector, copy button, CodeBlock NodeView toolbar → [Detailed Requirements](docs/iterations/v0.9.0-code-block-enhancement.md)
 
 * [x] **v0.10.0** — Mermaid Diagrams: 9 diagram types, edit/preview dual mode, lazy-loaded rendering, theme adaptation → [Detailed Requirements](docs/iterations/v0.10.0-mermaid-diagrams.md)
-
-
 
 ## License
 

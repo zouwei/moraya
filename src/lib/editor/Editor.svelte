@@ -531,6 +531,63 @@
     return mimeMap[mimeType] || 'png';
   }
 
+  /** Show pointer cursor when hovering over task list checkbox area. */
+  function handleCheckboxHover(event: MouseEvent) {
+    const target = event.target as HTMLElement;
+    const li = target.closest('li[data-checked]') as HTMLElement | null;
+    const pmEl = (event.currentTarget as HTMLElement);
+    if (li) {
+      const liRect = li.getBoundingClientRect();
+      if (event.clientX <= liRect.left + 4) {
+        pmEl.style.cursor = 'pointer';
+        return;
+      }
+    }
+    if (pmEl.style.cursor === 'pointer') {
+      pmEl.style.cursor = '';
+    }
+  }
+
+  /** Toggle task list checkbox when clicking on the checkbox area (::before pseudo-element). */
+  function handleCheckboxClick(event: MouseEvent) {
+    if (event.button !== 0 || !editor) return;
+    const target = event.target as HTMLElement;
+    // Walk up to find a task list item
+    const li = target.closest('li[data-checked]') as HTMLElement | null;
+    if (!li) return;
+
+    // Only toggle when clicking in the checkbox region (left of li content box).
+    // The ::before checkbox is positioned at left: -1.5em outside the li's box.
+    const liRect = li.getBoundingClientRect();
+    if (event.clientX > liRect.left + 4) return;
+
+    try {
+      editor.action((ctx) => {
+        const view = ctx.get(editorViewCtx);
+        const pos = view.posAtDOM(li, 0);
+        const resolved = view.state.doc.resolve(pos);
+
+        for (let d = resolved.depth; d > 0; d--) {
+          const node = resolved.node(d);
+          if (node.type.name === 'list_item' && node.attrs.checked != null) {
+            view.dispatch(
+              view.state.tr.setNodeMarkup(resolved.before(d), undefined, {
+                ...node.attrs,
+                checked: !node.attrs.checked,
+              }),
+            );
+            break;
+          }
+        }
+      });
+    } catch {
+      // Ignore position resolution errors
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
   /** Handle left-click on images to show floating resize toolbar */
   function handleImageClick(event: MouseEvent) {
     const target = event.target as HTMLElement;
@@ -717,6 +774,8 @@
     if (proseMirrorEl) {
       proseMirrorEl.addEventListener('click', updateTableToolbar);
       proseMirrorEl.addEventListener('click', handleImageClick as EventListener);
+      proseMirrorEl.addEventListener('click', handleCheckboxClick as EventListener);
+      proseMirrorEl.addEventListener('mousemove', handleCheckboxHover as EventListener);
       proseMirrorEl.addEventListener('keyup', updateTableToolbar);
       proseMirrorEl.addEventListener('paste', handlePaste as EventListener);
       proseMirrorEl.addEventListener('contextmenu', handleContextMenu as EventListener);

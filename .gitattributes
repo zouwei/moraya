@@ -1,0 +1,2 @@
+src-tauri/gen/** linguist-generated
+svelte.config.js linguist-vendored
