@@ -43,10 +43,12 @@
     content = $bindable(''),
     onEditorReady,
     onContentChange,
+    onNotify,
   }: {
     content?: string;
     onEditorReady?: (editor: MilkdownEditor) => void;
     onContentChange?: (content: string) => void;
+    onNotify?: (text: string, type: 'success' | 'error') => void;
   } = $props();
 
   let isReady = $state(false);
@@ -271,8 +273,10 @@
     }
   }
 
-  /** Upload an image (any URL) and replace it in the editor */
-  async function uploadAndReplace(imageSrc: string, config: ImageHostConfig) {
+  /** Upload an image (any URL) and replace it in the editor.
+   *  When `targetPos` is provided (right-click upload), use it directly
+   *  to avoid URL mismatch between DOM-resolved src and ProseMirror attrs. */
+  async function uploadAndReplace(imageSrc: string, config: ImageHostConfig, targetPos?: number | null) {
     if (!editor) return;
     try {
       const blob = await fetchImageAsBlob(imageSrc);
@@ -280,6 +284,23 @@
 
       editor.action((ctx) => {
         const view = ctx.get(editorViewCtx);
+
+        if (targetPos != null) {
+          // Direct position — from context menu right-click
+          const node = view.state.doc.nodeAt(targetPos);
+          if (node && node.type.name === 'image') {
+            view.dispatch(
+              view.state.tr.setNodeMarkup(targetPos, undefined, {
+                ...node.attrs,
+                src: result.url,
+              }),
+            );
+            onNotify?.('Image uploaded', 'success');
+            return;
+          }
+        }
+
+        // Fallback: search by URL match (for paste / drag-drop auto-upload)
         const { doc, tr } = view.state;
         doc.descendants((node, pos) => {
           if (node.type.name === 'image' && node.attrs.src === imageSrc) {
@@ -288,10 +309,12 @@
         });
         if (tr.docChanged) {
           view.dispatch(tr);
+          onNotify?.('Image uploaded', 'success');
         }
       });
     } catch (e) {
       console.warn('[Image] uploadAndReplace failed:', e);
+      onNotify?.(String(e instanceof Error ? e.message : e), 'error');
     }
   }
 
@@ -381,7 +404,7 @@
     if (!editor || contextMenuTargetPos === null) return;
     const target = settingsStore.getDefaultImageHostTarget();
     if (!target) return;
-    uploadAndReplace(imageMenuSrc, targetToConfig(target));
+    uploadAndReplace(imageMenuSrc, targetToConfig(target), contextMenuTargetPos);
   }
 
   function handleImageEditAlt() {

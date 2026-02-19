@@ -13,11 +13,13 @@
 
 ![](https://raw.githubusercontent.com/zouwei/resource/master/images/moraya/20260214-165329.-image.png)
 
+![](https://raw.githubusercontent.com/zouwei/resource/master/images/moraya/20260219-052853.-image.png)
+
 ## Why Moraya? Key Advantages
 
 * **Ultra-Lightweight & Native Performance** — \~10MB installer, instant launch, tiny memory footprint.
 
-* **True Instant WYSIWYG** — Type `# `                      and see a heading instantly (Milkdown/ProseMirror-powered).
+* **True Instant WYSIWYG** — Type `# `                          and see a heading instantly (Milkdown/ProseMirror-powered).
 
 * **Most Powerful Local AI Integration** — Multi-provider streaming chat (Claude, OpenAI, Gemini, DeepSeek, Ollama, custom endpoints), 71+ AI templates across 10 categories, AI image generation, and smart writing commands.
 
