@@ -49,6 +49,7 @@
       "label": "自动保存",
       "interval": "自动保存间隔"
     },
+    "rememberLastFolder": "记住上次打开的文件夹",
     "editor": {
       "lineWidth": "编辑器行宽",
       "tabSize": "制表符大小",
@@ -65,7 +66,22 @@
   "sidebar": {
     "title": "资源管理器",
     "openFolder": "打开文件夹",
-    "noFolder": "未打开文件夹"
+    "noFolder": "未打开文件夹",
+    "treeView": "树状视图",
+    "listView": "列表视图",
+    "search": "搜索文件...",
+    "contextMenu": {
+      "newFile": "新建文件",
+      "searchFiles": "搜索",
+      "rename": "重命名",
+      "duplicate": "创建副本",
+      "delete": "删除",
+      "copyPath": "复制路径",
+      "revealInFinder": "在 Finder 中显示"
+    },
+    "newFilePrompt": "输入文件名",
+    "renamePrompt": "输入新名称",
+    "deleteConfirm": "确定要删除「{name}」吗？此操作不可撤销。"
   },
   "statusbar": {
     "words": "字数",
@@ -589,7 +605,12 @@
     "rssIncludeFullContent": "在 Feed 中包含完整文章内容",
     "rssFeedEndpoint": "RSS Feed 接口",
     "rssFeedEndpointPlaceholder": "https://api.example.com/rss",
-    "rssUpdateFailed": "RSS 订阅源更新失败"
+    "rssUpdateFailed": "RSS 订阅源更新失败",
+    "progressTitle": "发布中...",
+    "progressPublishing": "正在上传...",
+    "progressRss": "正在更新 RSS...",
+    "progressDone": "发布成功",
+    "progressFailed": "发布失败"
   },
   "update": {
     "title": "版本信息",

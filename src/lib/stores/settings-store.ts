@@ -35,6 +35,8 @@ interface Settings {
   activeImageConfigId: string | null;
   publishTargets: PublishTarget[];
   lastUpdateCheckDate: string | null;  // "YYYY-MM-DD" format
+  rememberLastFolder: boolean;
+  lastOpenedFolder: string | null;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -60,6 +62,8 @@ const DEFAULT_SETTINGS: Settings = {
   activeImageConfigId: null,
   publishTargets: [],
   lastUpdateCheckDate: null,
+  rememberLastFolder: true,
+  lastOpenedFolder: null,
 };
 
 function resolveLocale(selection: LocaleSelection): SupportedLocale {

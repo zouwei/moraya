@@ -1,8 +1,14 @@
 <script lang="ts">
-  import { filesStore, type FileEntry } from '../stores/files-store';
+  import { onDestroy } from 'svelte';
+  import { filesStore, type FileEntry, type FilePreview } from '../stores/files-store';
+  import { settingsStore } from '../stores/settings-store';
   import { invoke } from '@tauri-apps/api/core';
   import { open } from '@tauri-apps/plugin-dialog';
+  import { revealItemInDir } from '@tauri-apps/plugin-opener';
+  import { ask } from '@tauri-apps/plugin-dialog';
   import { t } from '$lib/i18n';
+  import { startWatching, stopWatching, refreshFileTree } from '$lib/services/file-watcher';
+  import FileContextMenu from './FileContextMenu.svelte';
 
   let {
     onFileSelect,
@@ -13,10 +19,40 @@
   let fileTree = $state<FileEntry[]>([]);
   let folderPath = $state<string | null>(null);
   let expandedDirs = $state<Set<string>>(new Set());
+  let viewMode = $state<'tree' | 'list'>('tree');
+  let filePreviews = $state<FilePreview[]>([]);
+  let searchQuery = $state('');
+  let showSearch = $state(false);
+  let searchInputEl = $state<HTMLInputElement | null>(null);
+
+  // Context menu state
+  let contextMenu = $state<{
+    show: boolean;
+    position: { top: number; left: number };
+    targetType: 'file' | 'folder' | 'blank';
+    targetPath: string;
+    targetName: string;
+  }>({
+    show: false,
+    position: { top: 0, left: 0 },
+    targetType: 'blank',
+    targetPath: '',
+    targetName: '',
+  });
+
+  // Inline input dialog state (replaces window.prompt which doesn't work in WKWebView)
+  let inputDialog = $state<{
+    mode: 'new-file' | 'rename';
+    value: string;
+    targetPath: string; // new-file: parent dir; rename: original file path
+  } | null>(null);
+  let inputDialogEl = $state<HTMLInputElement | null>(null);
 
   filesStore.subscribe(state => {
     fileTree = state.fileTree;
     folderPath = state.openFolderPath;
+    viewMode = state.sidebarViewMode;
+    filePreviews = state.filePreviews;
   });
 
   async function openFolder() {
@@ -34,6 +70,65 @@
       filesStore.setOpenFolder(selected, tree);
       // Expand root level
       expandedDirs = new Set([selected]);
+      // Remember the opened folder
+      const settings = settingsStore.getState();
+      if (settings.rememberLastFolder) {
+        settingsStore.update({ lastOpenedFolder: selected });
+      }
+      // Start watching for changes
+      startWatching(selected);
+      // Load file previews for list mode
+      loadFilePreviews(tree);
+    }
+  }
+
+  // Start watcher for restored folder
+  $effect(() => {
+    if (folderPath) {
+      startWatching(folderPath);
+    }
+  });
+
+  // Load previews when tree changes
+  $effect(() => {
+    if (fileTree.length > 0) {
+      loadFilePreviews(fileTree);
+    }
+  });
+
+  onDestroy(() => {
+    stopWatching();
+  });
+
+  function collectFilePaths(entries: FileEntry[]): string[] {
+    const paths: string[] = [];
+    for (const entry of entries) {
+      if (!entry.is_dir) {
+        paths.push(entry.path);
+      }
+      if (entry.children) {
+        paths.push(...collectFilePaths(entry.children));
+      }
+    }
+    return paths;
+  }
+
+  async function loadFilePreviews(tree: FileEntry[]) {
+    const paths = collectFilePaths(tree);
+    if (paths.length === 0) {
+      filesStore.setFilePreviews([]);
+      return;
+    }
+    try {
+      const previews = await invoke<FilePreview[]>('read_file_previews', {
+        paths,
+        maxChars: 100,
+      });
+      // Sort by filename descending (date-prefixed names sort correctly)
+      previews.sort((a, b) => b.name.localeCompare(a.name));
+      filesStore.setFilePreviews(previews);
+    } catch {
+      // Ignore preview loading errors
     }
   }
 
@@ -58,19 +153,280 @@
   function getFileName(path: string): string {
     return path.split('/').pop() || path;
   }
+
+  function getDisplayName(name: string): string {
+    return name.replace(/\.md$/, '').replace(/\.markdown$/, '');
+  }
+
+  function toggleViewMode() {
+    const newMode = viewMode === 'tree' ? 'list' : 'tree';
+    filesStore.setSidebarViewMode(newMode);
+  }
+
+  function toggleSearch() {
+    showSearch = !showSearch;
+    if (showSearch) {
+      // Focus search input after DOM update
+      setTimeout(() => searchInputEl?.focus(), 50);
+    } else {
+      searchQuery = '';
+    }
+  }
+
+  function handleSearchKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape') {
+      showSearch = false;
+      searchQuery = '';
+    }
+  }
+
+  // Filter tree entries by search query
+  function filterTree(entries: FileEntry[], query: string): FileEntry[] {
+    if (!query) return entries;
+    const lower = query.toLowerCase();
+    const result: FileEntry[] = [];
+    for (const entry of entries) {
+      if (entry.is_dir) {
+        const filteredChildren = entry.children ? filterTree(entry.children, query) : [];
+        if (filteredChildren.length > 0) {
+          result.push({ ...entry, children: filteredChildren });
+        }
+      } else {
+        if (entry.name.toLowerCase().includes(lower)) {
+          result.push(entry);
+        }
+      }
+    }
+    return result;
+  }
+
+  // Filter previews by search query
+  function filterPreviews(previews: FilePreview[], query: string): FilePreview[] {
+    if (!query) return previews;
+    const lower = query.toLowerCase();
+    return previews.filter(p => p.name.toLowerCase().includes(lower));
+  }
+
+  // Derived filtered data
+  let filteredTree = $derived(filterTree(fileTree, searchQuery));
+  let filteredPreviews = $derived(filterPreviews(filePreviews, searchQuery));
+
+  // Context menu handlers
+  function handleContextMenu(event: MouseEvent, type: 'file' | 'folder' | 'blank', path: string, name: string) {
+    event.preventDefault();
+    event.stopPropagation();
+    contextMenu = {
+      show: true,
+      position: { top: event.clientY, left: event.clientX },
+      targetType: type,
+      targetPath: path,
+      targetName: name,
+    };
+  }
+
+  function closeContextMenu() {
+    contextMenu = { ...contextMenu, show: false };
+  }
+
+  function handleNewFile() {
+    const dirPath = contextMenu.targetType === 'folder'
+      ? contextMenu.targetPath
+      : contextMenu.targetType === 'file'
+        ? contextMenu.targetPath.substring(0, contextMenu.targetPath.lastIndexOf('/'))
+        : folderPath;
+
+    if (!dirPath) return;
+
+    inputDialog = { mode: 'new-file', value: '', targetPath: dirPath };
+    setTimeout(() => inputDialogEl?.focus(), 50);
+  }
+
+  function handleSearchAction() {
+    toggleSearch();
+  }
+
+  function handleRename() {
+    inputDialog = {
+      mode: 'rename',
+      value: contextMenu.targetName,
+      targetPath: contextMenu.targetPath,
+    };
+    setTimeout(() => {
+      inputDialogEl?.focus();
+      inputDialogEl?.select();
+    }, 50);
+  }
+
+  async function submitInputDialog() {
+    if (!inputDialog) return;
+    const value = inputDialog.value.trim();
+    if (!value) {
+      inputDialog = null;
+      return;
+    }
+
+    if (inputDialog.mode === 'new-file') {
+      try {
+        const newPath = await invoke<string>('create_markdown_file', {
+          dirPath: inputDialog.targetPath,
+          fileName: value,
+        });
+        if (folderPath) await refreshFileTree(folderPath);
+        onFileSelect(newPath);
+      } catch (e) {
+        console.warn('Failed to create file:', e);
+      }
+    } else {
+      const oldPath = inputDialog.targetPath;
+      const oldName = getFileName(oldPath);
+      if (value !== oldName) {
+        const parentDir = oldPath.substring(0, oldPath.lastIndexOf('/'));
+        const newPath = `${parentDir}/${value}`;
+        try {
+          await invoke('rename_file', { oldPath, newPath });
+          if (folderPath) await refreshFileTree(folderPath);
+        } catch (e) {
+          console.warn('Failed to rename:', e);
+        }
+      }
+    }
+
+    inputDialog = null;
+  }
+
+  function handleInputDialogKeydown(event: KeyboardEvent) {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      submitInputDialog();
+    } else if (event.key === 'Escape') {
+      inputDialog = null;
+    }
+  }
+
+  async function handleDuplicate() {
+    const originalPath = contextMenu.targetPath;
+    const originalName = contextMenu.targetName;
+    const ext = originalName.includes('.') ? originalName.substring(originalName.lastIndexOf('.')) : '';
+    const baseName = ext ? originalName.substring(0, originalName.lastIndexOf('.')) : originalName;
+    const copyName = `${baseName} copy${ext}`;
+    const parentDir = originalPath.substring(0, originalPath.lastIndexOf('/'));
+    const copyPath = `${parentDir}/${copyName}`;
+
+    try {
+      const content = await invoke<string>('read_file', { path: originalPath });
+      await invoke('write_file', { path: copyPath, content });
+      if (folderPath) await refreshFileTree(folderPath);
+    } catch (e) {
+      console.warn('Failed to duplicate:', e);
+    }
+  }
+
+  async function handleDelete() {
+    const name = contextMenu.targetName;
+    const confirmed = await ask(
+      $t('sidebar.deleteConfirm').replace('{name}', name),
+      { title: $t('sidebar.contextMenu.delete'), kind: 'warning' }
+    );
+    if (!confirmed) return;
+
+    try {
+      await invoke('delete_file', { path: contextMenu.targetPath });
+      if (folderPath) await refreshFileTree(folderPath);
+    } catch (e) {
+      console.warn('Failed to delete:', e);
+    }
+  }
+
+  async function handleCopyPath() {
+    try {
+      await navigator.clipboard.writeText(contextMenu.targetPath);
+    } catch {
+      // Clipboard may not be available
+    }
+  }
+
+  async function handleRevealInFinder() {
+    try {
+      await revealItemInDir(contextMenu.targetPath);
+    } catch {
+      // May fail on some platforms
+    }
+  }
 </script>
 
-<div class="sidebar no-select">
+<div
+  class="sidebar no-select"
+  oncontextmenu={(e) => handleContextMenu(e, 'blank', folderPath || '', '')}
+>
   <div class="sidebar-header">
     <span class="sidebar-title">
       {folderPath ? getFileName(folderPath) : $t('sidebar.title')}
     </span>
-    <button class="sidebar-btn" onclick={openFolder} title={$t('sidebar.openFolder')}>
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-        <path d="M1 3.5A1.5 1.5 0 012.5 2h3.879a1.5 1.5 0 011.06.44l1.122 1.12A1.5 1.5 0 009.62 4H13.5A1.5 1.5 0 0115 5.5v7a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 12.5v-9z"/>
-      </svg>
-    </button>
+    <div class="sidebar-actions">
+      {#if folderPath}
+        <button
+          class="sidebar-btn"
+          onclick={toggleSearch}
+          title={$t('sidebar.search')}
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M11.742 10.344a6.5 6.5 0 10-1.397 1.398h-.001l3.85 3.85a1 1 0 001.415-1.414l-3.85-3.85zm-5.242.156a5 5 0 110-10 5 5 0 010 10z"/>
+          </svg>
+        </button>
+        <button
+          class="sidebar-btn"
+          onclick={toggleViewMode}
+          title={viewMode === 'tree' ? $t('sidebar.listView') : $t('sidebar.treeView')}
+        >
+          {#if viewMode === 'tree'}
+            <!-- List icon -->
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M2 4h12v1H2zm0 3.5h12v1H2zm0 3.5h12v1H2z"/>
+            </svg>
+          {:else}
+            <!-- Tree icon -->
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M1 1h4v4H1zm6 0h8v1.5H7zm0 2.5h6v1H7zM1 7h4v4H1zm6 0h8v1.5H7zm0 2.5h6v1H7z"/>
+            </svg>
+          {/if}
+        </button>
+      {/if}
+      <button class="sidebar-btn" onclick={openFolder} title={$t('sidebar.openFolder')}>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M1 3.5A1.5 1.5 0 012.5 2h3.879a1.5 1.5 0 011.06.44l1.122 1.12A1.5 1.5 0 009.62 4H13.5A1.5 1.5 0 0115 5.5v7a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 12.5v-9z"/>
+        </svg>
+      </button>
+    </div>
   </div>
+
+  {#if showSearch}
+    <div class="search-bar">
+      <input
+        bind:this={searchInputEl}
+        type="text"
+        class="search-input"
+        placeholder={$t('sidebar.search')}
+        bind:value={searchQuery}
+        onkeydown={handleSearchKeydown}
+      />
+    </div>
+  {/if}
+
+  {#if inputDialog}
+    <div class="input-dialog">
+      <span class="input-dialog-label">
+        {inputDialog.mode === 'new-file' ? $t('sidebar.newFilePrompt') : $t('sidebar.renamePrompt')}
+      </span>
+      <input
+        bind:this={inputDialogEl}
+        type="text"
+        class="input-dialog-input"
+        bind:value={inputDialog.value}
+        onkeydown={handleInputDialogKeydown}
+        onblur={() => { inputDialog = null; }}
+      />
+    </div>
+  {/if}
 
   <div class="sidebar-content">
     {#if fileTree.length === 0}
@@ -78,8 +434,25 @@
         <p>{$t('sidebar.noFolder')}</p>
         <button class="open-btn" onclick={openFolder}>{$t('sidebar.openFolder')}</button>
       </div>
+    {:else if viewMode === 'list'}
+      <!-- List View -->
+      <div class="list-view">
+        {#each filteredPreviews as preview}
+          <button
+            class="list-item"
+            onclick={() => onFileSelect(preview.path)}
+            oncontextmenu={(e) => handleContextMenu(e, 'file', preview.path, preview.name)}
+          >
+            <span class="list-item-title">{getDisplayName(preview.name)}</span>
+            {#if preview.preview}
+              <span class="list-item-preview">{preview.preview}</span>
+            {/if}
+          </button>
+        {/each}
+      </div>
     {:else}
-      {#each fileTree as entry}
+      <!-- Tree View -->
+      {#each filteredTree as entry}
         {@render fileTreeItem(entry, 0)}
       {/each}
     {/if}
@@ -92,6 +465,7 @@
     class:is-dir={entry.is_dir}
     style="padding-left: {0.75 + depth * 1}rem"
     onclick={() => handleFileClick(entry)}
+    oncontextmenu={(e) => handleContextMenu(e, entry.is_dir ? 'folder' : 'file', entry.path, entry.name)}
   >
     {#if entry.is_dir}
       <span class="tree-icon" class:expanded={expandedDirs.has(entry.path)}>
@@ -115,6 +489,23 @@
     {/each}
   {/if}
 {/snippet}
+
+{#if contextMenu.show}
+  <FileContextMenu
+    position={contextMenu.position}
+    targetType={contextMenu.targetType}
+    targetPath={contextMenu.targetPath}
+    targetName={contextMenu.targetName}
+    onNewFile={handleNewFile}
+    onSearch={handleSearchAction}
+    onRename={handleRename}
+    onDuplicate={handleDuplicate}
+    onDelete={handleDelete}
+    onCopyPath={handleCopyPath}
+    onRevealInFinder={handleRevealInFinder}
+    onClose={closeContextMenu}
+  />
+{/if}
 
 <style>
   .sidebar {
@@ -145,6 +536,15 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .sidebar-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.125rem;
+    flex-shrink: 0;
   }
 
   .sidebar-btn {
@@ -165,9 +565,55 @@
     color: var(--text-primary);
   }
 
+  .search-bar {
+    padding: 0.35rem 0.5rem;
+    border-bottom: 1px solid var(--border-light);
+  }
+
+  .search-input {
+    width: 100%;
+    padding: 0.3rem 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: var(--font-size-xs);
+    outline: none;
+  }
+
+  .search-input:focus {
+    border-color: var(--accent-color);
+  }
+
+  .input-dialog {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    padding: 0.35rem 0.5rem;
+    border-bottom: 1px solid var(--border-light);
+    background: var(--bg-secondary);
+  }
+
+  .input-dialog-label {
+    font-size: var(--font-size-xs);
+    color: var(--text-secondary);
+  }
+
+  .input-dialog-input {
+    width: 100%;
+    padding: 0.3rem 0.5rem;
+    border: 1px solid var(--accent-color);
+    border-radius: 4px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: var(--font-size-xs);
+    outline: none;
+  }
+
   .sidebar-content {
     flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
     padding: 0.25rem 0;
   }
 
@@ -197,6 +643,7 @@
     color: var(--text-primary);
   }
 
+  /* Tree View */
   .tree-item {
     display: flex;
     align-items: center;
@@ -237,6 +684,51 @@
     text-overflow: ellipsis;
   }
 
+  /* List View */
+  .list-view {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .list-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    width: 100%;
+    min-width: 0;
+    padding: 0.5rem 0.75rem;
+    border: none;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+    overflow: hidden;
+    border-bottom: 1px solid var(--border-light);
+    box-sizing: border-box;
+  }
+
+  .list-item:hover {
+    background: var(--bg-hover);
+  }
+
+  .list-item-title {
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+
+  .list-item-preview {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+
   /* iPadOS: larger touch targets and active feedback */
   :global(.platform-ipados) .tree-item {
     padding: 0.5rem 0.75rem;
@@ -244,6 +736,15 @@
   }
 
   :global(.platform-ipados) .tree-item:active {
+    background: var(--bg-hover);
+  }
+
+  :global(.platform-ipados) .list-item {
+    padding: 0.65rem 0.75rem;
+    min-height: 44px;
+  }
+
+  :global(.platform-ipados) .list-item:active {
     background: var(--bg-hover);
   }
 </style>

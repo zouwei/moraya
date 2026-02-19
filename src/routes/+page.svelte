@@ -34,6 +34,7 @@
   import type { PublishResult } from '$lib/services/publish/types';
   import { editorStore } from '$lib/stores/editor-store';
   import { settingsStore, initSettingsStore } from '$lib/stores/settings-store';
+  import { filesStore, type FileEntry } from '$lib/stores/files-store';
   import { initAIStore, aiStore } from '$lib/services/ai';
   import { initMCPStore, connectAllServers } from '$lib/services/mcp';
   import { initContainerManager, cleanupTempServices } from '$lib/services/mcp/container-manager';
@@ -201,6 +202,14 @@ ${tr('welcome.tip')}
   // Toast notifications
   let toastMessages = $state<{ id: number; text: string; type: 'success' | 'error' }[]>([]);
   let toastIdCounter = 0;
+
+  // Publish progress
+  interface PublishProgressItem {
+    targetName: string;
+    status: 'publishing' | 'rss' | 'done' | 'error';
+    message?: string;
+  }
+  let publishProgress = $state<PublishProgressItem[]>([]);
 
   function resetWorkflowState() {
     showWorkflow = false;
@@ -904,6 +913,7 @@ ${tr('welcome.tip')}
 
     const variables: Record<string, string> = {
       title: fallbackTitle,
+      filename: currentFileName.replace(/\.md$/i, ''),
       date: new Date().toISOString().split('T')[0],
       tags: currentSEOData?.tags?.join(', ') || '',
       description: currentSEOData?.metaDescription || '',
@@ -919,8 +929,16 @@ ${tr('welcome.tip')}
       import('$lib/services/publish/api-publisher'),
     ]);
 
-    const tr = $t;
-    for (const target of targets) {
+    // Initialize progress for all targets
+    publishProgress = targets.map(t => ({
+      targetName: t.name || t.id,
+      status: 'publishing' as const,
+    }));
+
+    for (let i = 0; i < targets.length; i++) {
+      const target = targets[i];
+
+      // Step 1: Publish
       let result: PublishResult;
       if (target.type === 'github') {
         result = await publishToGitHub(target, variables, content);
@@ -929,24 +947,32 @@ ${tr('welcome.tip')}
       }
 
       if (result.success) {
-        showToast(`${tr('workflow.publishSuccess')} → ${result.targetName}`, 'success');
-
-        // Update RSS feed if enabled (non-fatal)
-        try {
-          if (target.type === 'github' && target.rss?.enabled) {
-            const { updateGitHubRSSFeed } = await import('$lib/services/publish/rss-publisher');
-            await updateGitHubRSSFeed(target, variables, content);
-          } else if (target.type === 'custom-api' && target.rss?.enabled) {
-            const { updateCustomAPIRSSFeed } = await import('$lib/services/publish/rss-publisher');
-            await updateCustomAPIRSSFeed(target, variables, content);
+        // Step 2: RSS (if enabled)
+        if ((target.type === 'github' || target.type === 'custom-api') && target.rss?.enabled) {
+          publishProgress[i] = { ...publishProgress[i], status: 'rss' };
+          publishProgress = [...publishProgress];
+          try {
+            if (target.type === 'github') {
+              const { updateGitHubRSSFeed } = await import('$lib/services/publish/rss-publisher');
+              await updateGitHubRSSFeed(target, variables, content);
+            } else {
+              const { updateCustomAPIRSSFeed } = await import('$lib/services/publish/rss-publisher');
+              await updateCustomAPIRSSFeed(target, variables, content);
+            }
+          } catch {
+            // RSS failure is non-fatal
           }
-        } catch (rssErr) {
-          showToast(`${tr('publish.rssUpdateFailed')}: ${rssErr instanceof Error ? rssErr.message : ''}`, 'error');
         }
+
+        publishProgress[i] = { ...publishProgress[i], status: 'done' };
       } else {
-        showToast(`${tr('workflow.publishFailed')} → ${result.targetName}: ${result.message}`, 'error');
+        publishProgress[i] = { ...publishProgress[i], status: 'error', message: result.message };
       }
+      publishProgress = [...publishProgress];
     }
+
+    // Auto-dismiss after 3s
+    setTimeout(() => { publishProgress = []; }, 3000);
   }
 
   // Split mode scroll sync — block-level anchor mapping
@@ -1162,8 +1188,23 @@ ${tr('welcome.tip')}
           // Initialize dynamic service container (checks Node.js, reconnects saved services)
           initContainerManager().catch(() => {});
 
-          // Auto-check for updates (once daily)
+          // Restore last opened folder (F1: directory memory)
           const settings = settingsStore.getState();
+          if (settings.rememberLastFolder && settings.lastOpenedFolder) {
+            invoke<FileEntry[]>('read_dir_recursive', {
+              path: settings.lastOpenedFolder,
+              depth: 3,
+            })
+              .then(tree => {
+                filesStore.setOpenFolder(settings.lastOpenedFolder!, tree);
+              })
+              .catch(() => {
+                // Directory no longer exists — clear saved path silently
+                settingsStore.update({ lastOpenedFolder: null });
+              });
+          }
+
+          // Auto-check for updates (once daily)
           if (shouldCheckToday(settings.lastUpdateCheckDate)) {
             checkForUpdate()
               .then(() => {
@@ -1499,6 +1540,37 @@ ${tr('welcome.tip')}
   {/await}
 {/if}
 
+{#if publishProgress.length > 0}
+  <div class="publish-progress">
+    <div class="progress-title">{$t('publish.progressTitle')}</div>
+    {#each publishProgress as item}
+      <div class="progress-item" class:done={item.status === 'done'} class:error={item.status === 'error'}>
+        <span class="progress-icon">
+          {#if item.status === 'publishing' || item.status === 'rss'}
+            <span class="spinner"></span>
+          {:else if item.status === 'done'}
+            ✓
+          {:else}
+            ✗
+          {/if}
+        </span>
+        <span class="progress-name">{item.targetName}</span>
+        <span class="progress-status">
+          {#if item.status === 'publishing'}
+            {$t('publish.progressPublishing')}
+          {:else if item.status === 'rss'}
+            {$t('publish.progressRss')}
+          {:else if item.status === 'done'}
+            {$t('publish.progressDone')}
+          {:else}
+            {item.message || $t('publish.progressFailed')}
+          {/if}
+        </span>
+      </div>
+    {/each}
+  </div>
+{/if}
+
 <Toast messages={toastMessages} />
 
 <style>
@@ -1583,5 +1655,79 @@ ${tr('welcome.tip')}
 
   .dialog-visibility.hidden {
     display: none;
+  }
+
+  /* Publish progress overlay */
+  .publish-progress {
+    position: fixed;
+    top: 40px;
+    right: 1rem;
+    width: 280px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+    padding: 12px 14px;
+    z-index: 199;
+  }
+
+  .progress-title {
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--text-primary);
+  }
+
+  .progress-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    font-size: var(--font-size-xs);
+    color: var(--text-secondary);
+  }
+
+  .progress-item.done {
+    color: #34c759;
+  }
+
+  .progress-item.error {
+    color: #ff3b30;
+  }
+
+  .progress-icon {
+    width: 14px;
+    height: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 12px;
+  }
+
+  .spinner {
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--border-color);
+    border-top-color: #007aff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .progress-name {
+    font-weight: 500;
+    flex-shrink: 0;
+  }
+
+  .progress-status {
+    flex: 1;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 </style>

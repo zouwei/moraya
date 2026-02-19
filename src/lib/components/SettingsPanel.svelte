@@ -27,6 +27,7 @@
   let fontSize = $state(16);
   let autoSave = $state(true);
   let autoSaveInterval = $state(30);
+  let rememberLastFolder = $state(true);
   let currentLocale = $state<LocaleSelection>('system');
   let editorLineWidth = $state(800);
   let editorTabSize = $state(4);
@@ -43,6 +44,7 @@
     fontSize = state.fontSize;
     autoSave = state.autoSave;
     autoSaveInterval = state.autoSaveInterval / 1000;
+    rememberLastFolder = state.rememberLastFolder;
     currentLocale = state.localeSelection;
     editorLineWidth = state.editorLineWidth;
     editorTabSize = state.editorTabSize;
@@ -201,6 +203,23 @@
               </div>
             </div>
           {/if}
+
+          <div class="setting-group">
+            <label class="setting-label">
+              <input
+                type="checkbox"
+                checked={rememberLastFolder}
+                onchange={(e: Event) => {
+                  const checked = (e.target as HTMLInputElement).checked;
+                  settingsStore.update({ rememberLastFolder: checked });
+                  if (!checked) {
+                    settingsStore.update({ lastOpenedFolder: null });
+                  }
+                }}
+              />
+              {$t('settings.rememberLastFolder')}
+            </label>
+          </div>
 
         {:else if activeTab === 'editor'}
           <div class="setting-group">

@@ -144,6 +144,186 @@ fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
     Ok(buf)
 }
 
+/// Create a new empty Markdown file in the given directory.
+/// Automatically appends `.md` if not already present.
+#[tauri::command]
+pub fn create_markdown_file(dir_path: String, file_name: String) -> Result<String, String> {
+    let safe_dir = validate_path(&dir_path)?;
+    if !safe_dir.is_dir() {
+        return Err("Not a directory".to_string());
+    }
+
+    let name = if file_name.ends_with(".md") || file_name.ends_with(".markdown") {
+        file_name
+    } else {
+        format!("{}.md", file_name)
+    };
+
+    let file_path = safe_dir.join(&name);
+    // Validate the resulting path is also safe
+    let safe_file = validate_path(file_path.to_str().unwrap_or(""))?;
+
+    if safe_file.exists() {
+        return Err("File already exists".to_string());
+    }
+
+    fs::write(&safe_file, "").map_err(sanitize_io_error)?;
+    Ok(safe_file.to_string_lossy().to_string())
+}
+
+/// Rename a file or directory.
+#[tauri::command]
+pub fn rename_file(old_path: String, new_path: String) -> Result<(), String> {
+    let safe_old = validate_path(&old_path)?;
+    let safe_new = validate_path(&new_path)?;
+
+    if !safe_old.exists() {
+        return Err("File not found".to_string());
+    }
+    if safe_new.exists() {
+        return Err("File already exists".to_string());
+    }
+
+    fs::rename(&safe_old, &safe_new).map_err(sanitize_io_error)
+}
+
+/// Delete a file or directory (recursive for directories).
+#[tauri::command]
+pub fn delete_file(path: String) -> Result<(), String> {
+    let safe_path = validate_path(&path)?;
+
+    if !safe_path.exists() {
+        return Err("File not found".to_string());
+    }
+
+    if safe_path.is_dir() {
+        fs::remove_dir_all(&safe_path).map_err(sanitize_io_error)
+    } else {
+        fs::remove_file(&safe_path).map_err(sanitize_io_error)
+    }
+}
+
+#[derive(Serialize)]
+pub struct FilePreview {
+    pub path: String,
+    pub name: String,
+    pub preview: String,
+    pub modified: f64, // seconds since UNIX epoch
+}
+
+/// Batch-read file previews: first line of content (stripped of Markdown markers) + modification time.
+#[tauri::command]
+pub fn read_file_previews(
+    paths: Vec<String>,
+    max_chars: Option<usize>,
+) -> Result<Vec<FilePreview>, String> {
+    let limit = max_chars.unwrap_or(100);
+    let mut previews = Vec::with_capacity(paths.len());
+
+    for p in paths {
+        let safe_path = match validate_path(&p) {
+            Ok(sp) => sp,
+            Err(_) => continue,
+        };
+        if !safe_path.is_file() {
+            continue;
+        }
+
+        let name = safe_path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+
+        let modified = safe_path
+            .metadata()
+            .and_then(|m| m.modified())
+            .map(|t| {
+                t.duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs_f64()
+            })
+            .unwrap_or(0.0);
+
+        // Read preview: extract title from frontmatter, or first content line
+        let preview = match fs::read_to_string(&safe_path) {
+            Ok(content) => {
+                // Strip BOM if present
+                let content = content.strip_prefix('\u{FEFF}').unwrap_or(&content);
+                let mut result = String::new();
+
+                // Strategy: scan first 30 lines for a title: field
+                let mut found_title = false;
+                let mut first_content = String::new();
+                let mut in_frontmatter = false;
+
+                for (i, line) in content.lines().enumerate() {
+                    if i >= 30 { break; }
+                    let trimmed = line.trim();
+
+                    // Detect frontmatter boundaries
+                    if i == 0 && trimmed.starts_with("---") {
+                        in_frontmatter = true;
+                        continue;
+                    }
+                    if in_frontmatter && trimmed.starts_with("---") {
+                        in_frontmatter = false;
+                        continue;
+                    }
+
+                    // Look for title: in frontmatter
+                    if in_frontmatter && !found_title {
+                        if let Some(val) = trimmed.strip_prefix("title:") {
+                            let val = val.trim().trim_matches('"').trim_matches('\'');
+                            if !val.is_empty() {
+                                found_title = true;
+                                result = val.to_string();
+                            }
+                        }
+                        continue;
+                    }
+
+                    // After frontmatter or no frontmatter: grab first non-empty content line
+                    if !in_frontmatter && first_content.is_empty() && !trimmed.is_empty() {
+                        first_content = trimmed
+                            .trim_start_matches('#')
+                            .trim_start_matches('>')
+                            .trim_start_matches('-')
+                            .trim_start_matches('*')
+                            .trim()
+                            .to_string();
+                    }
+
+                    // If we have both, stop early
+                    if found_title && !first_content.is_empty() { break; }
+                }
+
+                // Prefer frontmatter title, fall back to first content line
+                if result.is_empty() {
+                    result = first_content;
+                }
+
+                if result.chars().count() > limit {
+                    let truncated: String = result.chars().take(limit).collect();
+                    format!("{}...", truncated)
+                } else {
+                    result
+                }
+            }
+            Err(_) => String::new(),
+        };
+
+        previews.push(FilePreview {
+            path: safe_path.to_string_lossy().to_string(),
+            name,
+            preview,
+            modified,
+        });
+    }
+
+    Ok(previews)
+}
+
 /// Maximum directory recursion depth
 const MAX_DIR_DEPTH: u32 = 10;
 
@@ -208,10 +388,10 @@ fn read_dir_inner(
         }
     }
 
-    // Sort: directories first, then files, both alphabetically
+    // Sort: directories first, then files, both alphabetically descending
     result.sort_by(|a, b| {
         if a.is_dir == b.is_dir {
-            a.name.to_lowercase().cmp(&b.name.to_lowercase())
+            b.name.to_lowercase().cmp(&a.name.to_lowercase())
         } else if a.is_dir {
             std::cmp::Ordering::Less
         } else {

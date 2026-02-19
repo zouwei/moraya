@@ -17,8 +17,6 @@
   let tabSize = $state(4);
   let editorLineWidth = $state(800);
   let textareaEl: HTMLTextAreaElement | undefined = $state();
-  let resizeRaf: number | undefined; // RAF throttle for auto-resize
-  let cachedLineHeight: number | undefined; // cache getComputedStyle result
 
   settingsStore.subscribe(state => {
     showLineNumbers = state.showLineNumbers;
@@ -26,26 +24,15 @@
     editorLineWidth = state.editorLineWidth;
   });
 
-  let lineCount = $derived(content.split('\n').length);
+  // Only compute line count when line numbers are visible
+  let lineCount = $derived(showLineNumbers ? countNewlines(content) : 0);
 
-  function autoResizeImmediate() {
-    if (!textareaEl) return;
-    // Save scroll position: setting height='auto' temporarily collapses the textarea,
-    // which can cause the outer scroll container to lose its scrollTop.
-    const outer = textareaEl.closest('.source-editor-outer') as HTMLElement | null;
-    const savedScroll = outer?.scrollTop ?? 0;
-    textareaEl.style.height = 'auto';
-    textareaEl.style.height = textareaEl.scrollHeight + 'px';
-    if (outer) outer.scrollTop = savedScroll;
-  }
-
-  // RAF-throttled version to avoid sync reflow per keystroke
-  function autoResize() {
-    if (resizeRaf) return;
-    resizeRaf = requestAnimationFrame(() => {
-      resizeRaf = undefined;
-      autoResizeImmediate();
-    });
+  /** Count newlines without allocating an array (O(n) scan) */
+  function countNewlines(s: string): number {
+    let count = 1;
+    let idx = -1;
+    while ((idx = s.indexOf('\n', idx + 1)) !== -1) count++;
+    return count;
   }
 
   function handleInput(event: Event) {
@@ -56,7 +43,6 @@
     onContentChange?.(content);
     editorStore.setDirty(true);
     editorStore.setContent(content);
-    autoResize();
     // Restore cursor after Svelte re-renders the value={content} binding,
     // which can reset cursor position (especially on paste).
     tick().then(() => {
@@ -81,14 +67,7 @@
     }
   }
 
-  // Auto-resize when content changes externally (e.g. split mode sync)
-  $effect(() => {
-    content;
-    tick().then(autoResize);
-  });
-
   onMount(() => {
-    autoResize();
     if (textareaEl) {
       const offset = editorStore.getState().cursorOffset;
       const clamped = Math.min(offset, content.length);
@@ -105,7 +84,6 @@
   });
 
   onDestroy(() => {
-    if (resizeRaf) cancelAnimationFrame(resizeRaf);
     if (textareaEl) {
       editorStore.setCursorOffset(textareaEl.selectionStart);
     }
@@ -116,6 +94,7 @@
   interface MatchPos { from: number; to: number }
   let searchMatches: MatchPos[] = [];
   let searchIndex = -1;
+  let cachedLineHeight: number | undefined;
 
   export function searchText(text: string, cs: boolean): number {
     searchMatches = [];
@@ -186,7 +165,7 @@
     const match = searchMatches[idx];
     textareaEl.focus();
     textareaEl.setSelectionRange(match.from, match.to);
-    // Scroll textarea to show selection (cache lineHeight to avoid repeated getComputedStyle)
+    // Scroll outer container to show selection
     const linesBefore = content.substring(0, match.from).split('\n').length;
     if (!cachedLineHeight && textareaEl) {
       cachedLineHeight = parseFloat(getComputedStyle(textareaEl).lineHeight) || 24;
@@ -209,15 +188,17 @@
         {/each}
       </div>
     {/if}
-    <textarea
-      bind:this={textareaEl}
-      class="source-textarea"
-      value={content}
-      oninput={handleInput}
-      onkeydown={handleKeydown}
-      spellcheck="true"
-      style="tab-size: {tabSize}"
-    ></textarea>
+    <div class="textarea-grow" style="tab-size: {tabSize}">
+      <div class="textarea-ghost" aria-hidden="true">{content + '\n'}</div>
+      <textarea
+        bind:this={textareaEl}
+        class="source-textarea"
+        value={content}
+        oninput={handleInput}
+        onkeydown={handleKeydown}
+        spellcheck="true"
+      ></textarea>
+    </div>
   </div>
 </div>
 
@@ -240,14 +221,6 @@
     display: none;
   }
 
-  .source-editor-inner {
-    margin: 0 auto;
-    min-height: 100%;
-    display: flex;
-    word-wrap: break-word;
-    overflow-wrap: break-word;
-  }
-
   /* Reduce padding when viewport is narrow (e.g., AI panel open) */
   @media (max-width: 900px) {
     .source-editor-outer {
@@ -259,6 +232,14 @@
     .source-editor-outer {
       padding: 1rem 1rem;
     }
+  }
+
+  .source-editor-inner {
+    margin: 0 auto;
+    min-height: 100%;
+    display: flex;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
   }
 
   .line-numbers {
@@ -280,20 +261,41 @@
     min-width: 2rem;
   }
 
-  .source-textarea {
+  /* CSS grid ghost technique: the ghost div mirrors the content to
+     determine the cell height; the textarea overlays it on the same
+     grid cell.  No JavaScript autoResize needed — the browser handles
+     layout natively (batched, async) instead of forced sync reflow. */
+  .textarea-grow {
     flex: 1;
-    resize: none;
-    border: none;
-    outline: none;
-    padding: 0;
-    background: transparent;
-    color: var(--text-primary);
+    display: grid;
+    min-width: 0;
+  }
+
+  .textarea-ghost,
+  .source-textarea {
+    grid-area: 1 / 1;
     font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
     font-size: var(--font-size-sm);
     line-height: 1.6;
-    overflow: hidden;
     white-space: pre-wrap;
     word-wrap: break-word;
+    overflow-wrap: break-word;
+    padding: 0;
+    border: none;
+    margin: 0;
+  }
+
+  .textarea-ghost {
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  .source-textarea {
+    resize: none;
+    outline: none;
+    background: transparent;
+    color: var(--text-primary);
+    overflow: hidden;
   }
 
   .source-textarea::placeholder {

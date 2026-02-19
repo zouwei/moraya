@@ -7,10 +7,21 @@ export interface FileEntry {
   children?: FileEntry[];
 }
 
+export interface FilePreview {
+  path: string;
+  name: string;
+  preview: string;
+  modified: number; // seconds since UNIX epoch
+}
+
+export type SidebarViewMode = 'tree' | 'list';
+
 interface FilesState {
   openFolderPath: string | null;
   fileTree: FileEntry[];
   recentFiles: string[];
+  sidebarViewMode: SidebarViewMode;
+  filePreviews: FilePreview[];
 }
 
 function createFilesStore() {
@@ -18,6 +29,8 @@ function createFilesStore() {
     openFolderPath: null,
     fileTree: [],
     recentFiles: [],
+    sidebarViewMode: 'tree',
+    filePreviews: [],
   });
 
   return {
@@ -28,6 +41,12 @@ function createFilesStore() {
     setFileTree(tree: FileEntry[]) {
       update(state => ({ ...state, fileTree: tree }));
     },
+    setFilePreviews(previews: FilePreview[]) {
+      update(state => ({ ...state, filePreviews: previews }));
+    },
+    setSidebarViewMode(mode: SidebarViewMode) {
+      update(state => ({ ...state, sidebarViewMode: mode }));
+    },
     addRecentFile(path: string) {
       update(state => {
         const recent = [path, ...state.recentFiles.filter(f => f !== path)].slice(0, 20);
@@ -35,7 +54,7 @@ function createFilesStore() {
       });
     },
     clearFolder() {
-      update(state => ({ ...state, openFolderPath: null, fileTree: [] }));
+      update(state => ({ ...state, openFolderPath: null, fileTree: [], filePreviews: [] }));
     },
     getState() {
       return get({ subscribe });

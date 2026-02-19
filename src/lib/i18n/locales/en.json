@@ -49,6 +49,7 @@
       "label": "Auto Save",
       "interval": "Auto Save Interval"
     },
+    "rememberLastFolder": "Remember last opened folder",
     "editor": {
       "lineWidth": "Editor Line Width",
       "tabSize": "Tab Size",
@@ -65,7 +66,22 @@
   "sidebar": {
     "title": "Explorer",
     "openFolder": "Open Folder",
-    "noFolder": "No folder open"
+    "noFolder": "No folder open",
+    "treeView": "Tree View",
+    "listView": "List View",
+    "search": "Search files...",
+    "contextMenu": {
+      "newFile": "New File",
+      "searchFiles": "Search",
+      "rename": "Rename",
+      "duplicate": "Create Copy",
+      "delete": "Delete",
+      "copyPath": "Copy Path",
+      "revealInFinder": "Reveal in Finder"
+    },
+    "newFilePrompt": "Enter file name",
+    "renamePrompt": "Enter new name",
+    "deleteConfirm": "Are you sure you want to delete \"{name}\"? This action cannot be undone."
   },
   "statusbar": {
     "words": "Words",
@@ -589,7 +605,12 @@
     "rssIncludeFullContent": "Include full article content in feed",
     "rssFeedEndpoint": "RSS Feed Endpoint",
     "rssFeedEndpointPlaceholder": "https://api.example.com/rss",
-    "rssUpdateFailed": "RSS feed update failed"
+    "rssUpdateFailed": "RSS feed update failed",
+    "progressTitle": "Publishing...",
+    "progressPublishing": "Uploading...",
+    "progressRss": "Updating RSS...",
+    "progressDone": "Done",
+    "progressFailed": "Failed"
   },
   "update": {
     "title": "Version Info",

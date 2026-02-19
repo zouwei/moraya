@@ -275,6 +275,8 @@ cd src-tauri && cargo check
 
 * [x] **v0.10.0** — Mermaid Diagrams: 9 diagram types, edit/preview dual mode, lazy-loaded rendering, theme adaptation → [Detailed Requirements](docs/iterations/v0.10.0-mermaid-diagrams.md)
 
+* [x] **v0.11.0** — Sidebar fully enhanced: directory memory + real-time file refresh + list/tree dual views + right-click context menu + file search — further strengthening local privacy-first note-taking. → [Detailed Requirements](docs/iterations/v0.11.0-sidebar-enhancement.md)
+
 ## License
 
 [Apache License 2.0](LICENSE)
