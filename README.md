@@ -97,6 +97,14 @@
 
 * **HTML Export Sanitization** — DOMParser-based XSS prevention on export.
 
+### Privacy
+
+* **Bring Your Own Key (BYOK)** — You provide your own API keys. Keys are stored exclusively in your OS's native secure storage (macOS Keychain / Windows Credential Manager / Linux Secret Service), encrypted at rest, and never transmitted to any Moraya server.
+
+* **No Intermediary Servers** — AI prompts and content are sent **directly from your device** to the provider's API. Moraya does not operate any relay or proxy servers — the data path is simply: Your Device → Provider API. Authentication is injected on-device by the local Rust backend before any request leaves your machine.
+
+* **Full Privacy Policy** — Available in-app via Help → Privacy Policy, or at [privacy-policy.md](src-tauri/resources/privacy-policy.md).
+
 ### Platform & UI
 
 * **Cross-Platform** — macOS, Windows, Linux via Tauri v2.

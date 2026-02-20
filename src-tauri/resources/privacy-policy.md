@@ -1,6 +1,6 @@
 # Privacy Policy for Moraya
 
-**Effective Date:** February 04, 2026
+**Effective Date:** February 20, 2026
 
 [moraya.app](https://moraya.app) develops and distributes Moraya, an open-source AI-powered Markdown editor (the "Software"). This Software is provided by moraya.app and is intended for use as is.
 
@@ -49,6 +49,27 @@ Moraya includes built-in AI assistance supporting multiple models: Claude (Anthr
   When configured to use Ollama, processing occurs entirely on your device. No data is sent externally.
 
 Moraya does not automatically install or launch any third-party services. AI usage requires user configuration (e.g., API keys) and explicit activation.
+
+### API Key Storage (Bring Your Own Key)
+
+Moraya follows a **Bring Your Own Key (BYOK)** model — you provide your own API keys for the AI providers you choose to use. Your API keys are:
+
+- **Stored exclusively on your device** in the operating system's native secure storage (macOS Keychain, Windows Credential Manager, or Linux Secret Service/libsecret). Keys are encrypted at rest by the OS.
+- **Never transmitted to Moraya's servers.** We do not operate any server infrastructure that receives, stores, or processes your API keys.
+- **Never included in logs, telemetry, error reports, or crash data.** API keys are resolved at runtime by the local Rust backend and are never exposed to the frontend or written to disk in plaintext.
+
+You are responsible for obtaining and managing your own API keys from the respective providers.
+
+### Direct Data Transfer (No Intermediary)
+
+When you use AI features, your prompts and content are sent **directly from your device** to the selected provider's API endpoint. Specifically:
+
+- **No relay or proxy servers.** Moraya does not operate any intermediary servers. There is no Moraya-hosted backend that your data passes through.
+- **On-device authentication.** Moraya's local Rust backend retrieves your API key from the OS secure storage and injects the authentication header on your device — before the request leaves your machine.
+- **Direct data path.** The network path is: **Your Device → Provider API** (e.g., `api.openai.com`, `api.anthropic.com`, `generativelanguage.googleapis.com`). No intermediate stops.
+- **Direct response streaming.** Response data streams directly from the provider back to your device via the same direct connection.
+
+This architecture ensures that Moraya never has access to your AI conversations or the ability to intercept, log, or analyze your prompts and responses.
 
 We have no control over, and assume no responsibility for, the privacy practices of these third-party AI providers.
 
