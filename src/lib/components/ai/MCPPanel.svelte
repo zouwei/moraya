@@ -28,6 +28,7 @@
   import { containerStore, type DynamicService } from '$lib/services/mcp/container-store';
   import { saveService, removeService } from '$lib/services/mcp/container-manager';
   import { invoke } from '@tauri-apps/api/core';
+  import { settingsStore } from '$lib/stores/settings-store';
 
   let {
     documentTitle = 'Untitled',
@@ -105,7 +106,8 @@
   async function handleConnect(server: MCPServerConfig) {
     try {
       // Show security confirmation for stdio servers (launching local processes)
-      if (server.transport.type === 'stdio') {
+      // Skip if auto-approve is enabled
+      if (server.transport.type === 'stdio' && !settingsStore.getState().mcpAutoApprove) {
         const args = server.transport.args?.join(' ') || '';
         const confirmed = await ask(
           $t('mcp.servers.launchConfirmMsg', {
@@ -352,14 +354,14 @@
   // Presets
   function addFromPreset(preset: typeof MCP_PRESETS[0]) {
     const config: MCPServerConfig = {
-      id: `mcp-${Date.now()}`,
+      id: `preset-${preset.id}`,
       ...preset.createConfig(),
     };
     mcpStore.addServer(config);
   }
 
-  function isPresetAdded(presetName: string): boolean {
-    return servers.some(s => s.name === presetName);
+  function isPresetAdded(presetId: string): boolean {
+    return servers.some(s => s.id === `preset-${presetId}`);
   }
 
   // Sync config form
@@ -563,12 +565,12 @@
   {#if activeTab === 'servers'}
     <div class="tab-content">
       <!-- Presets section -->
-      {#if MCP_PRESETS.some(p => !isPresetAdded(p.name))}
+      {#if MCP_PRESETS.some(p => !isPresetAdded(p.id))}
         <div class="presets-section">
           <div class="section-label">{$t('mcp.servers.presets')}</div>
           <div class="presets-grid">
             {#each MCP_PRESETS as preset}
-              {#if !isPresetAdded(preset.name)}
+              {#if !isPresetAdded(preset.id)}
                 <button class="preset-item" onclick={() => addFromPreset(preset)}>
                   <div class="preset-info">
                     <span class="preset-name">{preset.name}</span>
@@ -582,7 +584,7 @@
         </div>
       {/if}
 
-      {#if servers.length === 0 && !showAddServer && MCP_PRESETS.every(p => !isPresetAdded(p.name))}
+      {#if servers.filter(s => !s.id.startsWith('ai-svc-')).length === 0 && !showAddServer && MCP_PRESETS.every(p => !isPresetAdded(p.id))}
         <div class="empty-state">
           <p>{$t('mcp.servers.empty')}</p>
           <button class="add-btn" onclick={() => showAddServer = true}>
@@ -590,7 +592,7 @@
           </button>
         </div>
       {:else}
-        {#each servers as server}
+        {#each servers.filter(s => !s.id.startsWith('ai-svc-')) as server}
           {#if editingServerId === server.id}
             <div class="add-form">
               <input

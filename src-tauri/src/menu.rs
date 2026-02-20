@@ -84,15 +84,17 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
         )?
     };
 
-    // Edit menu — PredefinedMenuItems auto-localize on macOS
+    // Edit menu — use custom MenuItem for Undo/Redo so they emit menu events
+    // to the frontend. PredefinedMenuItem::undo sends the native `undo:` selector
+    // which bypasses ProseMirror's JavaScript-based history stack.
     let edit_menu = Submenu::with_id_and_items(
         app,
         "menu_edit",
         "Edit",
         true,
         &[
-            &PredefinedMenuItem::undo(app, None)?,
-            &PredefinedMenuItem::redo(app, None)?,
+            &MenuItem::with_id(app, "edit_undo", "Undo", true, Some("CmdOrCtrl+Z"))?,
+            &MenuItem::with_id(app, "edit_redo", "Redo", true, Some("CmdOrCtrl+Shift+Z"))?,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::cut(app, None)?,
             &PredefinedMenuItem::copy(app, None)?,

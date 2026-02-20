@@ -30,6 +30,7 @@
     "fs:scope-desktop",
     "fs:scope-document",
     "fs:scope-download",
+    "fs:scope-appdata-recursive",
     "dialog:default",
     "dialog:allow-open",
     "dialog:allow-save",

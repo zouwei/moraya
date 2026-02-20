@@ -525,7 +525,7 @@ export async function sendChatMessage(message: string, documentContext?: string)
           console.log(`[AI] Tool result: ${isError ? 'ERROR' : 'OK'}, ${resultText.length} chars`);
         } catch (error: any) {
           console.error(`[AI] Tool call failed: ${tc.name}`, error);
-          resultText = `Error: ${error.message}`;
+          resultText = `Error: ${error instanceof Error ? error.message : String(error)}`;
           isError = true;
         }
 

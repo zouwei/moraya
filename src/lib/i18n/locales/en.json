@@ -22,7 +22,8 @@
       "ai": "AI",
       "mcp": "MCP",
       "image": "Image",
-      "publish": "Publish"
+      "publish": "Publish",
+      "permissions": "Permissions"
     },
     "language": {
       "label": "Language",
@@ -55,7 +56,10 @@
       "tabSize": "Tab Size",
       "showLineNumbers": "Show Line Numbers in Source Mode"
     },
-    "version": "Moraya v{version}"
+    "version": "Moraya v{version}",
+    "permissions": {
+      "mcpTitle": "MCP Permissions"
+    }
   },
   "titlebar": {
     "unsaved": "Unsaved",
@@ -245,7 +249,7 @@
       "commandPlaceholder": "Command (e.g., npx, node, python)",
       "argsPlaceholder": "Arguments (e.g., -y @modelcontextprotocol/server-filesystem /path)",
       "envPlaceholder": "ENV_KEY=value (one per line)",
-      "presets": "Quick Add",
+      "presets": "Remote MCP",
       "presetsHint": "One-click add popular MCP servers",
       "formMode": "Form",
       "jsonMode": "JSON",
@@ -255,7 +259,9 @@
       "launchConfirmTitle": "Security Warning",
       "launchConfirmMsg": "About to launch external program:\n  Command: {command}\n  Arguments: {args}\n\nThis MCP server will run with your user permissions and can access local files and network.\nPlease confirm this MCP server is from a trusted source.",
       "launchConfirmOk": "Launch",
-      "launchConfirmCancel": "Cancel"
+      "launchConfirmCancel": "Cancel",
+      "autoApprove": "Auto-approve MCP launch",
+      "autoApproveHint": "Skip security confirmation when connecting MCP servers and launching AI-generated services. Not recommended for untrusted sources."
     },
     "publish": {
       "empty": "No publish targets configured",

@@ -37,6 +37,7 @@ interface Settings {
   lastUpdateCheckDate: string | null;  // "YYYY-MM-DD" format
   rememberLastFolder: boolean;
   lastOpenedFolder: string | null;
+  mcpAutoApprove: boolean;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -64,6 +65,7 @@ const DEFAULT_SETTINGS: Settings = {
   lastUpdateCheckDate: null,
   rememberLastFolder: true,
   lastOpenedFolder: null,
+  mcpAutoApprove: false,
 };
 
 function resolveLocale(selection: LocaleSelection): SupportedLocale {

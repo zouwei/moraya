@@ -8,6 +8,7 @@ export interface TabItem {
   content: string;
   isDirty: boolean;
   cursorOffset: number;
+  scrollFraction: number;
 }
 
 interface TabsState {
@@ -29,6 +30,7 @@ function createTabsStore() {
     content: '',
     isDirty: false,
     cursorOffset: 0,
+    scrollFraction: 0,
   };
 
   const { subscribe, set, update } = writable<TabsState>({
@@ -49,6 +51,7 @@ function createTabsStore() {
               isDirty: edState.isDirty,
               filePath: edState.currentFilePath,
               cursorOffset: edState.cursorOffset,
+              scrollFraction: edState.scrollFraction,
             }
           : tab
       ),
@@ -61,6 +64,7 @@ function createTabsStore() {
     editorStore.setContent(tab.content);
     editorStore.setDirty(tab.isDirty);
     editorStore.setCursorOffset(tab.cursorOffset);
+    editorStore.setScrollFraction(tab.scrollFraction);
   }
 
   return {
@@ -88,6 +92,7 @@ function createTabsStore() {
         content: '',
         isDirty: false,
         cursorOffset: 0,
+        scrollFraction: 0,
       };
       update(state => ({
         tabs: [...state.tabs, newTab],
@@ -118,6 +123,7 @@ function createTabsStore() {
         content,
         isDirty: false,
         cursorOffset: 0,
+        scrollFraction: 0,
       };
       update(s => ({
         tabs: [...s.tabs, newTab],

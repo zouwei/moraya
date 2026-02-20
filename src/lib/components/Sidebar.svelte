@@ -158,9 +158,14 @@
     return name.replace(/\.md$/, '').replace(/\.markdown$/, '');
   }
 
+  let viewModeToggling = false;
   function toggleViewMode() {
+    if (viewModeToggling) return;
+    viewModeToggling = true;
     const newMode = viewMode === 'tree' ? 'list' : 'tree';
     filesStore.setSidebarViewMode(newMode);
+    // Throttle: allow next toggle only after current frame renders
+    requestAnimationFrame(() => { viewModeToggling = false; });
   }
 
   function toggleSearch() {

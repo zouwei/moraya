@@ -13,6 +13,13 @@ import {
 } from '$lib/services/mcp/container-manager';
 import { containerStore } from '$lib/services/mcp/container-store';
 
+/** Extract a human-readable message from unknown caught values (Error objects, strings, etc.). */
+function errMsg(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === 'string') return e;
+  return String(e);
+}
+
 /** Built-in tool definitions — always injected into the LLM tool list. */
 export const INTERNAL_TOOLS: ToolDefinition[] = [
   {
@@ -230,7 +237,7 @@ async function handleAddMcpServer(
     };
   } catch (e: any) {
     return {
-      content: `MCP Server "${name}" added but connection failed: ${e.message}. You can try connecting manually in Settings → MCP.`,
+      content: `MCP Server "${name}" added but connection failed: ${errMsg(e)}. You can try connecting manually in Settings → MCP.`,
       isError: false,
     };
   }
@@ -266,7 +273,7 @@ async function handleCreateMcpService(
       isError: false,
     };
   } catch (e: any) {
-    return { content: `Failed to create dynamic service: ${e.message}`, isError: true };
+    return { content: `Failed to create dynamic service: ${errMsg(e)}`, isError: true };
   }
 }
 
@@ -287,7 +294,7 @@ async function handleSaveMcpService(
       isError: false,
     };
   } catch (e: any) {
-    return { content: `Failed to save service: ${e.message}`, isError: true };
+    return { content: `Failed to save service: ${errMsg(e)}`, isError: true };
   }
 }
 
@@ -322,6 +329,6 @@ async function handleRemoveDynamicService(
     await removeService(serviceId);
     return { content: `Service "${name}" has been stopped and removed.`, isError: false };
   } catch (e: any) {
-    return { content: `Failed to remove service: ${e.message}`, isError: true };
+    return { content: `Failed to remove service: ${errMsg(e)}`, isError: true };
   }
 }

@@ -12,10 +12,18 @@ import { exists, remove, mkdir } from '@tauri-apps/plugin-fs';
 import { ask } from '@tauri-apps/plugin-dialog';
 import { get } from 'svelte/store';
 import { t } from '$lib/i18n';
+import { settingsStore } from '$lib/stores/settings-store';
 import { mcpStore, connectServer, disconnectServer } from './mcp-manager';
 import { containerStore, type DynamicService } from './container-store';
 import { MCP_RUNTIME_JS } from './mcp-runtime';
 import type { MCPServerConfig } from './types';
+
+/** Extract a human-readable message from unknown caught values. */
+function errMsg(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === 'string') return e;
+  return String(e);
+}
 
 const DYNAMIC_STORE_FILE = 'dynamic-mcp-services.json';
 
@@ -29,7 +37,10 @@ async function getBaseDir(): Promise<string> {
 }
 
 async function getServicesDir(): Promise<string> {
-  return `${await getBaseDir()}mcp-services`;
+  const base = await getBaseDir();
+  // Ensure trailing separator — appDataDir() may omit it on some platforms
+  const sep = base.endsWith('/') || base.endsWith('\\') ? '' : '/';
+  return `${base}${sep}mcp-services`;
 }
 
 // ── Initialization ──
@@ -67,7 +78,7 @@ export async function initContainerManager(): Promise<void> {
           console.error(`[Container] Failed to reconnect "${svc.name}":`, e);
           containerStore.updateService(svc.id, {
             status: 'error',
-            error: `Reconnect failed: ${e.message}`,
+            error: `Reconnect failed: ${errMsg(e)}`,
           });
         }
       }
@@ -116,10 +127,10 @@ export async function createService(params: CreateServiceParams): Promise<Dynami
   // Ensure runtime is ready
   const runtimePath = await ensureRuntime();
 
-  // Create service directory
+  // Create service directory (always saved — persist unless user deletes)
   const serviceId = `dyn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const servicesDir = await getServicesDir();
-  const serviceDir = `${servicesDir}/temp/${serviceId}`;
+  const serviceDir = `${servicesDir}/saved/${serviceId}`;
   await mkdir(serviceDir, { recursive: true });
 
   // Write service files
@@ -148,7 +159,7 @@ export async function createService(params: CreateServiceParams): Promise<Dynami
     name,
     description,
     status: 'starting',
-    lifecycle: 'temp',
+    lifecycle: 'saved',
     mcpServerId,
     serviceDir,
     createdAt: Date.now(),
@@ -157,23 +168,25 @@ export async function createService(params: CreateServiceParams): Promise<Dynami
   };
   containerStore.addService(service);
 
-  // Security confirmation before running AI-generated code
-  const tr = get(t);
-  const confirmed = await ask(
-    tr('mcp.aiServices.launchConfirmMsg', {
-      name,
-      tools: tools.map((t) => t.name).join(', '),
-    }),
-    {
-      title: tr('mcp.aiServices.launchConfirmTitle'),
-      kind: 'warning',
-      okLabel: tr('mcp.aiServices.launchConfirmOk'),
-      cancelLabel: tr('mcp.aiServices.launchConfirmCancel'),
-    },
-  );
-  if (!confirmed) {
-    containerStore.updateService(serviceId, { status: 'error', error: 'Cancelled by user' });
-    throw new Error('Service launch cancelled by user');
+  // Security confirmation before running AI-generated code (skip if auto-approve enabled)
+  if (!settingsStore.getState().mcpAutoApprove) {
+    const tr = get(t);
+    const confirmed = await ask(
+      tr('mcp.aiServices.launchConfirmMsg', {
+        name,
+        tools: tools.map((t) => t.name).join(', '),
+      }),
+      {
+        title: tr('mcp.aiServices.launchConfirmTitle'),
+        kind: 'warning',
+        okLabel: tr('mcp.aiServices.launchConfirmOk'),
+        cancelLabel: tr('mcp.aiServices.launchConfirmCancel'),
+      },
+    );
+    if (!confirmed) {
+      containerStore.updateService(serviceId, { status: 'error', error: 'Cancelled by user' });
+      throw new Error('Service launch cancelled by user');
+    }
   }
 
   // Connect using existing MCP infrastructure
@@ -181,6 +194,9 @@ export async function createService(params: CreateServiceParams): Promise<Dynami
     mcpStore.addServer(config);
     await connectServer(config);
     containerStore.updateService(serviceId, { status: 'running' });
+
+    // Persist immediately so service survives app restart
+    await persistSavedServices();
 
     // Notify UI
     window.dispatchEvent(
@@ -193,9 +209,9 @@ export async function createService(params: CreateServiceParams): Promise<Dynami
   } catch (e: any) {
     containerStore.updateService(serviceId, {
       status: 'error',
-      error: e.message,
+      error: errMsg(e),
     });
-    throw new Error(`Service "${name}" failed to start: ${e.message}`);
+    throw new Error(`Service "${name}" failed to start: ${errMsg(e)}`);
   }
 }
 
@@ -316,23 +332,25 @@ async function reconnectSavedService(svc: DynamicService): Promise<void> {
     enabled: true,
   };
 
-  // Security confirmation before reconnecting AI-generated service
-  const tr = get(t);
-  const confirmed = await ask(
-    tr('mcp.aiServices.launchConfirmMsg', {
-      name: svc.name,
-      tools: svc.tools.join(', '),
-    }),
-    {
-      title: tr('mcp.aiServices.launchConfirmTitle'),
-      kind: 'warning',
-      okLabel: tr('mcp.aiServices.launchConfirmOk'),
-      cancelLabel: tr('mcp.aiServices.launchConfirmCancel'),
-    },
-  );
-  if (!confirmed) {
-    containerStore.updateService(svc.id, { status: 'error', error: 'Cancelled by user' });
-    return;
+  // Security confirmation before reconnecting AI-generated service (skip if auto-approve enabled)
+  if (!settingsStore.getState().mcpAutoApprove) {
+    const tr = get(t);
+    const confirmed = await ask(
+      tr('mcp.aiServices.launchConfirmMsg', {
+        name: svc.name,
+        tools: svc.tools.join(', '),
+      }),
+      {
+        title: tr('mcp.aiServices.launchConfirmTitle'),
+        kind: 'warning',
+        okLabel: tr('mcp.aiServices.launchConfirmOk'),
+        cancelLabel: tr('mcp.aiServices.launchConfirmCancel'),
+      },
+    );
+    if (!confirmed) {
+      containerStore.updateService(svc.id, { status: 'error', error: 'Cancelled by user' });
+      return;
+    }
   }
 
   mcpStore.addServer(config);

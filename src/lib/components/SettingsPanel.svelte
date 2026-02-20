@@ -7,7 +7,7 @@
   import ImageHostingSettings from './ImageHostingSettings.svelte';
   import PublishSettings from './PublishSettings.svelte';
 
-  type Tab = 'general' | 'editor' | 'appearance' | 'ai' | 'mcp' | 'image' | 'publish';
+  type Tab = 'general' | 'editor' | 'appearance' | 'ai' | 'mcp' | 'image' | 'publish' | 'permissions';
 
   let {
     onClose,
@@ -121,6 +121,7 @@
     { key: 'mcp', icon: '⇌', labelKey: 'settings.tabs.mcp' },
     { key: 'image', icon: '▣', labelKey: 'settings.tabs.image' },
     { key: 'publish', icon: '📤', labelKey: 'settings.tabs.publish' },
+    { key: 'permissions', icon: '🔒', labelKey: 'settings.tabs.permissions' },
   ];
 </script>
 
@@ -342,6 +343,22 @@
 
         {:else if activeTab === 'publish'}
           <PublishSettings />
+
+        {:else if activeTab === 'permissions'}
+          <div class="setting-section">
+            <div class="section-header">{$t('settings.permissions.mcpTitle')}</div>
+            <div class="setting-group">
+              <label class="setting-toggle">
+                <input
+                  type="checkbox"
+                  checked={$settingsStore.mcpAutoApprove}
+                  onchange={(e) => settingsStore.update({ mcpAutoApprove: (e.target as HTMLInputElement).checked })}
+                />
+                <span class="setting-label">{$t('mcp.servers.autoApprove')}</span>
+              </label>
+              <p class="perm-hint">{$t('mcp.servers.autoApproveHint')}</p>
+            </div>
+          </div>
         {/if}
       </div>
     </div>
@@ -554,6 +571,27 @@
     font-size: var(--font-size-sm);
     font-weight: 600;
     color: var(--text-primary);
+  }
+
+  .setting-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+  }
+
+  .setting-toggle input[type="checkbox"] {
+    margin: 0;
+    cursor: pointer;
+    accent-color: var(--accent-color);
+  }
+
+  .perm-hint {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    margin: 0;
+    padding-left: 1.5rem;
+    line-height: 1.4;
   }
 
   .empty-state {

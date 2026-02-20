@@ -12,6 +12,8 @@ interface EditorState {
   editorMode: EditorMode;
   /** Cursor position as character offset in the markdown string (for cross-mode restore) */
   cursorOffset: number;
+  /** Scroll position as fraction (0-1) of scrollHeight for cross-mode restore */
+  scrollFraction: number;
 }
 
 // requestIdleCallback with fallback for older WebKit
@@ -32,6 +34,7 @@ function createEditorStore() {
     charCount: 0,
     editorMode: 'visual',
     cursorOffset: 0,
+    scrollFraction: 0,
   });
 
   function countWords(text: string): number {
@@ -90,6 +93,9 @@ function createEditorStore() {
     setCursorOffset(offset: number) {
       update(state => ({ ...state, cursorOffset: offset }));
     },
+    setScrollFraction(fraction: number) {
+      update(state => ({ ...state, scrollFraction: fraction }));
+    },
     reset() {
       set({
         currentFilePath: null,
@@ -100,6 +106,7 @@ function createEditorStore() {
         charCount: 0,
         editorMode: 'visual',
         cursorOffset: 0,
+        scrollFraction: 0,
       });
     },
     getState() {

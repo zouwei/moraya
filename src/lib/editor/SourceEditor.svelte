@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy, tick } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { settingsStore } from '../stores/settings-store';
   import { editorStore } from '../stores/editor-store';
 
@@ -17,6 +17,7 @@
   let tabSize = $state(4);
   let editorLineWidth = $state(800);
   let textareaEl: HTMLTextAreaElement | undefined = $state();
+  let ghostEl: HTMLDivElement | undefined = $state();
 
   settingsStore.subscribe(state => {
     showLineNumbers = state.showLineNumbers;
@@ -35,22 +36,42 @@
     return count;
   }
 
-  function handleInput(event: Event) {
-    const textarea = event.target as HTMLTextAreaElement;
-    const cursorStart = textarea.selectionStart;
-    const cursorEnd = textarea.selectionEnd;
-    content = textarea.value;
+  // ── Ghost div sync (decoupled from Svelte reactivity) ──
+  // The ghost div mirrors textarea content for CSS grid auto-sizing.
+  // Instead of using a reactive Svelte expression (which replaces the entire
+  // text node on every keystroke), we update the ghost div directly via DOM
+  // manipulation, throttled by requestAnimationFrame to batch rapid changes.
+  let ghostRaf: number | null = null;
+
+  function syncGhost() {
+    if (!ghostEl) return;
+    if (ghostRaf !== null) return; // already scheduled
+    ghostRaf = requestAnimationFrame(() => {
+      if (ghostEl) ghostEl.textContent = content + '\n';
+      ghostRaf = null;
+    });
+  }
+
+  // Sync ghost on mount and whenever content changes from outside (e.g. search-replace)
+  $effect(() => {
+    // Read `content` to establish dependency
+    void content;
+    syncGhost();
+  });
+
+  // Debounce store updates to avoid multiple synchronous subscriber cascades per keystroke.
+  let storeTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function handleInput() {
+    // content is already updated by Svelte's bind:value — no manual assignment needed.
     onContentChange?.(content);
     editorStore.setDirty(true);
-    editorStore.setContent(content);
-    // Restore cursor after Svelte re-renders the value={content} binding,
-    // which can reset cursor position (especially on paste).
-    tick().then(() => {
-      if (textareaEl) {
-        textareaEl.selectionStart = cursorStart;
-        textareaEl.selectionEnd = cursorEnd;
-      }
-    });
+    // Debounce the heavy store update (triggers all subscribers synchronously)
+    if (storeTimer !== null) clearTimeout(storeTimer);
+    storeTimer = setTimeout(() => {
+      editorStore.setContent(content);
+      storeTimer = null;
+    }, 50);
   }
 
   function handleKeydown(event: KeyboardEvent) {
@@ -68,17 +89,31 @@
   }
 
   onMount(() => {
+    // Initialize ghost div content synchronously on mount
+    if (ghostEl) ghostEl.textContent = content + '\n';
+
     if (textareaEl) {
-      const offset = editorStore.getState().cursorOffset;
+      const { cursorOffset: offset, scrollFraction } = editorStore.getState();
       const clamped = Math.min(offset, content.length);
       textareaEl.selectionStart = clamped;
       textareaEl.selectionEnd = clamped;
-      textareaEl.focus();
+      // preventScroll avoids the browser auto-scrolling to the caret position,
+      // which uses the imprecise cursor offset and causes a jarring jump.
+      textareaEl.focus({ preventScroll: true });
 
-      // Scroll to top for new files (cursorOffset === 0)
-      if (offset === 0) {
-        const outer = textareaEl.closest('.source-editor-outer') as HTMLElement | null;
+      const outer = textareaEl.closest('.source-editor-outer') as HTMLElement | null;
+      if (offset === 0 && scrollFraction === 0) {
+        // Scroll to top for new files
         if (outer) outer.scrollTop = 0;
+      } else if (outer) {
+        // Restore scroll position using saved fraction (more reliable than cursor offset).
+        // Use rAF to ensure the ghost div has been laid out so scrollHeight is accurate.
+        requestAnimationFrame(() => {
+          const maxScroll = outer.scrollHeight - outer.clientHeight;
+          if (maxScroll > 0) {
+            outer.scrollTop = Math.round(scrollFraction * maxScroll);
+          }
+        });
       }
     }
   });
@@ -86,6 +121,20 @@
   onDestroy(() => {
     if (textareaEl) {
       editorStore.setCursorOffset(textareaEl.selectionStart);
+      // Save scroll fraction for cross-mode restore
+      const outer = textareaEl.closest('.source-editor-outer') as HTMLElement | null;
+      if (outer && outer.scrollHeight > outer.clientHeight) {
+        const maxScroll = outer.scrollHeight - outer.clientHeight;
+        editorStore.setScrollFraction(maxScroll > 0 ? outer.scrollTop / maxScroll : 0);
+      }
+    }
+    if (storeTimer !== null) {
+      clearTimeout(storeTimer);
+      // Flush pending content to store before unmount
+      editorStore.setContent(content);
+    }
+    if (ghostRaf !== null) {
+      cancelAnimationFrame(ghostRaf);
     }
   });
 
@@ -189,11 +238,11 @@
       </div>
     {/if}
     <div class="textarea-grow" style="tab-size: {tabSize}">
-      <div class="textarea-ghost" aria-hidden="true">{content + '\n'}</div>
+      <div bind:this={ghostEl} class="textarea-ghost" aria-hidden="true"></div>
       <textarea
         bind:this={textareaEl}
         class="source-textarea"
-        value={content}
+        bind:value={content}
         oninput={handleInput}
         onkeydown={handleKeydown}
         spellcheck="true"

@@ -35,6 +35,11 @@
 
   const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico', 'tiff', 'tif', 'avif']);
 
+  import { extractFrontmatter } from '../utils/frontmatter';
+
+  /** Stored frontmatter block (including `---` fences and trailing newline) */
+  let storedFrontmatter = '';
+
   let editorEl: HTMLDivElement;
   let editor: MilkdownEditor | null = null;
 
@@ -52,6 +57,7 @@
   } = $props();
 
   let isReady = $state(false);
+  let isMounted = false; // tracks whether component is still alive (guards async gaps)
   let internalChange = false; // flag to avoid replaceAll loop on Milkdown's own onChange
   let syncingFromExternal = false; // flag to suppress onChange during replaceAll from source editor
   let syncResetTimer: ReturnType<typeof setTimeout> | undefined; // delayed reset for syncingFromExternal
@@ -699,34 +705,55 @@
   }
 
   onMount(async () => {
-    editor = await createEditor({
+    isMounted = true;
+
+    // Strip frontmatter before Milkdown sees it (avoids `---` → thematic break corruption)
+    const { frontmatter, body } = extractFrontmatter(content);
+    storedFrontmatter = frontmatter;
+
+    const createdEditor = await createEditor({
       root: editorEl,
-      defaultValue: content,
+      defaultValue: body,
       onChange: (markdown) => {
+        if (!isMounted) return; // Component destroyed during async gap
         if (syncingFromExternal) return; // Don't push reformatted text back to source editor
         lastSyncWasExternal = false; // User typed in visual editor
         internalChange = true;
-        content = markdown;
-        onContentChange?.(markdown);
+        // Re-attach frontmatter to the serialized body
+        const full = storedFrontmatter + markdown;
+        content = full;
+        onContentChange?.(full);
         editorStore.setDirty(true);
-        editorStore.setContent(markdown);
+        editorStore.setContent(full);
       },
       onFocus: () => {
-        editorStore.setFocused(true);
+        if (isMounted) editorStore.setFocused(true);
       },
       onBlur: () => {
-        editorStore.setFocused(false);
+        if (isMounted) editorStore.setFocused(false);
       },
     });
+
+    // Guard: if component was destroyed while createEditor was running,
+    // destroy the orphaned editor immediately to prevent stale callbacks.
+    if (!isMounted) {
+      createdEditor.destroy();
+      return;
+    }
+
+    editor = createdEditor;
     isReady = true;
     onEditorReady?.(editor);
 
     // Restore cursor position from store and focus (delay for DOM readiness)
     const proseMirrorEl = editorEl.querySelector('.ProseMirror') as HTMLElement | null;
     const savedOffset = editorStore.getState().cursorOffset;
+    const savedScrollFraction = editorStore.getState().scrollFraction;
     await tick();
     requestAnimationFrame(() => {
       if (!editor) return;
+
+      // 1. Restore cursor position
       try {
         editor.action((ctx) => {
           const view = ctx.get(editorViewCtx);
@@ -739,21 +766,26 @@
           // Resolve to nearest valid text position
           const resolved = view.state.doc.resolve(pmPos);
           const sel = TextSelection.near(resolved);
-          const tr = view.state.tr.setSelection(sel);
-          view.dispatch(tr);
+          // Don't use scrollIntoView — we restore scroll position separately
+          view.dispatch(view.state.tr.setSelection(sel));
           view.focus();
         });
       } catch {
         // Fallback: just focus
         if (proseMirrorEl) proseMirrorEl.focus();
       }
-    });
 
-    // Scroll to top for new files (cursorOffset === 0)
-    if (savedOffset === 0) {
-      const wrapper = editorEl.closest('.editor-wrapper') as HTMLElement | null;
-      if (wrapper) wrapper.scrollTop = 0;
-    }
+      // 2. Restore scroll position (overrides any scroll caused by focus)
+      const wrapper = editorEl?.closest('.editor-wrapper') as HTMLElement | null;
+      if (savedOffset === 0 && savedScrollFraction === 0) {
+        if (wrapper) wrapper.scrollTop = 0;
+      } else if (wrapper) {
+        const maxScroll = wrapper.scrollHeight - wrapper.clientHeight;
+        if (maxScroll > 0) {
+          wrapper.scrollTop = Math.round(savedScrollFraction * maxScroll);
+        }
+      }
+    });
 
     // ── Fast AllSelection deletion ──────────────────────────────────
     // Capture-phase keydown: when all content is selected, bypass ProseMirror's
@@ -857,8 +889,12 @@
   // Debounced to avoid rebuilding the ProseMirror document on every keystroke.
   function applySyncToMilkdown(md: string) {
     if (!editor || !isReady) return;
+    // Re-extract frontmatter in case user edited it in source mode
+    const { frontmatter, body } = extractFrontmatter(md);
+    storedFrontmatter = frontmatter;
+
     const milkdownContent = getMarkdown(editor);
-    const visualContent = toHardBreaks(md);
+    const visualContent = toHardBreaks(body);
     if (visualContent !== milkdownContent) {
       try {
         syncingFromExternal = true;
@@ -1024,6 +1060,7 @@
   }
 
   onDestroy(() => {
+    isMounted = false; // Signal async callbacks to stop
     if (syncResetTimer) clearTimeout(syncResetTimer);
     if (externalSyncTimer) clearTimeout(externalSyncTimer);
     if (tableToolbarRaf) cancelAnimationFrame(tableToolbarRaf);
@@ -1038,9 +1075,11 @@
       if (!lastSyncWasExternal) {
         try {
           const markdown = getMarkdown(editor);
-          content = markdown;
-          onContentChange?.(markdown);
-          editorStore.setContent(markdown);
+          // Re-attach frontmatter to serialized body
+          const full = storedFrontmatter + markdown;
+          content = full;
+          onContentChange?.(full);
+          editorStore.setContent(full);
         } catch {
           // Serialization may fail if editor is partially destroyed
         }
@@ -1058,6 +1097,13 @@
         });
       } catch {
         // Ignore errors during position save
+      }
+
+      // Save scroll fraction for cross-mode restore
+      const wrapper = editorEl?.closest('.editor-wrapper') as HTMLElement | null;
+      if (wrapper && wrapper.scrollHeight > wrapper.clientHeight) {
+        const maxScroll = wrapper.scrollHeight - wrapper.clientHeight;
+        editorStore.setScrollFraction(maxScroll > 0 ? wrapper.scrollTop / maxScroll : 0);
       }
 
       editor.destroy();

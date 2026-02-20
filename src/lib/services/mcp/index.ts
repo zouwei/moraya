@@ -42,9 +42,7 @@ export { containerStore, type DynamicService } from './container-store';
 export {
   initContainerManager,
   createService,
-  saveService,
   removeService,
   listServices,
-  cleanupTempServices,
   type CreateServiceParams,
 } from './container-manager';

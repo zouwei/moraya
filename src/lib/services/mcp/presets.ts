@@ -38,7 +38,7 @@ export const MCP_PRESETS: MCPPreset[] = [
       transport: {
         type: 'stdio' as const,
         command: 'npx',
-        args: ['-y', '@modelcontextprotocol/server-fetch'],
+        args: ['-y', '@tokenizin/mcp-npx-fetch'],
       },
       enabled: true,
     }),
@@ -53,7 +53,7 @@ export const MCP_PRESETS: MCPPreset[] = [
       transport: {
         type: 'stdio' as const,
         command: 'npx',
-        args: ['-y', '@modelcontextprotocol/server-git'],
+        args: ['-y', '@cyanheads/git-mcp-server'],
       },
       enabled: true,
     }),

@@ -6,6 +6,7 @@
 import { writable, get } from 'svelte/store';
 import { load } from '@tauri-apps/plugin-store';
 import MCPClient from './mcp-client';
+import { MCP_PRESETS } from './presets';
 import type {
   MCPServerConfig,
   MCPTool,
@@ -142,8 +143,19 @@ export async function initMCPStore() {
     const store = await load(MCP_STORE_FILE);
     const servers = await store.get<MCPServerConfig[]>('servers');
     if (servers && servers.length > 0) {
-      for (const s of servers) {
+      // Migration: remove old preset duplicates (timestamp IDs like mcp-123456)
+      const presetNames = new Set(MCP_PRESETS.map(p => p.name));
+      const cleaned = servers.filter(s => {
+        if (presetNames.has(s.name) && !s.id.startsWith('preset-')) {
+          return false; // old duplicate — skip
+        }
+        return true;
+      });
+      for (const s of cleaned) {
         mcpStore.addServer(s);
+      }
+      if (cleaned.length < servers.length) {
+        persistMCPServers();
       }
     }
     const syncConfigs = await store.get<SyncConfig[]>('syncConfigs');

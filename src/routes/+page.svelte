@@ -37,7 +37,7 @@
   import { filesStore, type FileEntry } from '$lib/stores/files-store';
   import { initAIStore, aiStore } from '$lib/services/ai';
   import { initMCPStore, connectAllServers } from '$lib/services/mcp';
-  import { initContainerManager, cleanupTempServices } from '$lib/services/mcp/container-manager';
+  import { initContainerManager } from '$lib/services/mcp/container-manager';
   import { preloadEnhancementPlugins } from '$lib/editor/setup';
   import { openFile, saveFile, saveFileAs, loadFile, getFileNameFromPath, readImageAsBlobUrl } from '$lib/services/file-service';
   import { exportDocument, type ExportFormat } from '$lib/services/export-service';
@@ -51,6 +51,7 @@
   import TabBar from '$lib/components/TabBar.svelte';
   import TouchToolbar from '$lib/editor/TouchToolbar.svelte';
   import { tabsStore } from '$lib/stores/tabs-store';
+  import { extractFrontmatter } from '$lib/utils/frontmatter';
 
   import '$lib/styles/global.css';
   import '$lib/styles/editor.css';
@@ -255,7 +256,7 @@ ${tr('welcome.tip')}
     editorStore.setCursorOffset(0);
     if (milkdownEditor && editorStore.getState().editorMode !== 'source') {
       try {
-        milkdownEditor.action(replaceAll(newContent));
+        milkdownEditor.action(replaceAll(extractFrontmatter(newContent).body));
         milkdownEditor.action((ctx) => {
           const view = ctx.get(editorViewCtx);
           const tr = view.state.tr.setSelection(
@@ -771,7 +772,7 @@ ${tr('welcome.tip')}
       content = content.trimEnd() + '\n\n' + text + '\n';
       if (milkdownEditor && editorStore.getState().editorMode !== 'source') {
         try {
-          milkdownEditor.action(replaceAll(content));
+          milkdownEditor.action(replaceAll(extractFrontmatter(content).body));
         } catch {
           // Editor may not be ready
         }
@@ -833,7 +834,7 @@ ${tr('welcome.tip')}
       const imgMarkdown = images.map(img => `![](${img.url})`).join('\n\n');
       content = content.trimEnd() + '\n\n' + imgMarkdown + '\n';
       if (milkdownEditor && editorStore.getState().editorMode !== 'source') {
-        try { milkdownEditor.action(replaceAll(content)); } catch { /* ignore */ }
+        try { milkdownEditor.action(replaceAll(extractFrontmatter(content).body)); } catch { /* ignore */ }
       }
     } else if (mode === 'paragraph') {
       // Insert each image after its target paragraph
@@ -893,7 +894,7 @@ ${tr('welcome.tip')}
 
       content = result.join('\n');
       if (milkdownEditor && editorStore.getState().editorMode !== 'source') {
-        try { milkdownEditor.action(replaceAll(content)); } catch { /* ignore */ }
+        try { milkdownEditor.action(replaceAll(extractFrontmatter(content).body)); } catch { /* ignore */ }
       }
     }
 
@@ -1180,7 +1181,7 @@ ${tr('welcome.tip')}
 
     // Restore persisted settings, AI config, and MCP servers (Tauri-only: uses plugin-store)
     if (isTauri) {
-      Promise.all([initSettingsStore(), initAIStore(), initMCPStore()])
+      Promise.all([initSettingsStore(), initAIStore(), initMCPStore(), filesStore.loadPersistedPrefs()])
         .then(() => {
           // Auto-connect all enabled MCP servers
           connectAllServers().catch(() => {});
@@ -1227,7 +1228,7 @@ ${tr('welcome.tip')}
       if (detail?.content != null) {
         content = detail.content;
         if (milkdownEditor && editorStore.getState().editorMode !== 'source') {
-          try { milkdownEditor.action(replaceAll(content)); } catch { /* ignore */ }
+          try { milkdownEditor.action(replaceAll(extractFrontmatter(content).body)); } catch { /* ignore */ }
         }
       }
     }
@@ -1259,6 +1260,23 @@ ${tr('welcome.tip')}
         'menu:file_export_pdf': () => exportDocument(content, 'pdf'),
         'menu:file_export_image': () => exportDocument(content, 'image'),
         'menu:file_export_doc': () => exportDocument(content, 'doc'),
+        // Edit — undo/redo
+        'menu:edit_undo': () => {
+          if (editorMode === 'source') {
+            document.execCommand('undo');
+          } else {
+            runEditorCommand(undoCommand);
+          }
+        },
+        'menu:edit_redo': () => {
+          if (editorMode === 'source') {
+            document.execCommand('redo');
+          } else {
+            runEditorCommand(redoCommand);
+          }
+        },
+        // Select All: handled by PredefinedMenuItem::select_all (source mode)
+        // and selectAllFixPlugin in ProseMirror (visual mode).
         // Edit — search
         'menu:edit_find': () => { showSearch = true; },
         'menu:edit_replace': () => { showSearch = true; showReplace = true; },
@@ -1316,7 +1334,7 @@ ${tr('welcome.tip')}
             content = privacyContent;
             editorStore.setContent(privacyContent);
             if (milkdownEditor && editorStore.getState().editorMode !== 'source') {
-              try { milkdownEditor.action(replaceAll(content)); } catch { /* ignore */ }
+              try { milkdownEditor.action(replaceAll(extractFrontmatter(content).body)); } catch { /* ignore */ }
             }
           } catch {
             // Resource not found
@@ -1384,7 +1402,7 @@ ${tr('welcome.tip')}
       vvUnlisten?.();
       window.removeEventListener('moraya:file-synced', handleFileSynced);
       window.removeEventListener('moraya:dynamic-service-created', handleDynamicServiceCreated);
-      cleanupTempServices().catch(() => {});
+      // Dynamic MCP services are now always persisted (lifecycle: 'saved')
     };
   });
 </script>

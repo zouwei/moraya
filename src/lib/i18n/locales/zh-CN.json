@@ -22,7 +22,8 @@
       "ai": "AI",
       "mcp": "MCP",
       "image": "图片",
-      "publish": "发布"
+      "publish": "发布",
+      "permissions": "权限"
     },
     "language": {
       "label": "语言",
@@ -55,7 +56,10 @@
       "tabSize": "制表符大小",
       "showLineNumbers": "源码模式显示行号"
     },
-    "version": "Moraya v{version}"
+    "version": "Moraya v{version}",
+    "permissions": {
+      "mcpTitle": "MCP 权限"
+    }
   },
   "titlebar": {
     "unsaved": "未保存",
@@ -245,7 +249,7 @@
       "commandPlaceholder": "命令（如：npx、node、python）",
       "argsPlaceholder": "参数（如：-y @modelcontextprotocol/server-filesystem /path）",
       "envPlaceholder": "环境变量 KEY=VALUE（每行一个）",
-      "presets": "快速添加",
+      "presets": "Remote MCP",
       "presetsHint": "一键添加常用 MCP 服务器",
       "formMode": "表单",
       "jsonMode": "JSON 导入",
@@ -255,7 +259,9 @@
       "launchConfirmTitle": "安全提示",
       "launchConfirmMsg": "即将启动外部程序：\n  命令：{command}\n  参数：{args}\n\nMCP 服务器将以当前用户权限运行，可以访问本地文件和网络。\n请确认此 MCP 服务器来自可信来源。",
       "launchConfirmOk": "确认启动",
-      "launchConfirmCancel": "取消"
+      "launchConfirmCancel": "取消",
+      "autoApprove": "自动批准 MCP 启动",
+      "autoApproveHint": "连接 MCP 服务器和启动 AI 生成的服务时跳过安全确认。不建议用于不可信来源。"
     },
     "publish": {
       "empty": "未配置发布目标",

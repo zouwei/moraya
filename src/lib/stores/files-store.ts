@@ -1,4 +1,5 @@
 import { writable, get } from 'svelte/store';
+import { load } from '@tauri-apps/plugin-store';
 
 export interface FileEntry {
   name: string;
@@ -24,12 +25,27 @@ interface FilesState {
   filePreviews: FilePreview[];
 }
 
+const FILES_STORE_FILE = 'files-prefs.json';
+
+/** Persist sidebar view mode to disk so it survives across windows and restarts. */
+let viewModePersistTimer: ReturnType<typeof setTimeout> | null = null;
+function persistViewMode(mode: SidebarViewMode) {
+  if (viewModePersistTimer) clearTimeout(viewModePersistTimer);
+  viewModePersistTimer = setTimeout(async () => {
+    try {
+      const store = await load(FILES_STORE_FILE);
+      await store.set('sidebarViewMode', mode);
+      await store.save();
+    } catch { /* ignore persist errors */ }
+  }, 200);
+}
+
 function createFilesStore() {
   const { subscribe, set, update } = writable<FilesState>({
     openFolderPath: null,
     fileTree: [],
     recentFiles: [],
-    sidebarViewMode: 'tree',
+    sidebarViewMode: 'list',
     filePreviews: [],
   });
 
@@ -46,6 +62,7 @@ function createFilesStore() {
     },
     setSidebarViewMode(mode: SidebarViewMode) {
       update(state => ({ ...state, sidebarViewMode: mode }));
+      persistViewMode(mode);
     },
     addRecentFile(path: string) {
       update(state => {
@@ -58,6 +75,16 @@ function createFilesStore() {
     },
     getState() {
       return get({ subscribe });
+    },
+    /** Load persisted preferences from disk. Call once at app startup. */
+    async loadPersistedPrefs() {
+      try {
+        const store = await load(FILES_STORE_FILE);
+        const mode = await store.get<SidebarViewMode>('sidebarViewMode');
+        if (mode === 'tree' || mode === 'list') {
+          update(state => ({ ...state, sidebarViewMode: mode }));
+        }
+      } catch { /* first launch — no persisted prefs */ }
     },
   };
 }

@@ -1,4 +1,4 @@
-import { Editor, rootCtx, defaultValueCtx, editorViewOptionsCtx, editorViewCtx, serializerCtx } from '@milkdown/core';
+import { Editor, rootCtx, defaultValueCtx, editorViewOptionsCtx, editorViewCtx, serializerCtx, remarkStringifyOptionsCtx } from '@milkdown/core';
 // ── Tier 0: Core plugins (static imports, always available) ──
 import { commonmark } from '@milkdown/preset-commonmark';
 import { gfm } from '@milkdown/preset-gfm';
@@ -7,7 +7,7 @@ import { clipboard } from '@milkdown/plugin-clipboard';
 import { cursor } from '@milkdown/plugin-cursor';
 import { enterHandlerPlugin } from './plugins/enter-handler';
 import { $prose } from '@milkdown/utils';
-import { Plugin, PluginKey, TextSelection } from '@milkdown/prose/state';
+import { AllSelection, Plugin, PluginKey, TextSelection } from '@milkdown/prose/state';
 import { Decoration, DecorationSet } from '@milkdown/prose/view';
 
 // ── Tier 1: Enhancement plugins (dynamic imports, loaded in parallel) ──
@@ -111,6 +111,54 @@ function createLazyChangePlugin(onChange: (markdown: string) => void) {
  * allowing CSS to display a fake animated caret.
  */
 /**
+ * Paste language normalization via transformPastedHTML:
+ * When pasting from external sources (other editors, web pages), the clipboard
+ * HTML often uses `<pre><code class="language-mermaid">` format. Milkdown's
+ * code_block parseDOM only reads `data-language` from `<pre>`, so language
+ * attributes are lost, breaking mermaid diagrams and other language-specific blocks.
+ *
+ * This plugin preprocesses pasted HTML to copy `class="language-xxx"` from
+ * `<code>` elements into `data-language="xxx"` on their parent `<pre>` elements,
+ * so Milkdown's existing parseDOM can read the language correctly.
+ */
+const pasteLanguageFixPlugin = $prose(() => {
+  return new Plugin({
+    key: new PluginKey('paste-language-fix'),
+    props: {
+      transformPastedHTML(html) {
+        // Quick check: skip processing if no language class is present
+        if (!html.includes('language-')) return html;
+
+        try {
+          const template = document.createElement('template');
+          template.innerHTML = html;
+          const fragment = template.content;
+
+          // Find all <pre> elements and check their child <code> for language class
+          for (const pre of fragment.querySelectorAll('pre')) {
+            // Skip if <pre> already has data-language
+            if (pre.dataset.language) continue;
+
+            const code = pre.querySelector('code');
+            if (!code) continue;
+
+            // Extract language from class="language-xxx" or class="lang-xxx"
+            const match = code.className.match(/(?:language|lang)-(\S+)/);
+            if (match) {
+              pre.dataset.language = match[1];
+            }
+          }
+
+          return template.innerHTML;
+        } catch {
+          return html; // On error, return original HTML
+        }
+      },
+    },
+  });
+});
+
+/**
  * Scroll-after-paste fix: Milkdown's clipboard plugin handles paste and
  * returns true (consuming the event), so a plugin-level handlePaste never
  * fires. Instead, use a capture-phase DOM paste listener to detect paste,
@@ -177,6 +225,33 @@ const caretFixPlugin = $prose(() => {
 });
 
 /**
+ * macOS Cmd+A fix for ProseMirror:
+ * When PredefinedMenuItem::select_all sends the native `selectAll:` action,
+ * macOS fires a DOM `selectstart` + `selectionchange` on the contenteditable.
+ * ProseMirror may not correctly translate the native DOM selection-all into
+ * its own AllSelection. This plugin intercepts Cmd+A (Ctrl+A on non-Mac)
+ * at the keydown level — before the native menu accelerator steals it — and
+ * dispatches a proper ProseMirror AllSelection.
+ */
+const selectAllFixPlugin = $prose(() => {
+  return new Plugin({
+    key: new PluginKey('select-all-fix'),
+    props: {
+      handleKeyDown(view, event) {
+        const mod = event.metaKey || event.ctrlKey;
+        if (mod && !event.shiftKey && !event.altKey && event.key === 'a') {
+          event.preventDefault();
+          const tr = view.state.tr.setSelection(new AllSelection(view.state.doc));
+          view.dispatch(tr);
+          return true;
+        }
+        return false;
+      },
+    },
+  });
+});
+
+/**
  * Prevent ProseMirror from creating a NodeSelection (blue highlight) when
  * clicking on images. Instead, place a TextSelection right after the image
  * so the cursor sits next to it without visually selecting the whole node.
@@ -225,17 +300,24 @@ export async function createEditor(options: EditorOptions): Promise<Editor> {
           spellcheck: 'true',
         },
       });
+      // Use `-` for bullet lists and `---` for horizontal rules (matching Typora/common conventions)
+      ctx.set(remarkStringifyOptionsCtx, {
+        bullet: '-',
+        rule: '-',
+      });
     })
     // Tier 0: Core plugins
     .use(commonmark)
     .use(gfm)
     .use(history)
+    .use(pasteLanguageFixPlugin)
     .use(clipboard)
     .use(cursor)
     .use(enterHandlerPlugin)
     .use(caretFixPlugin)
     .use(scrollAfterPastePlugin)
-    .use(imageClickPlugin);
+    .use(imageClickPlugin)
+    .use(selectAllFixPlugin);
 
   // Lazy change detection: serializes once per animation frame instead of per keystroke
   if (onChange) {
