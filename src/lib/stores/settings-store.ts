@@ -38,6 +38,7 @@ interface Settings {
   rememberLastFolder: boolean;
   lastOpenedFolder: string | null;
   mcpAutoApprove: boolean;
+  aiMaxTokens: number;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -66,6 +67,7 @@ const DEFAULT_SETTINGS: Settings = {
   rememberLastFolder: true,
   lastOpenedFolder: null,
   mcpAutoApprove: false,
+  aiMaxTokens: 16384,
 };
 
 function resolveLocale(selection: LocaleSelection): SupportedLocale {

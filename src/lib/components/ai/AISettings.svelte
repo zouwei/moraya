@@ -343,6 +343,7 @@
         <div class="config-info">
           <span class="config-provider">{$t(`ai.providers.${config.provider}`)}</span>
           <span class="config-model">{config.model}</span>
+          <span class="config-tokens">{config.maxTokens || 8192}</span>
           {#if config.id === activeChatConfigId}
             <span class="default-badge">{$t('ai.multiModel.default')}</span>
           {/if}
@@ -670,6 +671,13 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .config-tokens {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    font-family: var(--font-mono, monospace);
+    flex-shrink: 0;
   }
 
   .default-badge {

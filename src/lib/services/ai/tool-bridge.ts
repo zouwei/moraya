@@ -124,7 +124,9 @@ export function parseOpenAIToolCalls(data: Record<string, unknown>): {
       let args: Record<string, unknown> = {};
       try {
         args = JSON.parse(fn.arguments as string);
-      } catch { /* ignore */ }
+      } catch {
+        console.warn(`[AI] Failed to parse tool call arguments for ${fn.name}: ${(fn.arguments as string)?.slice(0, 200)}`);
+      }
       toolCalls.push({
         id: tc.id as string,
         name: fn.name as string,

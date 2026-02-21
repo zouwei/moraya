@@ -153,7 +153,7 @@ async function callClaude(config: AIProviderConfig, request: AIRequest): Promise
       outputTokens: data.usage?.output_tokens || 0,
     },
     toolCalls: parsed.toolCalls.length > 0 ? parsed.toolCalls : undefined,
-    stopReason: parsed.stopReason === 'tool_use' ? 'tool_use' : 'end_turn',
+    stopReason: parsed.stopReason as AIResponse['stopReason'],
   };
 }
 
@@ -240,7 +240,7 @@ async function callOpenAICompatible(config: AIProviderConfig, request: AIRequest
       outputTokens: data.usage?.completion_tokens || 0,
     },
     toolCalls: parsed.toolCalls.length > 0 ? parsed.toolCalls : undefined,
-    stopReason: parsed.stopReason === 'tool_use' ? 'tool_use' : 'end_turn',
+    stopReason: parsed.stopReason as AIResponse['stopReason'],
   };
 }
 

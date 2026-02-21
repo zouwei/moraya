@@ -12,6 +12,8 @@ import {
   listServices,
 } from '$lib/services/mcp/container-manager';
 import { containerStore } from '$lib/services/mcp/container-store';
+import { editorStore } from '$lib/stores/editor-store';
+import { invoke } from '@tauri-apps/api/core';
 
 /** Extract a human-readable message from unknown caught values (Error objects, strings, etc.). */
 function errMsg(e: unknown): string {
@@ -158,6 +160,24 @@ export const INTERNAL_TOOLS: ToolDefinition[] = [
       required: ['serviceId'],
     },
   },
+  {
+    name: 'update_editor_content',
+    description:
+      'Write Markdown content directly into the Moraya editor. Use this tool (instead of write_file) ' +
+      'when you need to fill or replace the current document with generated content. ' +
+      'If the editor has an open file, it writes to that file and refreshes the editor. ' +
+      'If the editor has a new unsaved document, it fills the content directly into the editor.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        content: {
+          type: 'string',
+          description: 'The full Markdown content to write into the editor',
+        },
+      },
+      required: ['content'],
+    },
+  },
 ];
 
 /** Check if a tool name belongs to an internal tool. */
@@ -180,6 +200,8 @@ export async function executeInternalTool(
       return handleListDynamicServices();
     case 'remove_dynamic_service':
       return handleRemoveDynamicService(tc.arguments);
+    case 'update_editor_content':
+      return handleUpdateEditorContent(tc.arguments);
     default:
       return { content: `Unknown internal tool: ${tc.name}`, isError: true };
   }
@@ -331,4 +353,45 @@ async function handleRemoveDynamicService(
   } catch (e: any) {
     return { content: `Failed to remove service: ${errMsg(e)}`, isError: true };
   }
+}
+
+async function handleUpdateEditorContent(
+  args: Record<string, unknown>,
+): Promise<{ content: string; isError: boolean }> {
+  const markdownContent = args.content as string;
+  if (!markdownContent) {
+    return { content: 'Error: "content" is required', isError: true };
+  }
+
+  const state = editorStore.getState();
+  const filePath = state.currentFilePath;
+
+  // Update editor content
+  editorStore.setContent(markdownContent);
+  window.dispatchEvent(new CustomEvent('moraya:file-synced', { detail: { content: markdownContent } }));
+
+  // If the file is saved (has a path), also persist to disk
+  if (filePath) {
+    try {
+      await invoke('write_file', { path: filePath, content: markdownContent });
+      editorStore.setDirty(false);
+      return {
+        content: `Content written to editor and saved to ${filePath.split('/').pop()} (${markdownContent.length} chars).`,
+        isError: false,
+      };
+    } catch {
+      editorStore.setDirty(true);
+      return {
+        content: `Content updated in editor (${markdownContent.length} chars) but failed to save to disk. The file is marked as unsaved.`,
+        isError: false,
+      };
+    }
+  }
+
+  // New unsaved document — just fill the editor
+  editorStore.setDirty(true);
+  return {
+    content: `Content filled into editor (${markdownContent.length} chars). The document is unsaved — user can save with Cmd+S.`,
+    isError: false,
+  };
 }

@@ -19,7 +19,10 @@ import { getAllTools, callTool } from '$lib/services/mcp';
 import { mcpToolsToToolDefs } from './tool-bridge';
 import { INTERNAL_TOOLS, isInternalTool, executeInternalTool } from './internal-tools';
 import { editorStore } from '$lib/stores/editor-store';
+import { settingsStore } from '$lib/stores/settings-store';
+import { filesStore } from '$lib/stores/files-store';
 import { containerStore } from '$lib/services/mcp/container-store';
+import { refreshFileTree } from '$lib/services/file-watcher';
 import { documentDir } from '@tauri-apps/api/path';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -238,11 +241,15 @@ export async function executeAICommand(
   }
 ): Promise<string> {
   const state = aiStore.getState();
-  const activeConfig = aiStore.getActiveConfig();
+  const rawConfig = aiStore.getActiveConfig();
   const tr = get(t);
-  if (!activeConfig || !state.isConfigured) {
+  if (!rawConfig || !state.isConfigured) {
     throw new Error(tr('errors.aiNotConfigured'));
   }
+
+  // Apply global aiMaxTokens setting
+  const globalMaxTokens = settingsStore.getState().aiMaxTokens;
+  const activeConfig = { ...rawConfig, maxTokens: globalMaxTokens || rawConfig.maxTokens || 16384 };
 
   const commandDef = COMMANDS.find(c => c.command === command);
   if (!commandDef && command !== 'custom') {
@@ -349,17 +356,77 @@ export async function executeAICommand(
   }
 }
 
+const MORAYA_MD_MAX_CHARS = 4000;
+
+/** Read MORAYA.md rules file from knowledge base root. Returns null if not found. */
+async function readMorayaMd(folderPath: string | null): Promise<string | null> {
+  if (!folderPath) return null;
+  try {
+    const content = await invoke<string>('read_file', {
+      path: `${folderPath}/MORAYA.md`,
+    });
+    if (!content?.trim()) return null;
+    return content.slice(0, MORAYA_MD_MAX_CHARS);
+  } catch {
+    return null;
+  }
+}
+
 function buildSystemPrompt(
   config: AIProviderConfig,
   toolCount: number,
   currentDir: string | null,
   currentFilePath: string | null,
+  sidebarDir: string | null,
+  fallbackDir: string | null,
   documentContext?: string,
+  morayaMdContent?: string | null,
 ): string {
   let prompt = `You are Moraya AI, a helpful writing assistant integrated into a Markdown editor. You are powered by ${config.model} (${config.provider}). Help the user with writing, editing, and content creation. Always respond in Markdown format when producing content.`;
 
+  if (morayaMdContent) {
+    prompt += '\n\n--- Knowledge Base Rules (from MORAYA.md) ---\n' +
+      'The following rules were defined by the user for this knowledge base. ' +
+      'Follow these rules when generating content:\n\n' +
+      morayaMdContent +
+      '\n--- End Knowledge Base Rules ---';
+  }
+
+  // MORAYA.md convention instructions (always present when sidebar is open)
+  if (sidebarDir) {
+    prompt += '\n\n--- MORAYA.md Convention ---\n' +
+      'This editor supports a per-knowledge-base AI rules file called `MORAYA.md`. ' +
+      'When the user asks to create, set up, or modify rules/conventions/guidelines for the current knowledge base:\n' +
+      `- The file MUST be named exactly \`MORAYA.md\` (not .rules.md, rules.md, or any other name)\n` +
+      `- It MUST be placed at the root of the current knowledge base directory: ${sidebarDir}/MORAYA.md\n` +
+      '- Use `write_file` to create or update it\n' +
+      '- The content of MORAYA.md is automatically loaded into the AI system prompt on every message, so changes take effect immediately in subsequent conversations\n' +
+      (morayaMdContent
+        ? '- A MORAYA.md file is currently active for this knowledge base (see rules above)\n'
+        : '- No MORAYA.md file exists yet in this knowledge base\n') +
+      '--- End MORAYA.md Convention ---';
+  }
+
   if (toolCount > 0) {
     prompt += ' You have access to tools. Use them when they can help answer the user\'s question. You can use add_mcp_server to help users install and configure new MCP servers.';
+
+    // File writing rules
+    prompt +=
+      '\n\nIMPORTANT — Rules for writing generated content:' +
+      '\n' +
+      '\n**Single document** (generating one article, post, essay, etc.):' +
+      '\n  Use the `update_editor_content` tool. This fills content directly into the Moraya editor.' +
+      '\n  - If the editor has an open file, it saves to that file and refreshes the editor.' +
+      '\n  - If the editor has a new unsaved document, it fills the editor for the user to save.' +
+      '\n' +
+      '\n**Multiple documents** (batch generation, e.g. "generate 5 blog posts"):' +
+      '\n  Use `write_file` for each document. Choose the target directory in this priority order:' +
+      `\n  1. Current file's parent directory: ${currentDir || '(none — new unsaved document)'}` +
+      `\n  2. Sidebar open folder: ${sidebarDir || '(none — sidebar not open)'}` +
+      `\n  3. Fallback directory: ${fallbackDir || '(unknown)'}` +
+      '\n  Use the first available directory from the list above. Name files descriptively with .md extension.' +
+      '\n' +
+      '\nNever use `write_file` for single-document content that should go into the editor — always prefer `update_editor_content`.';
   }
 
   // Dynamic service creation capability
@@ -392,10 +459,14 @@ function buildSystemPrompt(
  */
 export async function sendChatMessage(message: string, documentContext?: string): Promise<string> {
   const state = aiStore.getState();
-  const activeConfig = aiStore.getActiveConfig();
-  if (!activeConfig || !state.isConfigured) {
+  const rawConfig = aiStore.getActiveConfig();
+  if (!rawConfig || !state.isConfigured) {
     throw new Error(get(t)('errors.aiNotConfigured'));
   }
+
+  // Apply global aiMaxTokens setting from Permissions
+  const globalMaxTokens = settingsStore.getState().aiMaxTokens;
+  const activeConfig = { ...rawConfig, maxTokens: globalMaxTokens || rawConfig.maxTokens || 16384 };
 
   aiStore.setLoading(true);
   aiStore.resetStream();
@@ -408,17 +479,21 @@ export async function sendChatMessage(message: string, documentContext?: string)
     const mcpTools = getAllTools();
     const toolDefs = [...INTERNAL_TOOLS, ...mcpToolsToToolDefs(mcpTools)];
 
-    // Build working directory context from current file path
-    // For unsaved documents, default to user's Documents directory
+    // Build directory context for file writing rules
     const currentFilePath = editorStore.getState().currentFilePath;
     const currentDir = currentFilePath
       ? currentFilePath.replace(/\/[^/]+$/, '')
-      : await documentDir().catch(() => null);
+      : null;
+    const sidebarDir = filesStore.getState().openFolderPath;
+    const fallbackDir = await documentDir().catch(() => null);
+
+    // Read MORAYA.md rules from knowledge base root
+    const morayaMdContent = await readMorayaMd(sidebarDir);
 
     const messages: ChatMessage[] = [
       {
         role: 'system',
-        content: buildSystemPrompt(activeConfig, toolDefs.length, currentDir, currentFilePath, documentContext),
+        content: buildSystemPrompt(activeConfig, toolDefs.length, currentDir, currentFilePath, sidebarDir, fallbackDir, documentContext, morayaMdContent),
         timestamp: Date.now(),
       },
       // Include recent chat history for context (preserve tool call/result pairs)
@@ -438,22 +513,68 @@ export async function sendChatMessage(message: string, documentContext?: string)
 
     // Tool execution loop
     const MAX_TOOL_ROUNDS = 10;
+    const MAX_TRUNCATION_RETRIES = 2;
     let round = 0;
+    let truncationRetries = 0;
     let finalContent = '';
 
     while (round < MAX_TOOL_ROUNDS) {
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
       round++;
 
-      console.log(`[AI] Tool round ${round}/${MAX_TOOL_ROUNDS}, messages: ${messages.length}, tools: ${toolDefs.length}`);
+      // Use increased max_tokens after truncation to give more room for tool calls
+      const effectiveConfig = truncationRetries > 0
+        ? { ...activeConfig, maxTokens: Math.max((activeConfig.maxTokens || 8192) * 2, 16384) }
+        : activeConfig;
+
+      console.log(`[AI] Tool round ${round}/${MAX_TOOL_ROUNDS}, messages: ${messages.length}, tools: ${toolDefs.length}, maxTokens: ${effectiveConfig.maxTokens}`);
 
       // Use non-streaming for tool call rounds, streaming for final response
-      const response = await sendAIRequest(activeConfig, {
+      const response = await sendAIRequest(effectiveConfig, {
         messages,
         tools: toolDefs.length > 0 ? toolDefs : undefined,
       }, signal);
 
       console.log(`[AI] Response: stopReason=${response.stopReason}, toolCalls=${response.toolCalls?.length || 0}, content=${response.content?.length || 0} chars`);
+
+      // If response was truncated (max_tokens) with pending tool calls:
+      // - First few times: save partial content and ask AI to continue with higher token limit
+      // - After max retries: give up and show truncation message
+      if (response.stopReason === 'max_tokens' && response.toolCalls && response.toolCalls.length > 0) {
+        if (truncationRetries >= MAX_TRUNCATION_RETRIES) {
+          console.warn('[AI] Response still truncated after retries — giving up');
+          const truncatedNote = response.content
+            ? response.content + '\n\n[Response truncated due to output length limit. Tool calls were skipped.]'
+            : '[Response truncated due to output length limit. Please try a shorter request or break it into steps.]';
+          finalContent = truncatedNote;
+          aiStore.appendStreamContent(truncatedNote);
+          break;
+        }
+
+        truncationRetries++;
+        console.warn(`[AI] Response truncated with tool calls — continuation attempt ${truncationRetries}/${MAX_TRUNCATION_RETRIES}`);
+
+        // Save partial text content (discard broken tool calls)
+        if (response.content) {
+          const partialMsg: ChatMessage = {
+            role: 'assistant',
+            content: response.content,
+            timestamp: Date.now(),
+          };
+          aiStore.addMessage(partialMsg);
+          messages.push(partialMsg);
+          aiStore.appendStreamContent(response.content);
+        }
+
+        // Ask AI to continue with just the tool call
+        const continueMsg: ChatMessage = {
+          role: 'user',
+          content: 'Your previous response was cut off due to output length limits. The text above has been saved. Now please complete the task by making the necessary tool call(s). Do not repeat the content — use it directly in the tool arguments.',
+          timestamp: Date.now(),
+        };
+        messages.push(continueMsg);
+        continue;
+      }
 
       // No tool calls: this is the final response
       if (!response.toolCalls || response.toolCalls.length === 0) {
@@ -518,6 +639,12 @@ export async function sendChatMessage(message: string, documentContext?: string)
                   window.dispatchEvent(new CustomEvent('moraya:file-synced', { detail: { content: newContent } }));
                   console.log('[AI] Synced editor content after MCP file write');
                 } catch { /* ignore sync errors */ }
+              }
+
+              // Refresh sidebar file tree if the written file is under the open folder
+              const openFolder = filesStore.getState().openFolderPath;
+              if (writtenPath && openFolder && writtenPath.startsWith(openFolder)) {
+                refreshFileTree(openFolder);
               }
             }
           }

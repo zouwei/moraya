@@ -10,6 +10,8 @@
     buildTemplateMessages,
   } from '$lib/services/ai';
   import { mcpStore } from '$lib/services/mcp';
+  import { filesStore } from '$lib/stores/files-store';
+  import { invoke } from '@tauri-apps/api/core';
   import { markdownToHtmlBody } from '$lib/services/export-service';
   import { openUrl } from '@tauri-apps/plugin-opener';
   import { t } from '$lib/i18n';
@@ -50,6 +52,25 @@
   let activeTemplate = $state<AITemplate | null>(null);
   let showParamPanel = $state(false);
   let inputPlaceholderOverride = $state<string | null>(null);
+
+  // MORAYA.md indicator
+  let morayaMdActive = $state(false);
+  let folderPath = $state<string | null>(null);
+
+  filesStore.subscribe(state => {
+    folderPath = state.openFolderPath;
+  });
+
+  $effect(() => {
+    const path = folderPath;
+    if (!path) {
+      morayaMdActive = false;
+      return;
+    }
+    invoke<string>('read_file', { path: `${path}/MORAYA.md` })
+      .then(content => { morayaMdActive = !!content?.trim(); })
+      .catch(() => { morayaMdActive = false; });
+  });
 
   mcpStore.subscribe(state => {
     mcpToolCount = state.tools.length;
@@ -339,6 +360,9 @@
       {#if mcpToolCount > 0}
         <span class="mcp-badge" title="{mcpToolCount} MCP tools available">{mcpToolCount} tools</span>
       {/if}
+      {#if morayaMdActive}
+        <span class="moraya-md-badge" title={$t('ai.morayaMdActive')}>MORAYA.md</span>
+      {/if}
     </div>
     {#if chatMessages.length > 0}
       <button class="ai-btn" onclick={clearChat} title={$t('ai.clearChat')}>
@@ -618,6 +642,15 @@
     padding: 0.1rem 0.4rem;
     border-radius: 8px;
     background: var(--accent-color);
+    color: white;
+    font-weight: 500;
+  }
+
+  .moraya-md-badge {
+    font-size: 10px;
+    padding: 0.1rem 0.4rem;
+    border-radius: 8px;
+    background: #34c759;
     color: white;
     font-weight: 500;
   }

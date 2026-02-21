@@ -1,5 +1,6 @@
 <script lang="ts">
   import { settingsStore, type Theme } from '../stores/settings-store';
+  import { filesStore, type KnowledgeBase } from '../stores/files-store';
   import { t, SUPPORTED_LOCALES, type LocaleSelection } from '$lib/i18n';
   import { builtinThemes, getLightThemes, getDarkThemes } from '$lib/styles/themes';
   import AISettings from './ai/AISettings.svelte';
@@ -32,6 +33,13 @@
   let editorLineWidth = $state(800);
   let editorTabSize = $state(4);
   let showLineNumbers = $state(false);
+
+  let knowledgeBases = $state<KnowledgeBase[]>([]);
+  let showKBManager = $state(false);
+
+  filesStore.subscribe(state => {
+    knowledgeBases = state.knowledgeBases;
+  });
 
   const lightThemes = getLightThemes();
   const darkThemes = getDarkThemes();
@@ -222,6 +230,18 @@
             </label>
           </div>
 
+          <div class="setting-section">
+            <div class="section-header">{$t('knowledgeBase.title')}</div>
+            <div class="setting-group">
+              <div class="kb-setting-row">
+                <span class="kb-count">{knowledgeBases.length} {$t('knowledgeBase.title').toLowerCase()}</span>
+                <button class="kb-manage-btn" onclick={() => showKBManager = true}>
+                  {$t('knowledgeBase.manage')}
+                </button>
+              </div>
+            </div>
+          </div>
+
         {:else if activeTab === 'editor'}
           <div class="setting-group">
             <label class="setting-label" for="settings-line-width">{$t('settings.editor.lineWidth')}</label>
@@ -346,6 +366,27 @@
 
         {:else if activeTab === 'permissions'}
           <div class="setting-section">
+            <div class="section-header">{$t('settings.permissions.aiTitle')}</div>
+            <div class="setting-group">
+              <label class="setting-label" for="settings-ai-max-tokens">{$t('settings.permissions.aiMaxTokens')}</label>
+              <input
+                id="settings-ai-max-tokens"
+                type="number"
+                class="setting-input"
+                value={$settingsStore.aiMaxTokens}
+                min={1024}
+                max={128000}
+                step={1024}
+                onchange={(e) => {
+                  const v = parseInt((e.target as HTMLInputElement).value);
+                  if (v >= 1024 && v <= 128000) settingsStore.update({ aiMaxTokens: v });
+                }}
+              />
+              <p class="perm-hint">{$t('settings.permissions.aiMaxTokensHint')}</p>
+            </div>
+          </div>
+
+          <div class="setting-section">
             <div class="section-header">{$t('settings.permissions.mcpTitle')}</div>
             <div class="setting-group">
               <label class="setting-toggle">
@@ -364,6 +405,12 @@
     </div>
   </div>
 </div>
+
+{#if showKBManager}
+  {#await import('./KnowledgeBaseManager.svelte') then { default: KnowledgeBaseManager }}
+    <KnowledgeBaseManager onClose={() => showKBManager = false} />
+  {/await}
+{/if}
 
 <style>
   .settings-overlay {
@@ -592,6 +639,32 @@
     margin: 0;
     padding-left: 1.5rem;
     line-height: 1.4;
+  }
+
+  .kb-setting-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .kb-count {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+  }
+
+  .kb-manage-btn {
+    padding: 0.3rem 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    font-size: var(--font-size-xs);
+    cursor: pointer;
+  }
+
+  .kb-manage-btn:hover {
+    border-color: var(--accent-color);
+    color: var(--accent-color);
   }
 
   .empty-state {

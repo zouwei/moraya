@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { filesStore, type FileEntry, type FilePreview } from '../stores/files-store';
+  import { filesStore, type FileEntry, type FilePreview, type KnowledgeBase } from '../stores/files-store';
   import { settingsStore } from '../stores/settings-store';
   import { invoke } from '@tauri-apps/api/core';
   import { open } from '@tauri-apps/plugin-dialog';
@@ -12,8 +12,10 @@
 
   let {
     onFileSelect,
+    onOpenKBManager,
   }: {
     onFileSelect: (path: string) => void;
+    onOpenKBManager?: () => void;
   } = $props();
 
   let fileTree = $state<FileEntry[]>([]);
@@ -48,12 +50,59 @@
   } | null>(null);
   let inputDialogEl = $state<HTMLInputElement | null>(null);
 
+  // Knowledge base state
+  let knowledgeBases = $state<KnowledgeBase[]>([]);
+  let activeKBId = $state<string | null>(null);
+  let showKBDropdown = $state(false);
+  let showSaveAsKBHint = $state(false);
+
   filesStore.subscribe(state => {
     fileTree = state.fileTree;
     folderPath = state.openFolderPath;
     viewMode = state.sidebarViewMode;
     filePreviews = state.filePreviews;
+    knowledgeBases = state.knowledgeBases;
+    activeKBId = state.activeKnowledgeBaseId;
   });
+
+  $effect(() => {
+    // Close dropdown when clicking outside
+    if (showKBDropdown) {
+      const close = () => { showKBDropdown = false; };
+      setTimeout(() => document.addEventListener('click', close, { once: true }), 0);
+    }
+  });
+
+  function toggleKBDropdown(e: MouseEvent) {
+    e.stopPropagation();
+    showKBDropdown = !showKBDropdown;
+  }
+
+  function switchKB(id: string) {
+    showKBDropdown = false;
+    filesStore.setActiveKnowledgeBase(id);
+  }
+
+  function getActiveKBName(): string {
+    if (!activeKBId) return folderPath ? getFileName(folderPath) : $t('sidebar.title');
+    const kb = knowledgeBases.find(k => k.id === activeKBId);
+    return kb?.name ?? $t('sidebar.title');
+  }
+
+  function saveCurrentAsKB() {
+    if (!folderPath) return;
+    const name = getFileName(folderPath);
+    const kb: KnowledgeBase = {
+      id: crypto.randomUUID(),
+      name,
+      path: folderPath,
+      lastAccessedAt: Date.now(),
+    };
+    filesStore.addKnowledgeBase(kb);
+    // Auto-select the new KB
+    filesStore.setActiveKnowledgeBase(kb.id);
+    showSaveAsKBHint = false;
+  }
 
   async function openFolder() {
     const selected = await open({
@@ -79,6 +128,16 @@
       startWatching(selected);
       // Load file previews for list mode
       loadFilePreviews(tree);
+
+      // If user has KBs and this folder isn't one, show hint
+      const existingKB = filesStore.findKnowledgeBaseByPath(selected);
+      if (existingKB) {
+        // Auto-select existing KB
+        filesStore.setActiveKnowledgeBase(existingKB.id);
+        showSaveAsKBHint = false;
+      } else if (knowledgeBases.length > 0) {
+        showSaveAsKBHint = true;
+      }
     }
   }
 
@@ -250,6 +309,12 @@
     toggleSearch();
   }
 
+  async function handleRefresh() {
+    if (folderPath) {
+      await refreshFileTree(folderPath);
+    }
+  }
+
   function handleRename() {
     inputDialog = {
       mode: 'rename',
@@ -364,9 +429,34 @@
   oncontextmenu={(e) => handleContextMenu(e, 'blank', folderPath || '', '')}
 >
   <div class="sidebar-header">
-    <span class="sidebar-title">
-      {folderPath ? getFileName(folderPath) : $t('sidebar.title')}
-    </span>
+    <button class="kb-switcher" onclick={toggleKBDropdown} title={$t('knowledgeBase.switchTo')}>
+      <span class="kb-switcher-name">{getActiveKBName()}</span>
+      <svg class="kb-chevron" class:open={showKBDropdown} width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M4.427 6.427l3.396 3.396a.25.25 0 00.354 0l3.396-3.396A.25.25 0 0011.396 6H4.604a.25.25 0 00-.177.427z"/>
+      </svg>
+    </button>
+    {#if showKBDropdown}
+      <div class="kb-dropdown">
+        {#each [...knowledgeBases].sort((a, b) => b.lastAccessedAt - a.lastAccessedAt) as kb}
+          <button
+            class="kb-dropdown-item"
+            class:active={kb.id === activeKBId}
+            onclick={() => switchKB(kb.id)}
+          >
+            {#if kb.id === activeKBId}
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z"/></svg>
+            {:else}
+              <span class="kb-check-spacer"></span>
+            {/if}
+            <span class="kb-dropdown-name">{kb.name}</span>
+          </button>
+        {/each}
+        <div class="kb-dropdown-divider"></div>
+        <button class="kb-dropdown-item kb-manage" onclick={() => { showKBDropdown = false; onOpenKBManager?.(); }}>
+          {$t('knowledgeBase.manage')}
+        </button>
+      </div>
+    {/if}
     <div class="sidebar-actions">
       {#if folderPath}
         <button
@@ -430,6 +520,16 @@
         onkeydown={handleInputDialogKeydown}
         onblur={() => { inputDialog = null; }}
       />
+    </div>
+  {/if}
+
+  {#if showSaveAsKBHint && folderPath}
+    <div class="kb-save-hint">
+      <span>{$t('knowledgeBase.saveHint')}</span>
+      <div class="kb-save-hint-actions">
+        <button class="kb-save-hint-btn" onclick={saveCurrentAsKB}>{$t('knowledgeBase.saveAsKB')}</button>
+        <button class="kb-save-hint-close" onclick={() => showSaveAsKBHint = false}>&times;</button>
+      </div>
     </div>
   {/if}
 
@@ -503,6 +603,7 @@
     targetName={contextMenu.targetName}
     onNewFile={handleNewFile}
     onSearch={handleSearchAction}
+    onRefresh={handleRefresh}
     onRename={handleRename}
     onDuplicate={handleDuplicate}
     onDelete={handleDelete}
@@ -530,19 +631,7 @@
     padding: 0.5rem 0.75rem;
     border-bottom: 1px solid var(--border-light);
     min-height: 2rem;
-  }
-
-  .sidebar-title {
-    font-size: var(--font-size-xs);
-    font-weight: 600;
-    color: var(--text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    flex: 1;
-    min-width: 0;
+    position: relative;
   }
 
   .sidebar-actions {
@@ -751,5 +840,149 @@
 
   :global(.platform-ipados) .list-item:active {
     background: var(--bg-hover);
+  }
+
+  /* Knowledge Base Switcher */
+  .kb-switcher {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    padding: 0.15rem 0.35rem;
+    border-radius: 4px;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .kb-switcher:hover {
+    background: var(--bg-hover);
+  }
+
+  .kb-switcher-name {
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .kb-chevron {
+    flex-shrink: 0;
+    color: var(--text-muted);
+    transition: transform var(--transition-fast);
+  }
+
+  .kb-chevron.open {
+    transform: rotate(180deg);
+  }
+
+  .kb-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0.5rem;
+    right: 0.5rem;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 10;
+    padding: 0.25rem 0;
+    max-height: 280px;
+    overflow-y: auto;
+  }
+
+  .kb-dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    width: 100%;
+    padding: 0.4rem 0.5rem;
+    border: none;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .kb-dropdown-item:hover {
+    background: var(--bg-hover);
+  }
+
+  .kb-dropdown-item.active {
+    font-weight: 600;
+  }
+
+  .kb-dropdown-item.kb-manage {
+    color: var(--text-secondary);
+    font-size: var(--font-size-xs);
+  }
+
+  .kb-check-spacer {
+    display: inline-block;
+    width: 12px;
+  }
+
+  .kb-dropdown-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .kb-dropdown-divider {
+    height: 1px;
+    background: var(--border-light);
+    margin: 0.25rem 0;
+  }
+
+  .kb-save-hint {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.35rem 0.75rem;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-light);
+    font-size: var(--font-size-xs);
+    color: var(--text-secondary);
+  }
+
+  .kb-save-hint-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    flex-shrink: 0;
+  }
+
+  .kb-save-hint-btn {
+    padding: 0.15rem 0.5rem;
+    border: 1px solid var(--accent-color);
+    background: transparent;
+    color: var(--accent-color);
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: var(--font-size-xs);
+    white-space: nowrap;
+  }
+
+  .kb-save-hint-btn:hover {
+    background: var(--accent-color);
+    color: white;
+  }
+
+  .kb-save-hint-close {
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+    padding: 0 0.15rem;
   }
 </style>

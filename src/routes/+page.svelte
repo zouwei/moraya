@@ -196,6 +196,7 @@ ${tr('welcome.tip')}
   let imageGenDialogMounted = $state(false);
   let showPublishConfirm = $state(false);
   let showUpdateDialog = $state(false);
+  let showKBManager = $state(false);
   let seoCompleted = $state(false);
   let imageGenCompleted = $state(false);
   let currentSEOData = $state<SEOData | null>(null);
@@ -1189,9 +1190,16 @@ ${tr('welcome.tip')}
           // Initialize dynamic service container (checks Node.js, reconnects saved services)
           initContainerManager().catch(() => {});
 
-          // Restore last opened folder (F1: directory memory)
+          // Restore knowledge base or last opened folder
           const settings = settingsStore.getState();
-          if (settings.rememberLastFolder && settings.lastOpenedFolder) {
+          const filesState = filesStore.getState();
+          if (filesState.knowledgeBases.length > 0) {
+            // Activate most recently used knowledge base
+            const sorted = [...filesState.knowledgeBases].sort(
+              (a, b) => b.lastAccessedAt - a.lastAccessedAt
+            );
+            filesStore.setActiveKnowledgeBase(sorted[0].id).catch(() => {});
+          } else if (settings.rememberLastFolder && settings.lastOpenedFolder) {
             invoke<FileEntry[]>('read_dir_recursive', {
               path: settings.lastOpenedFolder,
               depth: 3,
@@ -1428,7 +1436,7 @@ ${tr('welcome.tip')}
 
   <div class="app-body">
     {#if showSidebar}
-      <Sidebar onFileSelect={handleFileSelect} />
+      <Sidebar onFileSelect={handleFileSelect} onOpenKBManager={() => showKBManager = true} />
     {/if}
 
     <main class="editor-area">
@@ -1555,6 +1563,12 @@ ${tr('welcome.tip')}
 {#if showUpdateDialog}
   {#await import('$lib/components/UpdateDialog.svelte') then { default: UpdateDialog }}
     <UpdateDialog onClose={() => showUpdateDialog = false} />
+  {/await}
+{/if}
+
+{#if showKBManager}
+  {#await import('$lib/components/KnowledgeBaseManager.svelte') then { default: KnowledgeBaseManager }}
+    <KnowledgeBaseManager onClose={() => showKBManager = false} />
   {/await}
 {/if}
 

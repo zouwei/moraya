@@ -58,7 +58,10 @@
     },
     "version": "Moraya v{version}",
     "permissions": {
-      "mcpTitle": "MCP 权限"
+      "mcpTitle": "MCP 权限",
+      "aiTitle": "AI 设置",
+      "aiMaxTokens": "最大输出 Token 数",
+      "aiMaxTokensHint": "AI 单次响应可生成的最大 Token 数量。较大的值允许更长的回复和工具调用，但会消耗更多额度。"
     }
   },
   "titlebar": {
@@ -77,6 +80,7 @@
     "contextMenu": {
       "newFile": "新建文件",
       "searchFiles": "搜索",
+      "refresh": "刷新",
       "rename": "重命名",
       "duplicate": "创建副本",
       "delete": "删除",
@@ -113,8 +117,22 @@
     "alignCenter": "居中对齐",
     "alignRight": "右对齐"
   },
+  "knowledgeBase": {
+    "title": "知识库",
+    "add": "添加知识库",
+    "remove": "移除",
+    "rename": "重命名",
+    "manage": "管理知识库...",
+    "empty": "暂无知识库",
+    "emptyHint": "添加文件夹作为知识库，方便快速切换。",
+    "deleteConfirm": "从知识库中移除「{name}」？文件夹本身不会被删除。",
+    "switchTo": "切换知识库",
+    "saveHint": "此文件夹尚未加入知识库。",
+    "saveAsKB": "保存为知识库"
+  },
   "ai": {
     "title": "AI 助手",
+    "morayaMdActive": "MORAYA.md 规则已对此知识库生效",
     "clearChat": "清空对话",
     "unconfigured": "AI 未配置。",
     "unconfiguredHint": "打开设置（{shortcut}）并配置 API 密钥以启用 AI 功能。",

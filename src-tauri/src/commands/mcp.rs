@@ -1,13 +1,18 @@
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender};
 use std::sync::Mutex;
+use std::time::Duration;
 use tauri::State;
 
-/// Maximum line length for MCP responses (64 KB)
-const MAX_LINE_LENGTH: usize = 64 * 1024;
+/// Maximum line length for MCP responses (256 KB).
+/// Servers like git-mcp-server register 28+ tools, producing large tools/list responses.
+const MAX_LINE_LENGTH: usize = 256 * 1024;
 /// Maximum iterations when reading MCP responses
 const MAX_READ_ITERATIONS: usize = 1000;
+/// Timeout for waiting on a single line from the MCP server
+const READ_LINE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Dangerous or interfering environment variable prefixes that must not be passed to child processes
 const BLOCKED_ENV_PREFIXES: &[&str] = &[
@@ -24,20 +29,30 @@ const BLOCKED_ENV_PREFIXES: &[&str] = &[
     "PNPM_",
 ];
 
-/// A managed MCP stdio process with persistent buffered I/O handles.
+/// A line read from MCP server stdout by the reader thread.
+enum ReadResult {
+    Line(String),
+    Eof,
+    Error(String),
+}
+
+/// A managed MCP stdio process.
+///
+/// The reader thread runs in the background, continuously reading lines from stdout
+/// and sending them to `line_rx`. This ensures no Tauri command thread ever blocks
+/// on pipe I/O — they only block on channel receives (with timeout).
 struct MCPProcess {
     child: Child,
-    reader: BufReader<ChildStdout>,
     stdin: ChildStdin,
     stderr: ChildStderr,
+    line_rx: Receiver<ReadResult>,
 }
 
 /// Manages stdio-based MCP server processes.
 ///
-/// The Mutex is held only briefly for HashMap insert/remove operations.
-/// Blocking I/O (read_line) is performed OUTSIDE the Mutex by temporarily
-/// removing the MCPProcess from the HashMap ("take out, read, put back").
-/// This eliminates deadlocks between mcp_send_request and mcp_disconnect.
+/// The `processes` Mutex is held only briefly for HashMap operations and stdin writes.
+/// Blocking reads go through a channel from a background reader thread, with timeout.
+/// This eliminates deadlocks and ensures `mcp_disconnect` always completes promptly.
 pub struct MCPProcessManager {
     processes: Mutex<HashMap<String, MCPProcess>>,
     pids: Mutex<HashMap<String, u32>>,
@@ -99,20 +114,54 @@ fn set_nonblocking(_stderr: &ChildStderr) {
     // Non-blocking stderr is not critical; reads may block on non-Unix
 }
 
-/// Kill an entire process group by PID (Unix only).
-/// npx spawns grandchild processes; killing only the direct child leaves
-/// grandchildren alive, keeping pipes open and causing read_line to block.
+/// Gracefully terminate an entire process group: SIGTERM → wait → SIGKILL.
+///
+/// Sends SIGTERM first so Node.js servers can flush buffers and clean up child
+/// processes (e.g. git-mcp-server spawns git commands). Falls back to SIGKILL
+/// after a timeout to guarantee termination.
 #[cfg(unix)]
-fn kill_process_group(pid: u32) {
-    // SAFETY: kill(-pgid, SIGKILL) sends SIGKILL to all processes in the group.
-    // The PID came from a child we spawned with process_group(0), so the PGID == PID.
+fn graceful_kill_process_group(pid: u32) {
+    let pgid = -(pid as libc::pid_t);
+
+    // SAFETY: kill(-pgid, SIGTERM) sends SIGTERM to all processes in the group.
+    // The PID came from a child we spawned with process_group(0), so PGID == PID.
     unsafe {
-        libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
+        libc::kill(pgid, libc::SIGTERM);
+    }
+
+    // Poll for up to 2 seconds for the leader process to exit
+    let start = std::time::Instant::now();
+    let timeout = Duration::from_secs(2);
+    loop {
+        // SAFETY: waitpid with WNOHANG on our child's PID is safe.
+        let ret = unsafe {
+            let mut status: libc::c_int = 0;
+            libc::waitpid(pid as libc::pid_t, &mut status, libc::WNOHANG)
+        };
+        if ret > 0 {
+            return; // Process exited and was reaped
+        }
+        if start.elapsed() >= timeout {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    // Process did not exit in time — force kill the entire group
+    // SAFETY: kill(-pgid, SIGKILL) is safe; process group is one we own.
+    unsafe {
+        libc::kill(pgid, libc::SIGKILL);
+    }
+
+    // Reap to prevent zombie (non-blocking — best effort)
+    unsafe {
+        let mut status: libc::c_int = 0;
+        libc::waitpid(pid as libc::pid_t, &mut status, libc::WNOHANG);
     }
 }
 
 #[cfg(not(unix))]
-fn kill_process_group(_pid: u32) {
+fn graceful_kill_process_group(_pid: u32) {
     // On non-Unix, child.kill() handles this
 }
 
@@ -159,6 +208,35 @@ fn sanitize_stderr(stderr_msg: &str) -> String {
     result.trim().to_string()
 }
 
+/// Spawn a background thread that reads lines from stdout and sends them to a channel.
+/// The thread exits when the pipe returns EOF or an error (e.g., process killed).
+fn spawn_reader_thread(stdout: ChildStdout) -> Receiver<ReadResult> {
+    let (tx, rx): (SyncSender<ReadResult>, Receiver<ReadResult>) =
+        std::sync::mpsc::sync_channel(32);
+    std::thread::spawn(move || {
+        let mut reader = BufReader::new(stdout);
+        loop {
+            let mut line = String::new();
+            match reader.read_line(&mut line) {
+                Ok(0) => {
+                    let _ = tx.send(ReadResult::Eof);
+                    break;
+                }
+                Ok(_) => {
+                    if tx.send(ReadResult::Line(line)).is_err() {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(ReadResult::Error(e.to_string()));
+                    break;
+                }
+            }
+        }
+    });
+    rx
+}
+
 /// Connect to an MCP server via stdio transport
 #[tauri::command]
 pub fn mcp_connect_stdio(
@@ -189,7 +267,10 @@ pub fn mcp_connect_stdio(
     cmd.args(&args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        .stderr(Stdio::piped())
+        // Use temp dir as CWD to prevent servers from writing files into src-tauri/
+        // (e.g. git-mcp-server creates logs/ in CWD)
+        .current_dir(std::env::temp_dir());
 
     // Create a new process group so we can kill the entire tree on disconnect
     #[cfg(unix)]
@@ -237,7 +318,9 @@ pub fn mcp_connect_stdio(
     // Set stderr to non-blocking so diagnostic reads never block while holding the Mutex
     set_nonblocking(&stderr);
 
-    let reader = BufReader::new(stdout);
+    // Spawn a background reader thread for stdout — blocking read_line runs on this
+    // dedicated thread instead of on Tauri command threads
+    let line_rx = spawn_reader_thread(stdout);
 
     // Store PID in separate mutex for deadlock-free disconnect
     if let Ok(mut pids) = state.pids.lock() {
@@ -248,9 +331,9 @@ pub fn mcp_connect_stdio(
         server_id,
         MCPProcess {
             child,
-            reader,
             stdin,
             stderr,
+            line_rx,
         },
     );
 
@@ -259,9 +342,12 @@ pub fn mcp_connect_stdio(
 
 /// Send a JSON-RPC request to an MCP server via stdio.
 ///
-/// Uses "take out, read, put back" pattern: the MCPProcess is removed from the
-/// HashMap before blocking I/O, so the Mutex is NOT held during `read_line`.
-/// This allows `mcp_disconnect` to always acquire the Mutex immediately.
+/// Uses "take out, channel read, put back" pattern:
+/// 1. Lock Mutex briefly to write the request and remove the process from HashMap
+/// 2. Read response from the channel (background reader thread) WITHOUT holding the Mutex
+/// 3. Re-lock Mutex to put the process back (or clean up on error)
+///
+/// The channel recv has a timeout, so this function never blocks forever.
 #[tauri::command]
 pub fn mcp_send_request(
     state: State<'_, MCPProcessManager>,
@@ -288,27 +374,29 @@ pub fn mcp_send_request(
             .flush()
             .map_err(|_| "Failed to flush MCP server stdin".to_string())?;
 
-        // Remove from HashMap so the Mutex can be released during blocking read
+        // Remove from HashMap so the Mutex is released during channel read
         processes
             .remove(&server_id)
             .ok_or("MCP server not connected")?
     };
     // Mutex is now released — other commands (including disconnect) can proceed
 
-    // Step 2: Blocking read OUTSIDE the Mutex
-    let result = read_response(&mut proc);
+    // Step 2: Read response from channel OUTSIDE the Mutex (with timeout)
+    let result = read_response_channel(&mut proc);
 
-    // Step 3: Put the process back (unless disconnect already cleaned up)
+    // Step 3: Put the process back or clean up
     match &result {
         Ok(_) => {
             // Success — put the process back for future requests
-            let mut processes = state.processes.lock().map_err(|e| e.to_string())?;
-            processes.insert(server_id, proc);
+            if let Ok(mut processes) = state.processes.lock() {
+                processes.insert(server_id, proc);
+            }
         }
         Err(_) => {
-            // Error (EOF, process died, etc.) — clean up instead of putting back
+            // Error (EOF, timeout, process died) — clean up
             let _ = proc.child.kill();
-            let _ = proc.child.wait();
+            let _ = proc.child.try_wait();
+            drop(proc);
             if let Ok(mut pids) = state.pids.lock() {
                 pids.remove(&server_id);
             }
@@ -318,8 +406,9 @@ pub fn mcp_send_request(
     result
 }
 
-/// Read a JSON response line from an MCP process. Called WITHOUT holding the Mutex.
-fn read_response(proc: &mut MCPProcess) -> Result<String, String> {
+/// Read a JSON response from the channel (fed by the background reader thread).
+/// Uses recv_timeout to ensure this never blocks forever.
+fn read_response_channel(proc: &mut MCPProcess) -> Result<String, String> {
     let mut iterations = 0;
     loop {
         iterations += 1;
@@ -327,32 +416,43 @@ fn read_response(proc: &mut MCPProcess) -> Result<String, String> {
             return Err("MCP response exceeded iteration limit".to_string());
         }
 
-        let mut line = String::new();
-        let bytes_read = proc
-            .reader
-            .read_line(&mut line)
-            .map_err(|_| "Failed to read from MCP server".to_string())?;
+        match proc.line_rx.recv_timeout(READ_LINE_TIMEOUT) {
+            Ok(ReadResult::Line(line)) => {
+                if line.len() > MAX_LINE_LENGTH {
+                    return Err("MCP response line exceeded size limit".to_string());
+                }
 
-        if bytes_read == 0 {
-            let stderr_msg = try_read_stderr(&mut proc.stderr);
-            return if stderr_msg.is_empty() {
-                Err("MCP server process ended unexpectedly".to_string())
-            } else {
-                Err(format!("MCP server error: {}", stderr_msg))
-            };
-        }
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
 
-        if line.len() > MAX_LINE_LENGTH {
-            return Err("MCP response line exceeded size limit".to_string());
-        }
-
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        if trimmed.starts_with('{') {
-            return Ok(trimmed.to_string());
+                if trimmed.starts_with('{') {
+                    return Ok(trimmed.to_string());
+                }
+            }
+            Ok(ReadResult::Eof) => {
+                let stderr_msg = try_read_stderr(&mut proc.stderr);
+                return if stderr_msg.is_empty() {
+                    Err("MCP server process ended unexpectedly".to_string())
+                } else {
+                    Err(format!("MCP server error: {}", stderr_msg))
+                };
+            }
+            Ok(ReadResult::Error(e)) => {
+                return Err(format!("Failed to read from MCP server: {}", e));
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                return Err("MCP response timeout".to_string());
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                let stderr_msg = try_read_stderr(&mut proc.stderr);
+                return if stderr_msg.is_empty() {
+                    Err("MCP server process ended unexpectedly".to_string())
+                } else {
+                    Err(format!("MCP server error: {}", stderr_msg))
+                };
+            }
         }
     }
 }
@@ -387,26 +487,27 @@ pub fn mcp_send_notification(
 
 /// Disconnect from an MCP server.
 ///
-/// Since `mcp_send_request` releases the Mutex during blocking I/O,
-/// this function can always acquire the lock without deadlock.
+/// Uses graceful shutdown (SIGTERM → wait → SIGKILL) via the process group,
+/// then cleans up the MCPProcess entry. Dropping MCPProcess closes the channel
+/// receiver, which causes the reader thread to exit on its next send attempt.
 #[tauri::command]
 pub fn mcp_disconnect(
     state: State<'_, MCPProcessManager>,
     server_id: String,
 ) -> Result<(), String> {
-    // Kill the process group first to ensure all children are dead
+    // Gracefully terminate the process group (SIGTERM → wait → SIGKILL)
     if let Ok(mut pids) = state.pids.lock() {
         if let Some(pid) = pids.remove(&server_id) {
-            kill_process_group(pid);
+            graceful_kill_process_group(pid);
         }
     }
 
     // Clean up the process entry. The Mutex is never held during blocking I/O,
     // so this lock will succeed promptly.
     if let Ok(mut processes) = state.processes.lock() {
-        if let Some(mut proc) = processes.remove(&server_id) {
-            let _ = proc.child.kill();
-            let _ = proc.child.wait();
+        if let Some(proc) = processes.remove(&server_id) {
+            // Process was already killed above; just drop to close pipes & channel
+            drop(proc);
         }
     }
 

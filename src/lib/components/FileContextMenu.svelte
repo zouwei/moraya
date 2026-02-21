@@ -10,6 +10,7 @@
     targetName,
     onNewFile,
     onSearch,
+    onRefresh,
     onRename,
     onDuplicate,
     onDelete,
@@ -23,6 +24,7 @@
     targetName: string;
     onNewFile: () => void;
     onSearch: () => void;
+    onRefresh: () => void;
     onRename: () => void;
     onDuplicate: () => void;
     onDelete: () => void;
@@ -53,6 +55,10 @@
 
     <button class="menu-item" onclick={() => handleAction(onSearch)}>
       {tr('sidebar.contextMenu.searchFiles')}
+    </button>
+
+    <button class="menu-item" onclick={() => handleAction(onRefresh)}>
+      {tr('sidebar.contextMenu.refresh')}
     </button>
 
     {#if targetType !== 'blank'}

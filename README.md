@@ -287,6 +287,8 @@ cd src-tauri && cargo check
 
 * [x] **v0.11.0** — Sidebar fully enhanced: directory memory + real-time file refresh + list/tree dual views + right-click context menu + file search — further strengthening local privacy-first note-taking. → [Detailed Requirements](docs/iterations/v0.11.0-sidebar-enhancement.md)
 
+* [x] **v0.12.0** — Knowledge Base Enhancement: Multi-knowledge-base switching with quick dropdown, per-knowledge-base AI rules via `MORAYA.md`, persistent KB management, and automatic AI rule injection. → [Detailed Requirements](docs/iterations/v0.12.0-knowledge-base.md)
+
 ## License
 
 [Apache License 2.0](LICENSE)

@@ -58,7 +58,10 @@
     },
     "version": "Moraya v{version}",
     "permissions": {
-      "mcpTitle": "MCP Permissions"
+      "mcpTitle": "MCP Permissions",
+      "aiTitle": "AI Settings",
+      "aiMaxTokens": "Max Output Tokens",
+      "aiMaxTokensHint": "Maximum number of tokens the AI can generate per response. Higher values allow longer responses and tool calls, but cost more."
     }
   },
   "titlebar": {
@@ -77,6 +80,7 @@
     "contextMenu": {
       "newFile": "New File",
       "searchFiles": "Search",
+      "refresh": "Refresh",
       "rename": "Rename",
       "duplicate": "Create Copy",
       "delete": "Delete",
@@ -113,8 +117,22 @@
     "alignCenter": "Align Center",
     "alignRight": "Align Right"
   },
+  "knowledgeBase": {
+    "title": "Knowledge Base",
+    "add": "Add Knowledge Base",
+    "remove": "Remove",
+    "rename": "Rename",
+    "manage": "Manage Knowledge Bases...",
+    "empty": "No knowledge bases configured",
+    "emptyHint": "Add a folder as a knowledge base for quick switching.",
+    "deleteConfirm": "Remove \"{name}\" from knowledge bases? The folder itself will not be deleted.",
+    "switchTo": "Switch knowledge base",
+    "saveHint": "This folder is not in your knowledge bases.",
+    "saveAsKB": "Save as Knowledge Base"
+  },
   "ai": {
     "title": "AI Assistant",
+    "morayaMdActive": "MORAYA.md rules active for this knowledge base",
     "clearChat": "Clear chat",
     "unconfigured": "AI is not configured.",
     "unconfiguredHint": "Open Settings ({shortcut}) and configure your API key to enable AI features.",
