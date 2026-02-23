@@ -17,6 +17,8 @@
 
 ![](https://raw.githubusercontent.com/zouwei/resource/master/images/moraya/20260223-015339.-image.png)
 
+**[User Manual / Wiki](https://github.com/zouwei/moraya/wiki)**
+
 ## Why Moraya? Key Advantages
 
 - **Ultra-Lightweight & Native Performance** — \~10MB installer, instant launch, tiny memory footprint.
