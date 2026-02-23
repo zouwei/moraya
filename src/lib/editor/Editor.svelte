@@ -363,15 +363,17 @@
     imageMenuIsUploadable = !!settingsStore.getDefaultImageHostTarget();
     showImageMenu = true;
 
-    // Find the ProseMirror position and move selection to the right-clicked image
-    if (editor) {
+    // Defer ProseMirror position resolution to the next frame so the context menu
+    // renders immediately. posAtDOM + dispatch force a layout reflow which blocks
+    // the main thread for large blob images in WKWebView.
+    requestAnimationFrame(() => {
+      if (!editor) return;
       try {
         editor.action((ctx) => {
           const view = ctx.get(editorViewCtx);
           const pos = view.posAtDOM(imgEl, 0);
           contextMenuTargetPos = pos;
 
-          // Move selection near this image so focus shifts away from any previous image
           const node = view.state.doc.nodeAt(pos);
           if (node) {
             const resolved = view.state.doc.resolve(pos + node.nodeSize);
@@ -382,7 +384,7 @@
       } catch {
         contextMenuTargetPos = null;
       }
-    }
+    });
   }
 
   function handleImageResize(width: string) {
@@ -662,7 +664,9 @@
     imageMenuIsUploadable = !!settingsStore.getDefaultImageHostTarget();
     showImageMenu = true;
 
-    if (editor) {
+    // Defer ProseMirror work to next frame (same rationale as handleContextMenu)
+    requestAnimationFrame(() => {
+      if (!editor) return;
       try {
         editor.action((ctx) => {
           const view = ctx.get(editorViewCtx);
@@ -679,7 +683,7 @@
       } catch {
         contextMenuTargetPos = null;
       }
-    }
+    });
   }
 
   function handleToolbarResize(width: string) {

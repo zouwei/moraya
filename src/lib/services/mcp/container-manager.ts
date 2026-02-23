@@ -332,26 +332,8 @@ async function reconnectSavedService(svc: DynamicService): Promise<void> {
     enabled: true,
   };
 
-  // Security confirmation before reconnecting AI-generated service (skip if auto-approve enabled)
-  if (!settingsStore.getState().mcpAutoApprove) {
-    const tr = get(t);
-    const confirmed = await ask(
-      tr('mcp.aiServices.launchConfirmMsg', {
-        name: svc.name,
-        tools: svc.tools.join(', '),
-      }),
-      {
-        title: tr('mcp.aiServices.launchConfirmTitle'),
-        kind: 'warning',
-        okLabel: tr('mcp.aiServices.launchConfirmOk'),
-        cancelLabel: tr('mcp.aiServices.launchConfirmCancel'),
-      },
-    );
-    if (!confirmed) {
-      containerStore.updateService(svc.id, { status: 'error', error: 'Cancelled by user' });
-      return;
-    }
-  }
+  // Saved services were already approved by the user when first created —
+  // skip security confirmation on reconnect to avoid prompting on every app launch.
 
   mcpStore.addServer(config);
   await connectServer(config);
