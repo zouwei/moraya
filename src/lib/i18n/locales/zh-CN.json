@@ -74,6 +74,9 @@
     "title": "资源管理器",
     "openFolder": "打开文件夹",
     "noFolder": "未打开文件夹",
+    "createKB": "创建本地知识库",
+    "emptyDir": "当前目录中还没有任何文件",
+    "kbSettings": "知识库管理",
     "treeView": "树状视图",
     "listView": "列表视图",
     "search": "搜索文件...",
@@ -485,7 +488,10 @@
     "confirmPublish": "确认发布",
     "publishing": "发布中...",
     "publishSuccess": "发布成功！",
-    "publishFailed": "发布失败"
+    "publishFailed": "发布失败",
+    "mcpEntry": "AI MCP",
+    "mcpServerCount": "个服务已连接",
+    "mcpToolCount": "个工具"
   },
   "imageGen": {
     "title": "AI 配图",
@@ -545,6 +551,7 @@
     "insertConfirm": "插入",
     "insertParagraph": "插入对应段落后（推荐）",
     "insertEnd": "插入文章末尾",
+    "insertReplace": "替换文章中的图片",
     "insertClipboard": "复制 Markdown 到剪贴板",
     "selected": "已选 {count} 张",
     "completed": "配图已生成",
@@ -553,7 +560,19 @@
     "mode_design": "设计模式",
     "mode_storyboard": "分镜模式",
     "mode_product": "产品模式",
-    "mode_moodboard": "情绪板"
+    "mode_moodboard": "情绪板",
+    "mode_portrait": "人像模式",
+    "style_portrait": "肖像",
+    "style_headshot": "特写",
+    "style_fullbody": "全身",
+    "style_fashion": "时尚",
+    "style_street": "街拍",
+    "style_glamour": "美妆",
+    "style_environmental": "环境人像",
+    "style_candid": "抓拍",
+    "style_group": "群像",
+    "preDefinedDetected": "检测到文档中的预定义提示词 ({count}条)",
+    "usePredefined": "使用预定义提示词"
   },
   "seo": {
     "title": "SEO 优化",

@@ -356,17 +356,19 @@ export async function executeAICommand(
   }
 }
 
-const MORAYA_MD_MAX_CHARS = 4000;
+const MORAYA_MD_MAX_CHARS = 2000;
+const MAX_TOOL_RESULT_CHARS = 10000;
 
 /** Read MORAYA.md rules file from knowledge base root. Returns null if not found. */
-async function readMorayaMd(folderPath: string | null): Promise<string | null> {
+async function readMorayaMd(folderPath: string | null): Promise<{ content: string; truncated: boolean } | null> {
   if (!folderPath) return null;
   try {
     const content = await invoke<string>('read_file', {
       path: `${folderPath}/MORAYA.md`,
     });
     if (!content?.trim()) return null;
-    return content.slice(0, MORAYA_MD_MAX_CHARS);
+    const truncated = content.length > MORAYA_MD_MAX_CHARS;
+    return { content: content.slice(0, MORAYA_MD_MAX_CHARS), truncated };
   } catch {
     return null;
   }
@@ -380,15 +382,17 @@ function buildSystemPrompt(
   sidebarDir: string | null,
   fallbackDir: string | null,
   documentContext?: string,
-  morayaMdContent?: string | null,
+  morayaMdResult?: { content: string; truncated: boolean } | null,
 ): string {
   let prompt = `You are Moraya AI, a helpful writing assistant integrated into a Markdown editor. You are powered by ${config.model} (${config.provider}). Help the user with writing, editing, and content creation. Always respond in Markdown format when producing content.`;
 
+  const morayaMdContent = morayaMdResult?.content;
   if (morayaMdContent) {
     prompt += '\n\n--- Knowledge Base Rules (from MORAYA.md) ---\n' +
       'The following rules were defined by the user for this knowledge base. ' +
       'Follow these rules when generating content:\n\n' +
       morayaMdContent +
+      (morayaMdResult.truncated ? '\n\n[Rules truncated — use read_text_file or read_file to see the full MORAYA.md if you need to modify it]' : '') +
       '\n--- End Knowledge Base Rules ---';
   }
 
@@ -399,7 +403,9 @@ function buildSystemPrompt(
       'When the user asks to create, set up, or modify rules/conventions/guidelines for the current knowledge base:\n' +
       `- The file MUST be named exactly \`MORAYA.md\` (not .rules.md, rules.md, or any other name)\n` +
       `- It MUST be placed at the root of the current knowledge base directory: ${sidebarDir}/MORAYA.md\n` +
-      '- Use `write_file` to create or update it\n' +
+      (currentFilePath && currentFilePath.endsWith('/MORAYA.md')
+        ? '- MORAYA.md is the currently open file — use `update_editor_content` to modify it (do NOT use `write_file`)\n'
+        : '- Use `write_file` to create or update it\n') +
       '- The content of MORAYA.md is automatically loaded into the AI system prompt on every message, so changes take effect immediately in subsequent conversations\n' +
       (morayaMdContent
         ? '- A MORAYA.md file is currently active for this knowledge base (see rules above)\n'
@@ -426,7 +432,13 @@ function buildSystemPrompt(
       `\n  3. Fallback directory: ${fallbackDir || '(unknown)'}` +
       '\n  Use the first available directory from the list above. Name files descriptively with .md extension.' +
       '\n' +
-      '\nNever use `write_file` for single-document content that should go into the editor — always prefer `update_editor_content`.';
+      '\nNever use `write_file` for single-document content that should go into the editor — always prefer `update_editor_content`.' +
+      (currentFilePath
+        ? `\n\n**CRITICAL**: The file currently open in the editor is: ${currentFilePath}\n` +
+          'To modify this file, you MUST use `update_editor_content` (NOT `write_file` or `edit_file`). ' +
+          'Using `write_file` on the open file will cause a conflict error. ' +
+          'Read the current content from the document context above, make your changes, then pass the full updated content to `update_editor_content`.'
+        : '');
   }
 
   // Dynamic service creation capability
@@ -488,16 +500,47 @@ export async function sendChatMessage(message: string, documentContext?: string)
     const fallbackDir = await documentDir().catch(() => null);
 
     // Read MORAYA.md rules from knowledge base root
-    const morayaMdContent = await readMorayaMd(sidebarDir);
+    const morayaMdResult = await readMorayaMd(sidebarDir);
+
+    // Trim old tool results in chat history to prevent context overflow.
+    // Keep the most recent tool result intact; older ones get truncated.
+    const HISTORY_TOOL_RESULT_LIMIT = 2000;
+    const recentHistory = state.chatHistory.slice(-20);
+
+    // Remove orphaned tool_result messages whose corresponding assistant
+    // tool_use was sliced off — Claude API requires each tool_result to have
+    // a matching tool_use in the preceding assistant message.
+    const toolUseIds = new Set<string>();
+    for (const m of recentHistory) {
+      if (m.role === 'assistant' && m.toolCalls) {
+        for (const tc of m.toolCalls) {
+          toolUseIds.add(tc.id);
+        }
+      }
+    }
+    const cleanHistory = recentHistory.filter(m => {
+      if (m.role === 'tool' && m.toolCallId && !toolUseIds.has(m.toolCallId)) {
+        return false; // orphaned tool result — drop it
+      }
+      return true;
+    });
+
+    const lastToolIdx = cleanHistory.findLastIndex(m => m.role === 'tool');
+    const trimmedHistory = cleanHistory.map((m, i) => {
+      if (m.role === 'tool' && i !== lastToolIdx && m.content.length > HISTORY_TOOL_RESULT_LIMIT) {
+        return { ...m, content: m.content.slice(0, HISTORY_TOOL_RESULT_LIMIT) + '\n[...truncated]' };
+      }
+      return m;
+    });
 
     const messages: ChatMessage[] = [
       {
         role: 'system',
-        content: buildSystemPrompt(activeConfig, toolDefs.length, currentDir, currentFilePath, sidebarDir, fallbackDir, documentContext, morayaMdContent),
+        content: buildSystemPrompt(activeConfig, toolDefs.length, currentDir, currentFilePath, sidebarDir, fallbackDir, documentContext, morayaMdResult),
         timestamp: Date.now(),
       },
       // Include recent chat history for context (preserve tool call/result pairs)
-      ...state.chatHistory.slice(-20),
+      ...trimmedHistory,
       {
         role: 'user',
         content: message,
@@ -622,28 +665,53 @@ export async function sendChatMessage(message: string, documentContext?: string)
             resultText = result.content;
             isError = result.isError;
           } else {
-            // MCP tool — execute via MCP server
-            const result = await callTool(tc.name, tc.arguments);
-            resultText = result.content?.map(c => c.text || '').join('\n') || '';
-            isError = result.isError || false;
+            // Intercept file operations on the currently open file to avoid conflicts
+            const currentPath = editorStore.getState().currentFilePath;
+            const isReadOp = tc.name === 'read_file' || tc.name === 'read_text_file';
+            const isWriteOp = tc.name === 'write_file' || tc.name === 'edit_file';
+            const targetPath = (isReadOp || isWriteOp)
+              ? (tc.arguments.path as string)
+              : null;
+            const isTargetOpenFile = targetPath && currentPath && targetPath === currentPath;
 
-            // Sync editor if the tool wrote to the currently open file
-            if (!isError && (tc.name === 'write_file' || tc.name === 'edit_file')) {
-              const writtenPath = tc.arguments.path as string;
-              const currentPath = editorStore.getState().currentFilePath;
-              if (writtenPath && currentPath && writtenPath === currentPath) {
+            if (isTargetOpenFile && isReadOp) {
+              // Return editor content directly — avoids file access conflicts and includes unsaved changes
+              console.log(`[AI] Intercepted ${tc.name} on open file, returning editor content`);
+              const editorContent = editorStore.getState().content;
+              resultText = editorContent || '';
+              isError = false;
+            } else if (isTargetOpenFile && isWriteOp && typeof tc.arguments.content === 'string') {
+              // Redirect to internal update_editor_content to avoid file conflict
+              console.log('[AI] Intercepted write_file on open file, redirecting to update_editor_content');
+              const result = await executeInternalTool({
+                ...tc,
+                name: 'update_editor_content',
+                arguments: { content: tc.arguments.content },
+              });
+              resultText = result.content;
+              isError = result.isError;
+            } else {
+              // MCP tool — execute via MCP server
+              const result = await callTool(tc.name, tc.arguments);
+              resultText = result.content?.map(c => c.text || '').join('\n') || '';
+              isError = result.isError || false;
+
+              // Sync editor if the tool wrote to the currently open file
+              if (!isError && isTargetOpenFile) {
                 try {
-                  const newContent = await invoke<string>('read_file', { path: writtenPath });
+                  const newContent = await invoke<string>('read_file', { path: targetPath! });
                   editorStore.setContent(newContent);
                   editorStore.setDirty(false);
                   window.dispatchEvent(new CustomEvent('moraya:file-synced', { detail: { content: newContent } }));
                   console.log('[AI] Synced editor content after MCP file write');
                 } catch { /* ignore sync errors */ }
               }
+            }
 
-              // Refresh sidebar file tree if the written file is under the open folder
+            // Refresh sidebar file tree if a file was written under the open folder
+            if (targetPath && isWriteOp) {
               const openFolder = filesStore.getState().openFolderPath;
-              if (writtenPath && openFolder && writtenPath.startsWith(openFolder)) {
+              if (openFolder && targetPath.startsWith(openFolder)) {
                 refreshFileTree(openFolder);
               }
             }
@@ -654,6 +722,13 @@ export async function sendChatMessage(message: string, documentContext?: string)
           console.error(`[AI] Tool call failed: ${tc.name}`, error);
           resultText = `Error: ${error instanceof Error ? error.message : String(error)}`;
           isError = true;
+        }
+
+        // Truncate excessively large tool results to prevent exceeding AI context limits
+        if (resultText.length > MAX_TOOL_RESULT_CHARS) {
+          console.warn(`[AI] Tool result truncated: ${resultText.length} → ${MAX_TOOL_RESULT_CHARS} chars`);
+          resultText = resultText.slice(0, MAX_TOOL_RESULT_CHARS) +
+            `\n\n[Content truncated: showing first ${MAX_TOOL_RESULT_CHARS} of ${resultText.length} chars]`;
         }
 
         const toolMsg: ChatMessage = {
@@ -692,7 +767,8 @@ export async function sendChatMessage(message: string, documentContext?: string)
       return partial;
     }
     console.error('[AI] sendChatMessage failed:', error);
-    const errMsg = error?.message || get(t)('errors.chatRequestFailed');
+    // Tauri invoke rejects with a plain string; JS errors have .message
+    const errMsg = (typeof error === 'string' ? error : error?.message) || get(t)('errors.chatRequestFailed');
     aiStore.setError(errMsg);
     throw error;
   } finally {

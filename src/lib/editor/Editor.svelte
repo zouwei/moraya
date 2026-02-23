@@ -1037,6 +1037,23 @@
     return count;
   }
 
+  /**
+   * Replace editor content from an external source (file sync, AI, etc.).
+   * Updates storedFrontmatter atomically before replaceAll to prevent
+   * the onChange callback from re-attaching stale/empty frontmatter.
+   */
+  export function syncContent(md: string) {
+    if (!editor || !isReady) return;
+    const { frontmatter, body } = extractFrontmatter(md);
+    storedFrontmatter = frontmatter;
+    try {
+      syncingFromExternal = true;
+      if (syncResetTimer) clearTimeout(syncResetTimer);
+      editor.action(replaceAll(toHardBreaks(body)));
+      syncResetTimer = setTimeout(() => { syncingFromExternal = false; }, 200);
+    } catch { /* ignore during init */ }
+  }
+
   export function clearSearch() {
     searchMatches = [];
     searchIndex = -1;

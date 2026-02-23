@@ -2220,7 +2220,7 @@ dependencies = [
 
 [[package]]
 name = "moraya"
-version = "0.12.0"
+version = "0.12.2"
 dependencies = [
  "dirs",
  "fix-path-env",

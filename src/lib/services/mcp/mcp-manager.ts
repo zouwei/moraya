@@ -257,15 +257,19 @@ export async function callTool(toolName: string, args: Record<string, unknown>):
  */
 export async function publishDocument(request: PublishRequest): Promise<PublishResult> {
   const state = mcpStore.getState();
-  const target = state.publishTargets.find(t => t.id === request.targetId);
+  // Search persisted targets first, then dynamically discovered MCP targets
+  const target = state.publishTargets.find(t => t.id === request.targetId)
+    || discoverPublishTargets().find(t => t.id === request.targetId);
   if (!target) throw new Error(`Publish target not found: ${request.targetId}`);
 
   const client = clients.get(target.mcpServerId);
   if (!client) throw new Error(`MCP server not connected: ${target.mcpServerId}`);
 
   try {
+    // Use the actual tool name from config (e.g., 'publish_article'), fallback to 'publish'
+    const toolName = (target.config as Record<string, unknown>)?.toolName as string || 'publish';
     const result = await client.callTool({
-      name: 'publish',
+      name: toolName,
       arguments: {
         title: request.title,
         content: request.content,

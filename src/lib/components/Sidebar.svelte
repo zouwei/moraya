@@ -486,9 +486,9 @@
           {/if}
         </button>
       {/if}
-      <button class="sidebar-btn" onclick={openFolder} title={$t('sidebar.openFolder')}>
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-          <path d="M1 3.5A1.5 1.5 0 012.5 2h3.879a1.5 1.5 0 011.06.44l1.122 1.12A1.5 1.5 0 009.62 4H13.5A1.5 1.5 0 0115 5.5v7a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 12.5v-9z"/>
+      <button class="sidebar-btn" onclick={() => onOpenKBManager?.()} title={$t('sidebar.kbSettings')}>
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M8 0a1 1 0 011 1v1.07a5.97 5.97 0 011.828.75l.757-.756a1 1 0 011.414 1.414l-.756.757c.357.567.62 1.187.75 1.828H14a1 1 0 110 2h-1.07a5.97 5.97 0 01-.75 1.828l.756.757a1 1 0 01-1.414 1.414l-.757-.756a5.97 5.97 0 01-1.828.75V14a1 1 0 11-2 0v-1.07a5.97 5.97 0 01-1.828-.75l-.757.756a1 1 0 01-1.414-1.414l.756-.757a5.97 5.97 0 01-.75-1.828H2a1 1 0 110-2h1.07a5.97 5.97 0 01.75-1.828l-.756-.757A1 1 0 014.478 2.93l.757.756A5.97 5.97 0 017 2.936V1a1 1 0 011-1zm0 5.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5z"/>
         </svg>
       </button>
     </div>
@@ -534,10 +534,16 @@
   {/if}
 
   <div class="sidebar-content">
-    {#if fileTree.length === 0}
+    {#if fileTree.length === 0 && knowledgeBases.length === 0}
+      <!-- No knowledge bases created yet -->
       <div class="sidebar-empty">
-        <p>{$t('sidebar.noFolder')}</p>
-        <button class="open-btn" onclick={openFolder}>{$t('sidebar.openFolder')}</button>
+        <p>{$t('sidebar.createKB')}</p>
+        <button class="open-btn" onclick={() => onOpenKBManager?.()}>{$t('knowledgeBase.add')}</button>
+      </div>
+    {:else if fileTree.length === 0}
+      <!-- KB bound but directory is empty -->
+      <div class="sidebar-empty">
+        <p>{$t('sidebar.emptyDir')}</p>
       </div>
     {:else if viewMode === 'list'}
       <!-- List View -->

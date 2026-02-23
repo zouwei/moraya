@@ -6,7 +6,7 @@ use tauri::ipc::Channel;
 pub(crate) const SERVICE_NAME: &str = "com.moraya.app";
 const AI_KEY_PREFIX: &str = "ai-key:";
 const SECRETS_KEY: &str = "moraya-secrets";
-const REQUEST_TIMEOUT_SECS: u64 = 180;
+const REQUEST_TIMEOUT_SECS: u64 = 300;
 
 /// File path for dev-mode secrets (avoids OS keychain prompts on unsigned binaries).
 fn dev_secrets_path() -> Option<std::path::PathBuf> {

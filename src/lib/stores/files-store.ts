@@ -106,22 +106,56 @@ function createFilesStore() {
     // ── Knowledge Base management ──
 
     addKnowledgeBase(kb: KnowledgeBase) {
+      const isFirst = get({ subscribe }).knowledgeBases.length === 0;
       update(state => {
         const kbs = [...state.knowledgeBases, kb];
         persistKnowledgeBases(kbs);
-        return { ...state, knowledgeBases: kbs };
+        return {
+          ...state,
+          knowledgeBases: kbs,
+          // Auto-activate the first KB added
+          activeKnowledgeBaseId: state.activeKnowledgeBaseId ?? kb.id,
+        };
       });
+      // Load file tree for the first KB
+      if (isFirst) {
+        this.setActiveKnowledgeBase(kb.id);
+      }
     },
 
     removeKnowledgeBase(id: string) {
+      const wasActive = get({ subscribe }).activeKnowledgeBaseId === id;
+
       update(state => {
         const kbs = state.knowledgeBases.filter(kb => kb.id !== id);
-        const activeId = state.activeKnowledgeBaseId === id
-          ? (kbs.length > 0 ? kbs[0].id : null)
-          : state.activeKnowledgeBaseId;
         persistKnowledgeBases(kbs);
-        return { ...state, knowledgeBases: kbs, activeKnowledgeBaseId: activeId };
+
+        // No KBs left — clear sidebar completely
+        if (kbs.length === 0) {
+          return {
+            ...state,
+            knowledgeBases: [],
+            activeKnowledgeBaseId: null,
+            openFolderPath: null,
+            fileTree: [],
+            filePreviews: [],
+          };
+        }
+
+        // Removed a non-active KB — only update the list
+        if (!wasActive) {
+          return { ...state, knowledgeBases: kbs };
+        }
+
+        // Removed the active KB but others remain — switch to first
+        return { ...state, knowledgeBases: kbs, activeKnowledgeBaseId: kbs[0].id };
       });
+
+      // If switched to another KB, load its file tree
+      const newState = get({ subscribe });
+      if (newState.knowledgeBases.length > 0 && wasActive) {
+        this.setActiveKnowledgeBase(newState.knowledgeBases[0].id);
+      }
     },
 
     renameKnowledgeBase(id: string, name: string) {

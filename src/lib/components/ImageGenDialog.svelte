@@ -6,6 +6,7 @@
   import {
     generateImagePrompts,
     generateImage,
+    extractImagePrompts,
     MODE_STYLES,
     type ImagePrompt,
     type ImageStyle,
@@ -25,7 +26,7 @@
     onOpenSettings?: () => void;
   } = $props();
 
-  type InsertMode = 'paragraph' | 'end' | 'clipboard';
+  type InsertMode = 'paragraph' | 'end' | 'replace' | 'clipboard';
 
   const tr = $t;
 
@@ -40,7 +41,7 @@
   let imageMode = $state<ImageGenMode>('article');
   let isGeneratingPrompts = $state(false);
   let promptError = $state<string | null>(null);
-  const MODE_OPTIONS: ImageGenMode[] = ['article', 'design', 'storyboard', 'product', 'moodboard'];
+  const MODE_OPTIONS: ImageGenMode[] = ['article', 'design', 'storyboard', 'product', 'moodboard', 'portrait'];
 
   // Image size overrides (default from settings, user can change per-session)
   let imgRatio = $state<ImageAspectRatio>('16:9');
@@ -70,6 +71,22 @@
       imgSizeLevel = activeImg.defaultSizeLevel;
     }
   });
+
+  // Detect pre-defined image prompts in the document
+  let preDefinedPrompts = $state<ImagePrompt[] | null>(null);
+  {
+    const docContent = editorStore.getState().content;
+    if (docContent) {
+      preDefinedPrompts = extractImagePrompts(docContent);
+    }
+  }
+
+  function usePredefinedPrompts() {
+    if (!preDefinedPrompts) return;
+    prompts = preDefinedPrompts;
+    imageCount = preDefinedPrompts.length;
+    hasGenerated = true;
+  }
 
   // Step 1: Generate prompts
   async function handleGeneratePrompts() {
@@ -232,6 +249,14 @@
       {#if step === 1}
         <!-- Step 1: Prompts -->
         <div class="step-content">
+          {#if preDefinedPrompts && preDefinedPrompts.length > 0 && !hasGenerated}
+            <div class="predefined-banner">
+              <span>{tr('imageGen.preDefinedDetected').replace('{count}', String(preDefinedPrompts.length))}</span>
+              <button class="use-predefined-btn" onclick={usePredefinedPrompts}>
+                {tr('imageGen.usePredefined')}
+              </button>
+            </div>
+          {/if}
           <!-- Row 1: Title + Mode pills + Style dropdown -->
           <div class="mode-row">
             <h4 class="mode-label">{tr('imageGen.step1Title')}</h4>
@@ -239,14 +264,14 @@
               <button
                 class="mode-btn"
                 class:active={imageMode === m}
-                onclick={() => { imageMode = m; imageStyle = 'auto'; prompts = []; }}
+                onclick={() => { imageMode = m; imageStyle = 'auto'; if (!preDefinedPrompts || !hasGenerated) { prompts = []; } }}
               >
                 {tr(`imageGen.mode_${m}`)}
               </button>
             {/each}
             <div class="mode-row-spacer"></div>
             <label class="mini-label" for="imggen-style">{tr('imageGen.styleLabel')}</label>
-            <select id="imggen-style" class="mini-select style-select" bind:value={imageStyle} onchange={() => { prompts = []; }}>
+            <select id="imggen-style" class="mini-select style-select" bind:value={imageStyle} onchange={() => { if (!preDefinedPrompts || !hasGenerated) { prompts = []; } }}>
               {#each availableStyles as s}
                 <option value={s}>{tr(`imageGen.style_${s}`)}</option>
               {/each}
@@ -272,7 +297,7 @@
             </div>
             <div class="step-controls">
               <label class="mini-label" for="imggen-count">{tr('imageGen.countLabel')}</label>
-              <select id="imggen-count" class="mini-select style-select" bind:value={imageCount} onchange={() => { prompts = []; }}>
+              <select id="imggen-count" class="mini-select style-select" bind:value={imageCount} onchange={() => { if (!preDefinedPrompts || !hasGenerated) { prompts = []; } }}>
                 {#each Array.from({length: 10}, (_, i) => i + 1) as n}
                   <option value={n}>{n}</option>
                 {/each}
@@ -376,6 +401,10 @@
             <label class="insert-option">
               <input type="radio" name="insert-mode" value="end" bind:group={insertMode} />
               <span>{tr('imageGen.insertEnd')}</span>
+            </label>
+            <label class="insert-option">
+              <input type="radio" name="insert-mode" value="replace" bind:group={insertMode} />
+              <span>{tr('imageGen.insertReplace')}</span>
             </label>
             <label class="insert-option">
               <input type="radio" name="insert-mode" value="clipboard" bind:group={insertMode} />
@@ -906,5 +935,34 @@
 
   .btn-settings:hover {
     background: var(--bg-hover);
+  }
+
+  .predefined-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--bg-hover);
+    border: 1px solid var(--accent-color);
+    border-radius: 6px;
+    font-size: var(--font-size-sm);
+    color: var(--text-primary);
+    margin-bottom: 0.75rem;
+  }
+
+  .use-predefined-btn {
+    padding: 0.25rem 0.75rem;
+    border: none;
+    background: var(--accent-color);
+    color: white;
+    border-radius: 4px;
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .use-predefined-btn:hover {
+    opacity: 0.9;
   }
 </style>

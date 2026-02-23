@@ -74,6 +74,9 @@
     "title": "Explorer",
     "openFolder": "Open Folder",
     "noFolder": "No folder open",
+    "createKB": "Create Knowledge Base",
+    "emptyDir": "No files in this directory",
+    "kbSettings": "Knowledge Base Settings",
     "treeView": "Tree View",
     "listView": "List View",
     "search": "Search files...",
@@ -485,7 +488,10 @@
     "confirmPublish": "Publish",
     "publishing": "Publishing...",
     "publishSuccess": "Published successfully!",
-    "publishFailed": "Publish failed"
+    "publishFailed": "Publish failed",
+    "mcpEntry": "AI MCP",
+    "mcpServerCount": "services connected",
+    "mcpToolCount": "tools"
   },
   "imageGen": {
     "title": "AI Image Generation",
@@ -545,6 +551,7 @@
     "insertConfirm": "Insert",
     "insertParagraph": "Insert after corresponding paragraph (Recommended)",
     "insertEnd": "Insert at end of article",
+    "insertReplace": "Replace images in article",
     "insertClipboard": "Copy Markdown to clipboard",
     "selected": "{count} selected",
     "completed": "Images generated",
@@ -553,7 +560,19 @@
     "mode_design": "Design",
     "mode_storyboard": "Storyboard",
     "mode_product": "Product",
-    "mode_moodboard": "Moodboard"
+    "mode_moodboard": "Moodboard",
+    "mode_portrait": "Portrait",
+    "style_portrait": "Portrait",
+    "style_headshot": "Headshot",
+    "style_fullbody": "Full Body",
+    "style_fashion": "Fashion",
+    "style_street": "Street",
+    "style_glamour": "Glamour",
+    "style_environmental": "Environmental",
+    "style_candid": "Candid",
+    "style_group": "Group",
+    "preDefinedDetected": "Detected {count} pre-defined prompt(s) in document",
+    "usePredefined": "Use Pre-defined Prompts"
   },
   "seo": {
     "title": "SEO Optimization",

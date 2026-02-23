@@ -3,7 +3,7 @@
   import type { Editor as MilkdownEditor } from '@milkdown/core';
   import { editorViewCtx } from '@milkdown/core';
   import { TextSelection } from '@milkdown/prose/state';
-  import { callCommand, replaceAll, insert } from '@milkdown/utils';
+  import { callCommand, insert } from '@milkdown/utils';
   import {
     wrapInHeadingCommand,
     wrapInBlockquoteCommand,
@@ -35,8 +35,8 @@
   import { editorStore } from '$lib/stores/editor-store';
   import { settingsStore, initSettingsStore } from '$lib/stores/settings-store';
   import { filesStore, type FileEntry } from '$lib/stores/files-store';
-  import { initAIStore, aiStore } from '$lib/services/ai';
-  import { initMCPStore, connectAllServers } from '$lib/services/mcp';
+  import { initAIStore, aiStore, sendChatMessage } from '$lib/services/ai';
+  import { initMCPStore, connectAllServers, type MCPTool, type MCPServerConfig } from '$lib/services/mcp';
   import { initContainerManager } from '$lib/services/mcp/container-manager';
   import { preloadEnhancementPlugins } from '$lib/editor/setup';
   import { openFile, saveFile, saveFileAs, loadFile, getFileNameFromPath, readImageAsBlobUrl } from '$lib/services/file-service';
@@ -51,7 +51,6 @@
   import TabBar from '$lib/components/TabBar.svelte';
   import TouchToolbar from '$lib/editor/TouchToolbar.svelte';
   import { tabsStore } from '$lib/stores/tabs-store';
-  import { extractFrontmatter } from '$lib/utils/frontmatter';
 
   import '$lib/styles/global.css';
   import '$lib/styles/editor.css';
@@ -245,6 +244,14 @@ ${tr('welcome.tip')}
     milkdownEditor = editor;
   }
 
+  /** Sync content to the active visual editor (atomically updates storedFrontmatter). */
+  function syncVisualEditor(md: string) {
+    const mode = editorStore.getState().editorMode;
+    if (mode === 'source') return;
+    const ve = mode === 'visual' ? visualEditorRef : mode === 'split' ? splitVisualRef : undefined;
+    ve?.syncContent(md);
+  }
+
   /** Scroll the editor scroll container to the top (works for both visual and source modes). */
   async function scrollEditorToTop() {
     await tick();
@@ -255,9 +262,9 @@ ${tr('welcome.tip')}
   /** Replace editor content and scroll to the top for a newly opened file. */
   async function replaceContentAndScrollToTop(newContent: string) {
     editorStore.setCursorOffset(0);
-    if (milkdownEditor && editorStore.getState().editorMode !== 'source') {
+    syncVisualEditor(newContent);
+    if (milkdownEditor) {
       try {
-        milkdownEditor.action(replaceAll(extractFrontmatter(newContent).body));
         milkdownEditor.action((ctx) => {
           const view = ctx.get(editorViewCtx);
           const tr = view.state.tr.setSelection(
@@ -771,13 +778,7 @@ ${tr('welcome.tip')}
       }
     } else {
       content = content.trimEnd() + '\n\n' + text + '\n';
-      if (milkdownEditor && editorStore.getState().editorMode !== 'source') {
-        try {
-          milkdownEditor.action(replaceAll(extractFrontmatter(content).body));
-        } catch {
-          // Editor may not be ready
-        }
-      }
+      syncVisualEditor(content);
     }
   }
 
@@ -823,20 +824,27 @@ ${tr('welcome.tip')}
     showPublishConfirm = true;
   }
 
+  async function handleWorkflowMCPTool(tool: MCPTool, server: MCPServerConfig) {
+    showWorkflow = false;
+    showAIPanel = true;
+    const message = `请使用 ${tool.name} 工具（来自 ${server.name}）`;
+    try {
+      await sendChatMessage(message, content);
+    } catch { /* handled by store */ }
+  }
+
   function handleSEOApply(data: SEOData) {
     currentSEOData = data;
     seoCompleted = true;
     showSEOPanel = false;
   }
 
-  function handleImageGenInsert(images: { url: string; target: number }[], mode: 'paragraph' | 'end' | 'clipboard') {
+  function handleImageGenInsert(images: { url: string; target: number }[], mode: 'paragraph' | 'end' | 'replace' | 'clipboard') {
     if (mode === 'end') {
       // Insert all images at end
       const imgMarkdown = images.map(img => `![](${img.url})`).join('\n\n');
       content = content.trimEnd() + '\n\n' + imgMarkdown + '\n';
-      if (milkdownEditor && editorStore.getState().editorMode !== 'source') {
-        try { milkdownEditor.action(replaceAll(extractFrontmatter(content).body)); } catch { /* ignore */ }
-      }
+      syncVisualEditor(content);
     } else if (mode === 'paragraph') {
       // Insert each image after its target paragraph
       const lines = content.split('\n');
@@ -894,10 +902,29 @@ ${tr('welcome.tip')}
       }
 
       content = result.join('\n');
-      if (milkdownEditor && editorStore.getState().editorMode !== 'source') {
-        try { milkdownEditor.action(replaceAll(extractFrontmatter(content).body)); } catch { /* ignore */ }
+      syncVisualEditor(content);
+    } else if (mode === 'replace') {
+      // Replace existing images in the article with generated images
+      const imgRegex = /!\[[^\]]*\]\([^)]*\)/g;
+      let replaceIdx = 0;
+      let replaced = content.replace(imgRegex, (match) => {
+        if (replaceIdx < images.length) {
+          return `![](${images[replaceIdx++].url})`;
+        }
+        return match; // no more generated images, keep original
+      });
+      // Append remaining images at end
+      if (replaceIdx < images.length) {
+        const remaining = images.slice(replaceIdx).map(img => `![](${img.url})`).join('\n\n');
+        replaced = replaced.trimEnd() + '\n\n' + remaining + '\n';
       }
+      content = replaced;
+      syncVisualEditor(content);
     }
+
+    // Remove image-prompt(s) code block(s) after insertion
+    content = content.replace(/\n*```image-prompts?\s*\n[\s\S]*?```\n*/g, '\n');
+    syncVisualEditor(content);
 
     imageGenCompleted = true;
     showImageGenDialog = false;
@@ -1235,9 +1262,7 @@ ${tr('welcome.tip')}
       const detail = (e as CustomEvent).detail;
       if (detail?.content != null) {
         content = detail.content;
-        if (milkdownEditor && editorStore.getState().editorMode !== 'source') {
-          try { milkdownEditor.action(replaceAll(extractFrontmatter(content).body)); } catch { /* ignore */ }
-        }
+        syncVisualEditor(content);
       }
     }
     window.addEventListener('moraya:file-synced', handleFileSynced);
@@ -1341,9 +1366,7 @@ ${tr('welcome.tip')}
             const privacyContent = await invoke<string>('read_resource_file', { name: 'privacy-policy.md' });
             content = privacyContent;
             editorStore.setContent(privacyContent);
-            if (milkdownEditor && editorStore.getState().editorMode !== 'source') {
-              try { milkdownEditor.action(replaceAll(extractFrontmatter(content).body)); } catch { /* ignore */ }
-            }
+            syncVisualEditor(content);
           } catch {
             // Resource not found
           }
@@ -1523,6 +1546,7 @@ ${tr('welcome.tip')}
       onSEO={handleWorkflowSEO}
       onImageGen={handleWorkflowImageGen}
       onPublish={handleWorkflowPublish}
+      onMCPTool={handleWorkflowMCPTool}
       {seoCompleted}
       {imageGenCompleted}
     />

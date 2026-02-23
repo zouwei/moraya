@@ -33,7 +33,9 @@ export type ImageStyle =
   // Product
   | 'studio' | 'lifestyle' | 'flatlay' | 'macro' | 'minimalist' | 'packaging' | 'outdoor' | 'mood'
   // Moodboard
-  | 'abstract' | 'texture' | 'gradient' | 'collage' | 'vintage' | 'botanical' | 'geometric' | 'ethereal' | 'brutalist';
+  | 'abstract' | 'texture' | 'gradient' | 'collage' | 'vintage' | 'botanical' | 'geometric' | 'ethereal' | 'brutalist'
+  // Portrait
+  | 'portrait' | 'headshot' | 'fullbody' | 'fashion' | 'street' | 'glamour' | 'environmental' | 'candid' | 'group';
 
 /**
  * Detect if the base URL points to Alibaba Cloud DashScope.
@@ -202,7 +204,64 @@ export async function testImageConnectionWithResolve(
   return { success: false };
 }
 
-export type ImageGenMode = 'article' | 'design' | 'storyboard' | 'product' | 'moodboard';
+export type ImageGenMode = 'article' | 'design' | 'storyboard' | 'product' | 'moodboard' | 'portrait';
+
+/**
+ * Extract pre-defined image prompts from ```image-prompt(s) code blocks in the document.
+ *
+ * Supported formats:
+ *
+ * 1. JSON array (structured):
+ *    ```image-prompts
+ *    [{"prompt": "...", "target": 3, "reason": "..."}]
+ *    ```
+ *
+ * 2. Plain text (one prompt per block, or multiple separated by ---):
+ *    ```image-prompt
+ *    A close-up portrait of a woman...
+ *    ```
+ *
+ * Multiple code blocks are collected into a single prompt array.
+ * Returns null if no valid blocks are found.
+ */
+export function extractImagePrompts(content: string): ImagePrompt[] | null {
+  // Match both ```image-prompt and ```image-prompts (with or without trailing 's')
+  const blockRegex = /```image-prompts?\s*\n([\s\S]*?)```/g;
+  const prompts: ImagePrompt[] = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = blockRegex.exec(content)) !== null) {
+    const body = match[1].trim();
+    if (!body) continue;
+
+    // Try JSON array first
+    if (body.startsWith('[')) {
+      try {
+        const raw = JSON.parse(body);
+        if (Array.isArray(raw)) {
+          for (const item of raw) {
+            if (typeof item.prompt === 'string' && item.prompt.trim()) {
+              prompts.push({
+                prompt: item.prompt.trim(),
+                target: typeof item.target === 'number' ? item.target : 0,
+                reason: typeof item.reason === 'string' ? item.reason : '',
+              });
+            }
+          }
+          continue;
+        }
+      } catch { /* not valid JSON — fall through to plain text */ }
+    }
+
+    // Plain text: split by --- separator for multiple prompts, or treat as single prompt
+    const segments = body.split(/\n---\n/).map(s => s.trim()).filter(Boolean);
+    for (const seg of segments) {
+      prompts.push({ prompt: seg, target: 0, reason: '' });
+    }
+  }
+
+  return prompts.length > 0 ? prompts : null;
+}
 
 /**
  * Count "paragraphs" in markdown content.
@@ -273,6 +332,7 @@ export const MODE_STYLES: Record<ImageGenMode, ImageStyle[]> = {
   storyboard: ['auto', 'anime', 'comic', 'cinematic', 'watercolor', 'pixel', 'noir', 'manga', 'cartoon', 'realistic'],
   product:    ['auto', 'studio', 'lifestyle', 'flatlay', 'macro', 'minimalist', 'packaging', 'outdoor', 'editorial', 'mood'],
   moodboard:  ['auto', 'abstract', 'texture', 'gradient', 'collage', 'vintage', 'botanical', 'geometric', 'ethereal', 'brutalist'],
+  portrait:   ['auto', 'portrait', 'headshot', 'fullbody', 'fashion', 'street', 'cinematic', 'glamour', 'environmental', 'candid', 'group'],
 };
 
 const JSON_FORMAT_RULES = `You MUST respond with a valid JSON array (no markdown, no code fences, just raw JSON) like:
@@ -320,6 +380,14 @@ ${JSON_FORMAT_RULES}
 - Focus on color palettes, textures, patterns, and abstract compositions.
 - Include a mix of: color swatches as abstract scenes, texture close-ups, atmospheric landscapes, abstract art.
 - Each image should evoke a specific feeling or aesthetic direction rather than literal illustration.`,
+
+  portrait: `You are an AI image prompt generator for portrait and people photography.
+${JSON_FORMAT_RULES}
+- Generate detailed portrait photography prompts with specific descriptions of: subject appearance, pose, expression, clothing, and accessories.
+- Include professional photography parameters: lens focal length (e.g., 85mm f/1.4), lighting setup (Rembrandt, butterfly, rim light, golden hour), background/environment, and depth of field.
+- Specify camera angle and framing: headshot, half-body, full-body, 3/4 view, profile, etc.
+- Maintain consistent character appearance across all prompts if the article describes a specific person.
+- Add mood and atmosphere keywords: warm, dramatic, ethereal, candid, editorial, etc.`,
 };
 
 /**
