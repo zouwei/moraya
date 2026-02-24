@@ -80,6 +80,7 @@ const ALL_LANGUAGES: LanguageEntry[] = [
   { id: 'diff', label: 'Diff', aliases: [] },
   { id: 'text', label: 'Plain Text', aliases: ['plaintext', 'txt'] },
   { id: 'mermaid', label: 'Mermaid', aliases: [] },
+  { id: 'image-prompts', label: 'Image Prompts', aliases: ['image-prompt'] },
 ].sort((a, b) => a.label.localeCompare(b.label));
 
 const POPULAR_IDS = new Set(POPULAR_LANGUAGES.map(l => l.id));

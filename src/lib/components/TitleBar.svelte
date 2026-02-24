@@ -164,9 +164,21 @@
   }
 
   :global(.platform-macos) .titlebar-left,
-  :global(.platform-macos) .titlebar-center,
   :global(.platform-macos) .titlebar-right {
     display: none;
+  }
+
+  :global(.platform-macos) .titlebar-center {
+    padding-left: calc(78px + var(--sidebar-visible-width, 0px)); /* traffic lights + sidebar */
+    padding-right: var(--ai-panel-width, 0px); /* AI panel offset */
+  }
+
+  :global(.platform-macos) .title-text {
+    font-size: 12px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   /* Windows/Linux: hide custom titlebar, use native decorations */

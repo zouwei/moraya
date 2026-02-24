@@ -293,6 +293,8 @@ cd src-tauri && cargo check
 
 - [x] **v0.12.0** — Knowledge Base Enhancement: Multi-knowledge-base switching with quick dropdown, per-knowledge-base AI rules via `MORAYA.md`, persistent KB management, and automatic AI rule injection. → [Detailed Requirements](docs/iterations/v0.12.0-knowledge-base.md)
 
+- [x] **v0.13.0** — AI Vision Input: Multimodal image support for AI chat (paste, drag-and-drop, file picker), auto-compression, 4-provider adaptation (Claude/OpenAI/Gemini/Ollama), thumbnail preview, lightbox viewer, AI abort fix, and MCP async optimization. → [Detailed Requirements](docs/iterations/v0.13.0-vision-input.md)
+
 ## License
 
 [Apache License 2.0](LICENSE)

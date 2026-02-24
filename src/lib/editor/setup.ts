@@ -1,14 +1,15 @@
 import { Editor, rootCtx, defaultValueCtx, editorViewOptionsCtx, editorViewCtx, serializerCtx, remarkStringifyOptionsCtx } from '@milkdown/core';
 // ── Tier 0: Core plugins (static imports, always available) ──
-import { commonmark } from '@milkdown/preset-commonmark';
+import { commonmark, codeBlockSchema } from '@milkdown/preset-commonmark';
 import { gfm } from '@milkdown/preset-gfm';
 import { history } from '@milkdown/plugin-history';
 import { clipboard } from '@milkdown/plugin-clipboard';
 import { cursor } from '@milkdown/plugin-cursor';
 import { enterHandlerPlugin } from './plugins/enter-handler';
-import { $prose } from '@milkdown/utils';
+import { $prose, $inputRule } from '@milkdown/utils';
 import { AllSelection, Plugin, PluginKey, TextSelection } from '@milkdown/prose/state';
 import { Decoration, DecorationSet } from '@milkdown/prose/view';
+import { textblockTypeInputRule } from '@milkdown/prose/inputrules';
 
 // ── Tier 1: Enhancement plugins (dynamic imports, loaded in parallel) ──
 
@@ -274,6 +275,21 @@ const imageClickPlugin = $prose(() => {
   });
 });
 
+/**
+ * Extended code block input rule: Milkdown's built-in input rule only matches
+ * [a-z] for language names, so `image-prompts`, `c++`, `objective-c` etc. fail.
+ * This rule handles the broader character set. Registered AFTER commonmark so
+ * the original rule has priority for simple lowercase languages; this catches
+ * the rest (hyphens, digits, dots, plus, hash).
+ */
+const codeBlockExtendedInputRule = $inputRule((ctx) => {
+  return textblockTypeInputRule(
+    /^```(?<language>[a-zA-Z][a-zA-Z0-9_+#.\-]*)?[\s\n]$/,
+    codeBlockSchema.type(ctx),
+    (match) => ({ language: match.groups?.language ?? '' }),
+  );
+});
+
 export interface EditorOptions {
   root: HTMLElement;
   defaultValue?: string;
@@ -308,6 +324,7 @@ export async function createEditor(options: EditorOptions): Promise<Editor> {
     })
     // Tier 0: Core plugins
     .use(commonmark)
+    .use(codeBlockExtendedInputRule)
     .use(gfm)
     .use(history)
     .use(pasteLanguageFixPlugin)

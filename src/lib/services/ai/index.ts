@@ -4,6 +4,7 @@ export type {
   AIProvider,
   AIProviderConfig,
   ChatMessage,
+  ImageAttachment,
   AICommand,
   AICommandOption,
   AIResponse,

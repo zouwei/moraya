@@ -257,7 +257,10 @@
     overflow-y: auto;
     overflow-x: hidden;
     min-width: 0;
-    padding: 2rem 3rem;
+    /* Horizontal padding scales with actual pane width (% is relative to
+       containing block), so it shrinks automatically when the editor pane
+       is narrowed by sidebar + AI panel. */
+    padding: 2rem clamp(1rem, 4%, 3rem);
     background: var(--bg-primary);
   }
 
@@ -268,19 +271,6 @@
 
   .source-editor-outer.hide-scrollbar::-webkit-scrollbar {
     display: none;
-  }
-
-  /* Reduce padding when viewport is narrow (e.g., AI panel open) */
-  @media (max-width: 900px) {
-    .source-editor-outer {
-      padding: 1.5rem 1.5rem;
-    }
-  }
-
-  @media (max-width: 600px) {
-    .source-editor-outer {
-      padding: 1rem 1rem;
-    }
   }
 
   .source-editor-inner {

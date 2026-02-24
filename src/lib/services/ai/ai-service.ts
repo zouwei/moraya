@@ -9,6 +9,7 @@ import type {
   AIProviderConfig,
   AICommand,
   ChatMessage,
+  ImageAttachment,
   AIResponse,
   AI_COMMANDS,
   ToolDefinition,
@@ -204,6 +205,15 @@ function createAIStore() {
       update(state => ({ ...state, isLoading: false, interrupted: true }));
     },
     clearHistory() {
+      // Revoke blob URLs from image attachments to free memory
+      const current = get({ subscribe });
+      for (const msg of current.chatHistory) {
+        if (msg.images) {
+          for (const img of msg.images) {
+            if (img.previewUrl) URL.revokeObjectURL(img.previewUrl);
+          }
+        }
+      }
       update(state => ({ ...state, chatHistory: [], lastResponse: null, interrupted: false }));
     },
     getState() {
@@ -223,6 +233,15 @@ export function abortAIRequest(): void {
   if (currentAbortController) {
     currentAbortController.abort();
     currentAbortController = null;
+
+    // Immediately update UI: save partial content and show interrupted state.
+    // The background request may still be pending (non-streaming invoke),
+    // but the user should see immediate feedback.
+    const partial = aiStore.getState().streamingContent;
+    if (partial) {
+      aiStore.addMessage({ role: 'assistant', content: partial, timestamp: Date.now() });
+    }
+    aiStore.setInterrupted();
   }
 }
 
@@ -259,8 +278,9 @@ export async function executeAICommand(
   aiStore.setLoading(true);
   aiStore.resetStream();
 
-  currentAbortController = new AbortController();
-  const signal = currentAbortController.signal;
+  const controller = new AbortController();
+  currentAbortController = controller;
+  const signal = controller.signal;
 
   try {
     const messages: ChatMessage[] = [];
@@ -326,6 +346,9 @@ export async function executeAICommand(
       aiStore.appendStreamContent(chunk);
     }
 
+    // If aborted while waiting, don't record a duplicate response
+    if (signal.aborted) return aiStore.getState().streamingContent || '';
+
     // Record assistant response (only if we got content)
     if (fullContent) {
       aiStore.addMessage({
@@ -339,20 +362,28 @@ export async function executeAICommand(
     return fullContent;
 
   } catch (error: any) {
+    const isStale = currentAbortController !== controller && currentAbortController !== null;
+
     if (error?.name === 'AbortError' || signal.aborted) {
-      // User-initiated abort: save partial content, show interrupted indicator
-      const partial = aiStore.getState().streamingContent;
-      if (partial) {
-        aiStore.addMessage({ role: 'assistant', content: partial, timestamp: Date.now() });
+      if (!isStale && !aiStore.getState().interrupted) {
+        const partial = aiStore.getState().streamingContent;
+        if (partial) {
+          aiStore.addMessage({ role: 'assistant', content: partial, timestamp: Date.now() });
+        }
+        aiStore.setInterrupted();
       }
-      aiStore.setInterrupted();
-      return partial;
+      return '';
     }
-    const errMsg = error?.message || get(t)('errors.aiRequestFailed');
-    aiStore.setError(errMsg);
+    if (!isStale) {
+      const errMsg = error?.message || get(t)('errors.aiRequestFailed');
+      aiStore.setError(errMsg);
+    }
     throw error;
   } finally {
-    currentAbortController = null;
+    // Only clear if this is still our controller (avoid nulling a newer one)
+    if (currentAbortController === controller) {
+      currentAbortController = null;
+    }
   }
 }
 
@@ -469,7 +500,8 @@ function buildSystemPrompt(
  * Send a free-form chat message to the AI.
  * If MCP tools are available, enables tool calling with an execution loop.
  */
-export async function sendChatMessage(message: string, documentContext?: string): Promise<string> {
+export async function sendChatMessage(message: string, documentContext?: string, images?: ImageAttachment[]): Promise<string> {
+  console.log('[AI] sendChatMessage START', { messageLen: message.length, historyLen: aiStore.getState().chatHistory.length });
   const state = aiStore.getState();
   const rawConfig = aiStore.getActiveConfig();
   if (!rawConfig || !state.isConfigured) {
@@ -483,8 +515,9 @@ export async function sendChatMessage(message: string, documentContext?: string)
   aiStore.setLoading(true);
   aiStore.resetStream();
 
-  currentAbortController = new AbortController();
-  const signal = currentAbortController.signal;
+  const controller = new AbortController();
+  currentAbortController = controller;
+  const signal = controller.signal;
 
   try {
     // Collect MCP tools + internal tools
@@ -526,12 +559,48 @@ export async function sendChatMessage(message: string, documentContext?: string)
     });
 
     const lastToolIdx = cleanHistory.findLastIndex(m => m.role === 'tool');
+    // Find the last assistant message that has toolCalls (the most recent tool exchange)
+    const lastToolCallAssistantIdx = cleanHistory.findLastIndex(m => m.role === 'assistant' && m.toolCalls && m.toolCalls.length > 0);
+    const TOOL_ARGS_LIMIT = 500;
+    // Strip images from older history messages to save tokens (keep last 5)
+    const RECENT_IMAGE_LIMIT = 5;
     const trimmedHistory = cleanHistory.map((m, i) => {
+      // Truncate older tool result content
       if (m.role === 'tool' && i !== lastToolIdx && m.content.length > HISTORY_TOOL_RESULT_LIMIT) {
         return { ...m, content: m.content.slice(0, HISTORY_TOOL_RESULT_LIMIT) + '\n[...truncated]' };
       }
+      // Truncate toolCalls arguments in older assistant messages to prevent
+      // huge payloads (e.g. full article content from MCP publish) being resent
+      if (m.role === 'assistant' && m.toolCalls && m.toolCalls.length > 0 && i !== lastToolCallAssistantIdx) {
+        const trimmedCalls = m.toolCalls.map(tc => {
+          const argsStr = typeof tc.arguments === 'string' ? tc.arguments : JSON.stringify(tc.arguments);
+          if (argsStr.length > TOOL_ARGS_LIMIT) {
+            return { ...tc, arguments: JSON.parse(`{"_summary":"[truncated ${argsStr.length} chars]"}`) };
+          }
+          return tc;
+        });
+        return { ...m, toolCalls: trimmedCalls };
+      }
       return m;
     });
+    // Remove images from messages older than the most recent RECENT_IMAGE_LIMIT
+    let imageCount = 0;
+    for (let i = trimmedHistory.length - 1; i >= 0; i--) {
+      const m = trimmedHistory[i];
+      if (m.images && m.images.length > 0) {
+        imageCount++;
+        if (imageCount > RECENT_IMAGE_LIMIT) {
+          trimmedHistory[i] = { ...m, images: undefined };
+        }
+      }
+    }
+
+    const userMsg: ChatMessage = {
+      role: 'user',
+      content: message,
+      timestamp: Date.now(),
+      images: images && images.length > 0 ? images : undefined,
+    };
 
     const messages: ChatMessage[] = [
       {
@@ -541,18 +610,10 @@ export async function sendChatMessage(message: string, documentContext?: string)
       },
       // Include recent chat history for context (preserve tool call/result pairs)
       ...trimmedHistory,
-      {
-        role: 'user',
-        content: message,
-        timestamp: Date.now(),
-      },
+      userMsg,
     ];
 
-    aiStore.addMessage({
-      role: 'user',
-      content: message,
-      timestamp: Date.now(),
-    });
+    aiStore.addMessage(userMsg);
 
     // Tool execution loop
     const MAX_TOOL_ROUNDS = 10;
@@ -570,15 +631,17 @@ export async function sendChatMessage(message: string, documentContext?: string)
         ? { ...activeConfig, maxTokens: Math.max((activeConfig.maxTokens || 8192) * 2, 16384) }
         : activeConfig;
 
-      console.log(`[AI] Tool round ${round}/${MAX_TOOL_ROUNDS}, messages: ${messages.length}, tools: ${toolDefs.length}, maxTokens: ${effectiveConfig.maxTokens}`);
+      const bodySize = JSON.stringify(messages).length;
+      console.log(`[AI] Tool round ${round}/${MAX_TOOL_ROUNDS}, messages: ${messages.length}, tools: ${toolDefs.length}, maxTokens: ${effectiveConfig.maxTokens}, bodySize: ${bodySize}`);
 
       // Use non-streaming for tool call rounds, streaming for final response
+      console.log('[AI] Calling sendAIRequest...', { provider: effectiveConfig.provider, model: effectiveConfig.model });
       const response = await sendAIRequest(effectiveConfig, {
         messages,
         tools: toolDefs.length > 0 ? toolDefs : undefined,
       }, signal);
 
-      console.log(`[AI] Response: stopReason=${response.stopReason}, toolCalls=${response.toolCalls?.length || 0}, content=${response.content?.length || 0} chars`);
+      console.log(`[AI] Response received: stopReason=${response.stopReason}, toolCalls=${response.toolCalls?.length || 0}, content=${response.content?.length || 0} chars`);
 
       // If response was truncated (max_tokens) with pending tool calls:
       // - First few times: save partial content and ask AI to continue with higher token limit
@@ -651,17 +714,31 @@ export async function sendChatMessage(message: string, documentContext?: string)
 
       // Execute each tool call (internal or MCP)
       for (const tc of response.toolCalls) {
+        if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
         aiStore.appendStreamContent(`\n[Calling tool: ${tc.name}...]\n`);
 
         let resultText = '';
         let isError = false;
+
+        // Helper: race a promise against the abort signal so tool calls
+        // (especially slow MCP requests) can be interrupted immediately.
+        const raceAbort = <T>(p: Promise<T>): Promise<T> => {
+          if (!signal) return p;
+          return Promise.race([
+            p,
+            new Promise<never>((_, reject) => {
+              if (signal.aborted) { reject(new DOMException('Aborted', 'AbortError')); return; }
+              signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+            }),
+          ]);
+        };
 
         try {
           console.log(`[AI] Calling tool: ${tc.name}`, JSON.stringify(tc.arguments).slice(0, 200));
 
           if (isInternalTool(tc.name)) {
             // Internal tool — execute locally
-            const result = await executeInternalTool(tc);
+            const result = await raceAbort(executeInternalTool(tc));
             resultText = result.content;
             isError = result.isError;
           } else {
@@ -683,16 +760,16 @@ export async function sendChatMessage(message: string, documentContext?: string)
             } else if (isTargetOpenFile && isWriteOp && typeof tc.arguments.content === 'string') {
               // Redirect to internal update_editor_content to avoid file conflict
               console.log('[AI] Intercepted write_file on open file, redirecting to update_editor_content');
-              const result = await executeInternalTool({
+              const result = await raceAbort(executeInternalTool({
                 ...tc,
                 name: 'update_editor_content',
                 arguments: { content: tc.arguments.content },
-              });
+              }));
               resultText = result.content;
               isError = result.isError;
             } else {
-              // MCP tool — execute via MCP server
-              const result = await callTool(tc.name, tc.arguments);
+              // MCP tool — race against abort signal so user can interrupt slow MCP calls
+              const result = await raceAbort(callTool(tc.name, tc.arguments));
               resultText = result.content?.map(c => c.text || '').join('\n') || '';
               isError = result.isError || false;
 
@@ -719,6 +796,8 @@ export async function sendChatMessage(message: string, documentContext?: string)
 
           console.log(`[AI] Tool result: ${isError ? 'ERROR' : 'OK'}, ${resultText.length} chars`);
         } catch (error: any) {
+          // Re-throw AbortError so the outer catch handles it
+          if (error?.name === 'AbortError' || signal.aborted) throw error;
           console.error(`[AI] Tool call failed: ${tc.name}`, error);
           resultText = `Error: ${error instanceof Error ? error.message : String(error)}`;
           isError = true;
@@ -744,6 +823,9 @@ export async function sendChatMessage(message: string, documentContext?: string)
       }
     }
 
+    // If aborted while waiting, don't record a duplicate response
+    if (signal.aborted) return aiStore.getState().streamingContent || '';
+
     // Record final assistant response
     if (finalContent) {
       aiStore.addMessage({
@@ -753,26 +835,41 @@ export async function sendChatMessage(message: string, documentContext?: string)
       });
     }
 
+    console.log('[AI] sendChatMessage DONE, finalContent length:', finalContent.length);
     aiStore.setLastResponse(finalContent);
     return finalContent;
 
   } catch (error: any) {
+    console.error('[AI] sendChatMessage CATCH:', error?.name, error?.message || error);
+    // Guard: only touch the store if this is still the active request.
+    // A stale request (whose controller was replaced by a new sendChatMessage
+    // or nulled by abortAIRequest) must not corrupt the new request's state.
+    const isStale = currentAbortController !== controller && currentAbortController !== null;
+
     if (error?.name === 'AbortError' || signal.aborted) {
-      // User-initiated abort: save partial content, show interrupted indicator
-      const partial = aiStore.getState().streamingContent;
-      if (partial) {
-        aiStore.addMessage({ role: 'assistant', content: partial, timestamp: Date.now() });
+      // User-initiated abort — abortAIRequest() already updated the UI.
+      // Only handle if this is the active request and setInterrupted hasn't fired.
+      if (!isStale && !aiStore.getState().interrupted) {
+        const partial = aiStore.getState().streamingContent;
+        if (partial) {
+          aiStore.addMessage({ role: 'assistant', content: partial, timestamp: Date.now() });
+        }
+        aiStore.setInterrupted();
       }
-      aiStore.setInterrupted();
-      return partial;
+      return '';
     }
     console.error('[AI] sendChatMessage failed:', error);
-    // Tauri invoke rejects with a plain string; JS errors have .message
-    const errMsg = (typeof error === 'string' ? error : error?.message) || get(t)('errors.chatRequestFailed');
-    aiStore.setError(errMsg);
+    if (!isStale) {
+      // Tauri invoke rejects with a plain string; JS errors have .message
+      const errMsg = (typeof error === 'string' ? error : error?.message) || get(t)('errors.chatRequestFailed');
+      aiStore.setError(errMsg);
+    }
     throw error;
   } finally {
-    currentAbortController = null;
+    // Only clear if this is still our controller (avoid nulling a newer one)
+    if (currentAbortController === controller) {
+      currentAbortController = null;
+    }
   }
 }
 

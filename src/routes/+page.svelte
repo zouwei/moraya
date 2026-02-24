@@ -465,6 +465,15 @@ ${tr('welcome.tip')}
     invoke('set_menu_check', { id: 'view_sidebar', checked: showSidebar });
   });
 
+  // Expose sidebar width to titlebar for centering via CSS custom property
+  $effect(() => {
+    if (showSidebar) {
+      document.documentElement.style.setProperty('--sidebar-visible-width', 'var(--sidebar-width)');
+    } else {
+      document.documentElement.style.removeProperty('--sidebar-visible-width');
+    }
+  });
+
   $effect(() => {
     if (!isTauri) return;
     invoke('set_menu_check', { id: 'view_ai_panel', checked: showAIPanel });
@@ -930,11 +939,12 @@ ${tr('welcome.tip')}
     }
 
     // Remove image-prompt(s) code block(s) after insertion
-    content = content.replace(/\n*```image-prompts?\s*\n[\s\S]*?```\n*/g, '\n');
+    content = content.replace(/\n*```\s*image-prompts?\s*\n[\s\S]*?```\n*/g, '\n');
     syncVisualEditor(content);
 
     imageGenCompleted = true;
     showImageGenDialog = false;
+    imageGenDialogMounted = false;
   }
 
   async function handlePublishConfirm(targetIds: string[]) {
@@ -1580,9 +1590,10 @@ ${tr('welcome.tip')}
   <div class="dialog-visibility" class:hidden={!showImageGenDialog}>
     {#await import('$lib/components/ImageGenDialog.svelte') then { default: ImageGenDialog }}
       <ImageGenDialog
-        onClose={() => showImageGenDialog = false}
+        onClose={() => { showImageGenDialog = false; imageGenDialogMounted = false; }}
         onInsert={handleImageGenInsert}
-        onOpenSettings={() => { showImageGenDialog = false; settingsInitialTab = 'ai'; showSettings = true; }}
+        onOpenSettings={() => { showImageGenDialog = false; imageGenDialogMounted = false; settingsInitialTab = 'ai'; showSettings = true; }}
+        documentContent={content}
       />
     {/await}
   </div>
@@ -1675,6 +1686,10 @@ ${tr('welcome.tip')}
   }
 
   :global(.platform-macos) .app-body > :global(.sidebar) {
+    padding-top: 28px;
+  }
+
+  :global(.platform-macos) .app-body > :global(.ai-panel) {
     padding-top: 28px;
   }
 

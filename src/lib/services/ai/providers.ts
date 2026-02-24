@@ -24,6 +24,7 @@ export function openaiEndpoint(baseUrl: string, path: string): string {
 /**
  * Non-streaming proxy fetch: sends request through Rust backend which injects
  * the API key from OS keychain and forwards to the AI provider.
+ * Supports abort via AbortSignal — generates a requestId and calls ai_proxy_abort.
  */
 async function proxyFetch(
   config: AIProviderConfig,
@@ -31,17 +32,43 @@ async function proxyFetch(
   url: string,
   body: Record<string, unknown>,
   extraHeaders?: Record<string, string>,
+  signal?: AbortSignal,
 ): Promise<any> {
-  console.log(`[AI] proxy fetch → ${url}`);
-  const responseText = await invoke<string>('ai_proxy_fetch', {
-    configId: config.id,
-    apiKeyOverride: config.apiKey !== '***' ? config.apiKey : undefined,
-    provider,
-    url,
-    body: JSON.stringify(body),
-    headers: extraHeaders || undefined,
-  });
-  return JSON.parse(responseText);
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+
+  const requestId = signal ? crypto.randomUUID() : undefined;
+
+  // Register abort handler to cancel the Rust-side HTTP request
+  if (signal && requestId) {
+    signal.addEventListener('abort', () => {
+      invoke('ai_proxy_abort', { requestId }).catch(() => {});
+    }, { once: true });
+  }
+
+  const bodyStr = JSON.stringify(body);
+  console.log(`[AI] proxy fetch → ${url} (body: ${bodyStr.length} chars, requestId: ${requestId})`);
+  const t0 = performance.now();
+  try {
+    const responseText = await invoke<string>('ai_proxy_fetch', {
+      requestId,
+      configId: config.id,
+      apiKeyOverride: config.apiKey !== '***' ? config.apiKey : undefined,
+      provider,
+      url,
+      body: bodyStr,
+      headers: extraHeaders || undefined,
+    });
+    console.log(`[AI] proxy fetch ← ${url} (${Math.round(performance.now() - t0)}ms, response: ${responseText.length} chars)`);
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    return JSON.parse(responseText);
+  } catch (err) {
+    console.error(`[AI] proxy fetch ERROR (${Math.round(performance.now() - t0)}ms):`, err);
+    // Convert Rust "Aborted by user" to standard AbortError
+    if (signal?.aborted || (typeof err === 'string' && err.includes('Aborted'))) {
+      throw new DOMException('Aborted', 'AbortError');
+    }
+    throw err;
+  }
 }
 
 /**
@@ -115,7 +142,7 @@ async function* streamViaProxy(
 
 // ── Provider-specific request builders ──
 
-async function callClaude(config: AIProviderConfig, request: AIRequest): Promise<AIResponse> {
+async function callClaude(config: AIProviderConfig, request: AIRequest, signal?: AbortSignal): Promise<AIResponse> {
   const baseUrl = config.baseUrl || 'https://api.anthropic.com';
 
   const systemMessages = request.messages.filter(m => m.role === 'system');
@@ -141,7 +168,7 @@ async function callClaude(config: AIProviderConfig, request: AIRequest): Promise
 
   const data = await proxyFetch(config, 'claude', `${baseUrl}/v1/messages`, body, {
     'anthropic-version': '2023-06-01',
-  });
+  }, signal);
 
   const parsed = parseClaudeToolCalls(data);
 
@@ -184,6 +211,19 @@ function buildClaudeMessages(messages: ChatMessage[]): Array<Record<string, unkn
       } else {
         result.push({ role: 'user', content: [toolResultBlock] });
       }
+    } else if (msg.role === 'user' && msg.images && msg.images.length > 0) {
+      // Multimodal: image blocks before text block
+      const content: Array<Record<string, unknown>> = [];
+      for (const img of msg.images) {
+        content.push({
+          type: 'image',
+          source: { type: 'base64', media_type: img.mimeType, data: img.base64 },
+        });
+      }
+      if (msg.content) {
+        content.push({ type: 'text', text: msg.content });
+      }
+      result.push({ role: 'user', content });
     } else {
       result.push({ role: msg.role, content: msg.content });
     }
@@ -202,7 +242,7 @@ async function* streamClaude(config: AIProviderConfig, request: AIRequest, signa
     model: config.model,
     max_tokens: config.maxTokens || 8192,
     stream: true,
-    messages: chatMessages.map(m => ({ role: m.role, content: m.content })),
+    messages: buildClaudeMessages(chatMessages),
   };
 
   if (systemMessages.length > 0) {
@@ -214,7 +254,7 @@ async function* streamClaude(config: AIProviderConfig, request: AIRequest, signa
   }, signal);
 }
 
-async function callOpenAICompatible(config: AIProviderConfig, request: AIRequest): Promise<AIResponse> {
+async function callOpenAICompatible(config: AIProviderConfig, request: AIRequest, signal?: AbortSignal): Promise<AIResponse> {
   const baseUrl = config.baseUrl || 'https://api.openai.com';
 
   const body: Record<string, unknown> = {
@@ -229,7 +269,7 @@ async function callOpenAICompatible(config: AIProviderConfig, request: AIRequest
   }
 
   const provider = config.provider === 'deepseek' ? 'deepseek' : 'openai';
-  const data = await proxyFetch(config, provider, openaiEndpoint(baseUrl, '/chat/completions'), body);
+  const data = await proxyFetch(config, provider, openaiEndpoint(baseUrl, '/chat/completions'), body, undefined, signal);
   const parsed = parseOpenAIToolCalls(data);
 
   return {
@@ -262,6 +302,19 @@ function buildOpenAIMessages(messages: ChatMessage[]): Array<Record<string, unkn
         tool_call_id: msg.toolCallId,
         content: msg.content,
       };
+    } else if (msg.role === 'user' && msg.images && msg.images.length > 0) {
+      // Multimodal: image_url blocks before text block
+      const content: Array<Record<string, unknown>> = [];
+      for (const img of msg.images) {
+        content.push({
+          type: 'image_url',
+          image_url: { url: `data:${img.mimeType};base64,${img.base64}` },
+        });
+      }
+      if (msg.content) {
+        content.push({ type: 'text', text: msg.content });
+      }
+      return { role: 'user', content };
     }
     return { role: msg.role, content: msg.content };
   });
@@ -275,14 +328,14 @@ async function* streamOpenAICompatible(config: AIProviderConfig, request: AIRequ
     max_tokens: config.maxTokens || 8192,
     temperature: config.temperature ?? 0.7,
     stream: true,
-    messages: request.messages.map(m => ({ role: m.role, content: m.content })),
+    messages: buildOpenAIMessages(request.messages),
   };
 
   const provider = config.provider === 'deepseek' ? 'deepseek' : 'openai';
   yield* streamViaProxy(config, provider, openaiEndpoint(baseUrl, '/chat/completions'), body, undefined, signal);
 }
 
-async function callGemini(config: AIProviderConfig, request: AIRequest): Promise<AIResponse> {
+async function callGemini(config: AIProviderConfig, request: AIRequest, signal?: AbortSignal): Promise<AIResponse> {
   const baseUrl = config.baseUrl || 'https://generativelanguage.googleapis.com';
 
   const systemMessages = request.messages.filter(m => m.role === 'system');
@@ -308,7 +361,7 @@ async function callGemini(config: AIProviderConfig, request: AIRequest): Promise
 
   // Gemini: key is appended as query param by the Rust proxy
   const url = `${baseUrl}/v1beta/models/${config.model}:generateContent`;
-  const data = await proxyFetch(config, 'gemini', url, body);
+  const data = await proxyFetch(config, 'gemini', url, body, undefined, signal);
   const parsed = parseGeminiToolCalls(data);
 
   return {
@@ -343,6 +396,15 @@ function buildGeminiContents(messages: ChatMessage[]): Array<Record<string, unkn
         }],
       };
     }
+    // User message with images
+    if (msg.role === 'user' && msg.images && msg.images.length > 0) {
+      const parts: Array<Record<string, unknown>> = [];
+      for (const img of msg.images) {
+        parts.push({ inlineData: { mimeType: img.mimeType, data: img.base64 } });
+      }
+      if (msg.content) parts.push({ text: msg.content });
+      return { role: 'user', parts };
+    }
     return {
       role: msg.role === 'assistant' ? 'model' : 'user',
       parts: [{ text: msg.content }],
@@ -350,12 +412,40 @@ function buildGeminiContents(messages: ChatMessage[]): Array<Record<string, unkn
   });
 }
 
-async function callOllama(config: AIProviderConfig, request: AIRequest): Promise<AIResponse> {
+/** Build messages for Ollama's native /api/chat format (images as top-level array). */
+function buildOllamaMessages(messages: ChatMessage[]): Array<Record<string, unknown>> {
+  return messages.map(msg => {
+    if (msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0) {
+      return {
+        role: 'assistant',
+        content: msg.content || '',
+        tool_calls: msg.toolCalls.map(tc => ({
+          id: tc.id,
+          type: 'function',
+          function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
+        })),
+      };
+    } else if (msg.role === 'tool') {
+      return {
+        role: 'tool',
+        tool_call_id: msg.toolCallId,
+        content: msg.content,
+      };
+    }
+    const result: Record<string, unknown> = { role: msg.role, content: msg.content };
+    if (msg.role === 'user' && msg.images && msg.images.length > 0) {
+      result.images = msg.images.map(img => img.base64);
+    }
+    return result;
+  });
+}
+
+async function callOllama(config: AIProviderConfig, request: AIRequest, signal?: AbortSignal): Promise<AIResponse> {
   const baseUrl = config.baseUrl || 'http://localhost:11434';
 
   const body: Record<string, unknown> = {
     model: config.model,
-    messages: buildOpenAIMessages(request.messages),
+    messages: buildOllamaMessages(request.messages),
     stream: false,
     options: {
       temperature: config.temperature ?? 0.7,
@@ -367,7 +457,7 @@ async function callOllama(config: AIProviderConfig, request: AIRequest): Promise
     Object.assign(body, formatToolsForProvider('ollama', request.tools));
   }
 
-  const data = await proxyFetch(config, 'ollama', `${baseUrl}/api/chat`, body);
+  const data = await proxyFetch(config, 'ollama', `${baseUrl}/api/chat`, body, undefined, signal);
 
   const message = data.message as Record<string, unknown> | undefined;
   const toolCalls: ToolCallRequest[] = [];
@@ -398,18 +488,17 @@ async function callOllama(config: AIProviderConfig, request: AIRequest): Promise
 // ── Public API ──
 
 export async function sendAIRequest(config: AIProviderConfig, request: AIRequest, signal?: AbortSignal): Promise<AIResponse> {
-  // signal is kept for interface compat but abort is handled by ai_proxy_abort
   switch (config.provider) {
     case 'claude':
-      return callClaude(config, request);
+      return callClaude(config, request, signal);
     case 'openai':
     case 'deepseek':
     case 'custom':
-      return callOpenAICompatible(config, request);
+      return callOpenAICompatible(config, request, signal);
     case 'gemini':
-      return callGemini(config, request);
+      return callGemini(config, request, signal);
     case 'ollama':
-      return callOllama(config, request);
+      return callOllama(config, request, signal);
     default:
       throw new Error(`Unsupported provider: ${config.provider}`);
   }

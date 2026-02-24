@@ -20,10 +20,12 @@
     onClose,
     onInsert,
     onOpenSettings,
+    documentContent = '',
   }: {
     onClose: () => void;
     onInsert: (images: { url: string; target: number }[], mode: InsertMode) => void;
     onOpenSettings?: () => void;
+    documentContent?: string;
   } = $props();
 
   type InsertMode = 'paragraph' | 'end' | 'replace' | 'clipboard';
@@ -72,14 +74,10 @@
     }
   });
 
-  // Detect pre-defined image prompts in the document
-  let preDefinedPrompts = $state<ImagePrompt[] | null>(null);
-  {
-    const docContent = editorStore.getState().content;
-    if (docContent) {
-      preDefinedPrompts = extractImagePrompts(docContent);
-    }
-  }
+  // Detect pre-defined image prompts in the document (reactive on content changes)
+  let preDefinedPrompts = $derived(
+    documentContent ? extractImagePrompts(documentContent) : null
+  );
 
   function usePredefinedPrompts() {
     if (!preDefinedPrompts) return;

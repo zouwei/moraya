@@ -347,9 +347,12 @@ pub fn mcp_connect_stdio(
 /// 2. Read response from the channel (background reader thread) WITHOUT holding the Mutex
 /// 3. Re-lock Mutex to put the process back (or clean up on error)
 ///
-/// The channel recv has a timeout, so this function never blocks forever.
+/// **Must be `async`** so the blocking channel read runs on a dedicated thread
+/// (via `spawn_blocking`) instead of the Tauri IPC handler thread. A synchronous
+/// command would freeze the entire UI — menu events, other invoke calls, abort —
+/// for up to 60 seconds while waiting for the MCP server response.
 #[tauri::command]
-pub fn mcp_send_request(
+pub async fn mcp_send_request(
     state: State<'_, MCPProcessManager>,
     server_id: String,
     request: String,
@@ -381,19 +384,26 @@ pub fn mcp_send_request(
     };
     // Mutex is now released — other commands (including disconnect) can proceed
 
-    // Step 2: Read response from channel OUTSIDE the Mutex (with timeout)
-    let result = read_response_channel(&mut proc);
+    // Step 2: Read response on a blocking thread so we don't freeze the Tauri IPC handler.
+    // MCPProcess is Send (Child, ChildStdin, etc. are Send), so it can move across threads.
+    let (result, returned_proc) = tokio::task::spawn_blocking(move || {
+        let result = read_response_channel(&mut proc);
+        (result, proc)
+    })
+    .await
+    .map_err(|e| format!("Task failed: {}", e))?;
 
     // Step 3: Put the process back or clean up
     match &result {
         Ok(_) => {
             // Success — put the process back for future requests
             if let Ok(mut processes) = state.processes.lock() {
-                processes.insert(server_id, proc);
+                processes.insert(server_id, returned_proc);
             }
         }
         Err(_) => {
             // Error (EOF, timeout, process died) — clean up
+            let mut proc = returned_proc;
             let _ = proc.child.kill();
             let _ = proc.child.try_wait();
             drop(proc);

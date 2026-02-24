@@ -33,10 +33,18 @@ export const PROVIDER_BASE_URLS: Record<AIProvider, string> = {
   custom: '',
 };
 
+export interface ImageAttachment {
+  id: string;           // crypto.randomUUID()
+  mimeType: string;     // "image/jpeg", "image/png", etc.
+  base64: string;       // base64-encoded data (no data: prefix)
+  previewUrl?: string;  // blob URL for UI preview only
+}
+
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
   timestamp: number;
+  images?: ImageAttachment[];
   toolCalls?: ToolCallRequest[];
   toolCallId?: string;
   toolName?: string;

@@ -155,6 +155,10 @@
     "interrupted": "被打断",
     "insertToEditor": "插入到编辑器",
     "replaceSelection": "替换选中内容",
+    "attachImage": "附加图片",
+    "attachImageMax": "最多 {max} 张图片",
+    "removeImage": "移除图片",
+    "closePreview": "关闭预览",
     "config": {
       "title": "AI 配置",
       "provider": "服务商",

@@ -1073,10 +1073,24 @@
     editor.action((ctx) => {
       const view = ctx.get(editorViewCtx);
       const match = searchMatches[idx];
-      // Use ProseMirror's built-in scrollIntoView via selection
+      // Set selection at match range
       const tr = view.state.tr.setSelection(TextSelection.create(view.state.doc, match.from, match.to));
       tr.scrollIntoView();
       view.dispatch(tr);
+
+      // ProseMirror's scrollIntoView may miss the .editor-wrapper scroll container.
+      // Manually ensure the match is visible within the wrapper.
+      requestAnimationFrame(() => {
+        try {
+          const coords = view.coordsAtPos(match.from);
+          const wrapper = view.dom.closest('.editor-wrapper') as HTMLElement | null;
+          if (!wrapper) return;
+          const rect = wrapper.getBoundingClientRect();
+          if (coords.top < rect.top || coords.bottom > rect.bottom) {
+            wrapper.scrollTop += coords.top - rect.top - rect.height / 3;
+          }
+        } catch { /* ignore */ }
+      });
     });
   }
 
@@ -1203,7 +1217,10 @@
     overflow-y: auto;
     overflow-x: hidden;
     min-width: 0;
-    padding: 2rem 3rem;
+    /* Horizontal padding scales with actual pane width (% is relative to
+       containing block), so it shrinks automatically when the editor pane
+       is narrowed by sidebar + AI panel on a wide viewport. */
+    padding: 2rem clamp(1rem, 4%, 3rem);
     visibility: hidden;
     cursor: text;
   }
@@ -1217,18 +1234,5 @@
     margin: 0 auto;
     word-wrap: break-word;
     overflow-wrap: break-word;
-  }
-
-  /* Reduce padding when viewport is narrow (e.g., AI panel open) */
-  @media (max-width: 900px) {
-    .editor-wrapper {
-      padding: 1.5rem 1.5rem;
-    }
-  }
-
-  @media (max-width: 600px) {
-    .editor-wrapper {
-      padding: 1rem 1rem;
-    }
   }
 </style>

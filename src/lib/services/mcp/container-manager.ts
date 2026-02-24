@@ -47,44 +47,51 @@ async function getServicesDir(): Promise<string> {
 
 export async function initContainerManager(): Promise<void> {
   // 1. Check Node.js availability
+  let nodeOk = false;
   try {
     const version = await invoke<string>('check_command_exists', { command: 'node' });
     const major = parseInt(version.replace('v', '').split('.')[0], 10);
-    containerStore.setNodeStatus(major >= 18, version.trim());
-    if (major < 18) {
+    nodeOk = major >= 18;
+    containerStore.setNodeStatus(nodeOk, version.trim());
+    if (!nodeOk) {
       console.warn('[Container] Node.js version too old:', version.trim(), '(need ≥18)');
-      return;
     }
   } catch {
     containerStore.setNodeStatus(false, null);
     console.warn('[Container] Node.js not found');
-    return;
   }
 
-  // 2. Load and reconnect saved services
+  // 2. Always load saved services so they appear in the UI,
+  //    even when Node.js is unavailable (shown as stopped/error).
   try {
     const store = await load(DYNAMIC_STORE_FILE);
     const saved = await store.get<DynamicService[]>('savedServices');
     if (saved && saved.length > 0) {
       for (const svc of saved) {
-        containerStore.addService({ ...svc, status: 'stopped' });
+        containerStore.addService({
+          ...svc,
+          status: nodeOk ? 'stopped' : 'error',
+          error: nodeOk ? undefined : 'Node.js not available',
+        });
       }
 
-      // Auto-reconnect saved services
-      for (const svc of saved) {
-        try {
-          await reconnectSavedService(svc);
-        } catch (e: any) {
-          console.error(`[Container] Failed to reconnect "${svc.name}":`, e);
-          containerStore.updateService(svc.id, {
-            status: 'error',
-            error: `Reconnect failed: ${errMsg(e)}`,
-          });
+      // 3. Auto-reconnect only when Node.js is available
+      if (nodeOk) {
+        for (const svc of saved) {
+          try {
+            await reconnectSavedService(svc);
+          } catch (e: unknown) {
+            console.error(`[Container] Failed to reconnect "${svc.name}":`, e);
+            containerStore.updateService(svc.id, {
+              status: 'error',
+              error: `Reconnect failed: ${errMsg(e)}`,
+            });
+          }
         }
       }
     }
-  } catch {
-    /* first launch — no saved services */
+  } catch (e: unknown) {
+    console.warn('[Container] Failed to load saved services:', errMsg(e));
   }
 }
 
@@ -305,8 +312,8 @@ async function persistSavedServices(): Promise<void> {
     const store = await load(DYNAMIC_STORE_FILE);
     await store.set('savedServices', saved);
     await store.save();
-  } catch {
-    /* ignore */
+  } catch (e: unknown) {
+    console.error('[Container] Failed to persist saved services:', errMsg(e));
   }
 }
 

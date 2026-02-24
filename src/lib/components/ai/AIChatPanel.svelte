@@ -4,6 +4,7 @@
     sendChatMessage,
     abortAIRequest,
     type ChatMessage,
+    type ImageAttachment,
     type AIProviderConfig,
     type AITemplate,
     resolveContent,
@@ -12,9 +13,13 @@
   import { mcpStore } from '$lib/services/mcp';
   import { filesStore } from '$lib/stores/files-store';
   import { invoke } from '@tauri-apps/api/core';
+  import { readFile } from '@tauri-apps/plugin-fs';
   import { markdownToHtmlBody } from '$lib/services/export-service';
   import { openUrl } from '@tauri-apps/plugin-opener';
+  import { open as openDialog } from '@tauri-apps/plugin-dialog';
+  import { onMount } from 'svelte';
   import { t } from '$lib/i18n';
+  import { compressImage, blobToBase64 } from '$lib/services/ai/image-utils';
   import TemplateGallery from './TemplateGallery.svelte';
   import TemplateParamPanel from './TemplateParamPanel.svelte';
 
@@ -44,6 +49,7 @@
   let inputEl = $state<HTMLTextAreaElement | undefined>(undefined);
   let scrollRaf: number | undefined; // RAF throttle for auto-scroll
   let resizeRaf: number | undefined; // RAF throttle for textarea auto-resize
+  let streamRenderTimer: ReturnType<typeof setTimeout> | undefined;
   let mcpToolCount = $state(0);
   let providerConfigs = $state<AIProviderConfig[]>([]);
   let activeConfigId = $state<string | null>(null);
@@ -52,6 +58,11 @@
   let activeTemplate = $state<AITemplate | null>(null);
   let showParamPanel = $state(false);
   let inputPlaceholderOverride = $state<string | null>(null);
+
+  // Image attachments
+  const MAX_IMAGES = 5;
+  let pendingImages = $state<ImageAttachment[]>([]);
+  let lightboxSrc = $state<string | null>(null);
 
   // MORAYA.md indicator
   let morayaMdActive = $state(false);
@@ -76,6 +87,45 @@
     mcpToolCount = state.tools.length;
   });
 
+  // ── Cached markdown rendering ──
+  // Avoid expensive markdownToHtmlBody re-computation on every Svelte render cycle.
+  // Messages are immutable once stored, so we cache their rendered HTML by timestamp.
+  const htmlCache = new Map<number, string>();
+
+  function cachedHtml(msg: ChatMessage): string {
+    const key = msg.timestamp;
+    let cached = htmlCache.get(key);
+    if (!cached) {
+      cached = markdownToHtmlBody(msg.content);
+      htmlCache.set(key, cached);
+    }
+    return cached;
+  }
+
+  // Throttled streaming HTML: render at most every 150ms to keep the main thread free.
+  let renderedStreamHtml = $state('');
+  $effect(() => {
+    const raw = streamingContent;
+    if (!raw) {
+      renderedStreamHtml = '';
+      clearTimeout(streamRenderTimer);
+      streamRenderTimer = undefined;
+      return;
+    }
+    if (!streamRenderTimer) {
+      // First chunk — render immediately for fast perceived response
+      renderedStreamHtml = markdownToHtmlBody(raw);
+      streamRenderTimer = setTimeout(() => { streamRenderTimer = undefined; }, 150);
+    } else {
+      // Subsequent chunks — schedule throttled render
+      clearTimeout(streamRenderTimer);
+      streamRenderTimer = setTimeout(() => {
+        streamRenderTimer = undefined;
+        renderedStreamHtml = markdownToHtmlBody(streamingContent);
+      }, 150);
+    }
+  });
+
   // Resizable width — default to golden ratio (smaller portion ≈ 38.2%)
   const GOLDEN_RATIO = 1.618;
   const MIN_WIDTH = 280;
@@ -85,6 +135,8 @@
   ));
   let isResizing = $state(false);
 
+  let resizeRafId: number | undefined;
+
   function handleResizeStart(e: MouseEvent) {
     e.preventDefault();
     isResizing = true;
@@ -92,11 +144,21 @@
     const startWidth = panelWidth;
 
     function onMouseMove(ev: MouseEvent) {
-      const delta = startX - ev.clientX; // moving left = wider
-      panelWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth + delta));
+      // RAF-throttle: coalesce rapid mousemove events into one update per frame
+      // to prevent overwhelming Svelte reactivity + ProseMirror reflow.
+      if (resizeRafId !== undefined) return;
+      resizeRafId = requestAnimationFrame(() => {
+        resizeRafId = undefined;
+        const delta = startX - ev.clientX; // moving left = wider
+        panelWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth + delta));
+      });
     }
 
     function onMouseUp() {
+      if (resizeRafId !== undefined) {
+        cancelAnimationFrame(resizeRafId);
+        resizeRafId = undefined;
+      }
       isResizing = false;
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
@@ -106,18 +168,31 @@
     window.addEventListener('mouseup', onMouseUp);
   }
 
+  // Expose panel width to titlebar for centering via CSS custom property.
+  // Do NOT return a cleanup that removes it on each re-run — that causes
+  // double layout invalidation per frame during resize.
+  $effect(() => {
+    document.documentElement.style.setProperty('--ai-panel-width', `${panelWidth}px`);
+  });
+  // Clean up only on component destroy
+  onMount(() => () => {
+    document.documentElement.style.removeProperty('--ai-panel-width');
+  });
+
   // Auto-scroll: track whether user is near bottom
   let userAtBottom = $state(true);
 
+  // Only assign $state vars when the value actually changed — avoids triggering
+  // unnecessary Svelte reactivity during high-frequency streaming updates.
   aiStore.subscribe(state => {
-    chatMessages = state.chatHistory;
-    isLoading = state.isLoading;
-    error = state.error;
-    interrupted = state.interrupted;
-    streamingContent = state.streamingContent;
-    isConfigured = state.isConfigured;
-    providerConfigs = state.providerConfigs;
-    activeConfigId = state.activeConfigId;
+    if (chatMessages !== state.chatHistory) chatMessages = state.chatHistory;
+    if (isLoading !== state.isLoading) isLoading = state.isLoading;
+    if (error !== state.error) error = state.error;
+    if (interrupted !== state.interrupted) interrupted = state.interrupted;
+    if (streamingContent !== state.streamingContent) streamingContent = state.streamingContent;
+    if (isConfigured !== state.isConfigured) isConfigured = state.isConfigured;
+    if (providerConfigs !== state.providerConfigs) providerConfigs = state.providerConfigs;
+    if (activeConfigId !== state.activeConfigId) activeConfigId = state.activeConfigId;
   });
 
   function handleModelSwitch(e: Event) {
@@ -145,10 +220,106 @@
     userAtBottom = scrollHeight - scrollTop - clientHeight < threshold;
   }
 
+  async function addImageFromBlob(blob: Blob) {
+    if (pendingImages.length >= MAX_IMAGES) return;
+    try {
+      const { blob: processed, mimeType } = await compressImage(blob);
+      const base64 = await blobToBase64(processed);
+      const previewUrl = URL.createObjectURL(processed);
+      pendingImages = [...pendingImages, {
+        id: crypto.randomUUID(),
+        mimeType,
+        base64,
+        previewUrl,
+      }];
+    } catch (e) {
+      console.error('[AI] Failed to process image:', e);
+    }
+  }
+
+  async function addImageFromFile(filePath: string) {
+    if (pendingImages.length >= MAX_IMAGES) return;
+    try {
+      const data = await readFile(filePath);
+      if (!data || data.length === 0) return;
+      const ext = filePath.split('.').pop()?.toLowerCase() || '';
+      const mimeMap: Record<string, string> = {
+        png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+        gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp', svg: 'image/svg+xml',
+      };
+      const mime = mimeMap[ext] || 'image/png';
+      const blob = new Blob([data], { type: mime });
+      await addImageFromBlob(blob);
+    } catch (e) {
+      console.error('[AI] Failed to read image file:', e);
+    }
+  }
+
+  function removeImage(id: string) {
+    const img = pendingImages.find(i => i.id === id);
+    if (img?.previewUrl) URL.revokeObjectURL(img.previewUrl);
+    pendingImages = pendingImages.filter(i => i.id !== id);
+  }
+
+  async function handleAttachImage() {
+    const result = await openDialog({
+      multiple: true,
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'] }],
+    });
+    if (!result) return;
+    const paths = Array.isArray(result) ? result : [result];
+    for (const p of paths) {
+      if (pendingImages.length >= MAX_IMAGES) break;
+      await addImageFromFile(p);
+    }
+  }
+
+  function handleInputPaste(e: ClipboardEvent) {
+    if (!e.clipboardData) return;
+    const items = e.clipboardData.items;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.startsWith('image/')) {
+        e.preventDefault();
+        const file = items[i].getAsFile();
+        if (file) addImageFromBlob(file);
+        return;
+      }
+    }
+  }
+
+  function handleInputDrop(e: DragEvent) {
+    e.preventDefault();
+    if (!e.dataTransfer) return;
+    const files = e.dataTransfer.files;
+    for (let i = 0; i < files.length; i++) {
+      if (files[i].type.startsWith('image/') && pendingImages.length < MAX_IMAGES) {
+        addImageFromBlob(files[i]);
+      }
+    }
+  }
+
+  function handleInputDragOver(e: DragEvent) {
+    e.preventDefault();
+  }
+
+  function getImageSrc(img: ImageAttachment): string {
+    return img.previewUrl || `data:${img.mimeType};base64,${img.base64}`;
+  }
+
+  function openLightbox(img: ImageAttachment) {
+    lightboxSrc = getImageSrc(img);
+  }
+
+  function closeLightbox() {
+    lightboxSrc = null;
+  }
+
   async function handleSend() {
-    if (!inputText.trim() || isLoading) return;
+    if ((!inputText.trim() && pendingImages.length === 0) || isLoading) return;
     const message = inputText.trim();
+    const images = pendingImages.length > 0 ? [...pendingImages] : undefined;
     inputText = '';
+    pendingImages = [];
     showCommands = false;
     userAtBottom = true;
     resetInputHeight();
@@ -165,14 +336,14 @@
       inputPlaceholderOverride = null;
       aiStore.addMessage({ role: 'system', content: systemPrompt, timestamp: Date.now() });
       try {
-        await sendChatMessage(userMessage, documentContent);
+        await sendChatMessage(userMessage, documentContent, images);
       } catch { /* handled by store */ }
       return;
     }
 
     // Normal free chat
     try {
-      await sendChatMessage(message, documentContent);
+      await sendChatMessage(message, documentContent, images);
     } catch {
       // Error is handled by store
     }
@@ -292,7 +463,13 @@
   }
 
   function clearChat() {
+    // Revoke pending image blob URLs
+    for (const img of pendingImages) {
+      if (img.previewUrl) URL.revokeObjectURL(img.previewUrl);
+    }
+    pendingImages = [];
     aiStore.clearHistory();
+    htmlCache.clear();
     activeTemplate = null;
     showParamPanel = false;
     inputPlaceholderOverride = null;
@@ -387,7 +564,7 @@
         <TemplateGallery onSelectTemplate={handleTemplateSelect} />
       {/if}
 
-      {#each chatMessages as msg}
+      {#each chatMessages as msg (msg.timestamp)}
         {#if msg.role === 'tool'}
           <div class="message tool-result">
             <div class="tool-header">
@@ -402,7 +579,7 @@
             {#if msg.content}
               <!-- svelte-ignore a11y_click_events_have_key_events -->
               <!-- svelte-ignore a11y_no_static_element_interactions -->
-              <div class="message-content" onclick={handleContentClick}>{@html markdownToHtmlBody(msg.content)}</div>
+              <div class="message-content" onclick={handleContentClick}>{@html cachedHtml(msg)}</div>
             {/if}
             {#each msg.toolCalls as tc}
               <details class="tool-call-block">
@@ -421,9 +598,25 @@
             {#if msg.role === 'assistant'}
               <!-- svelte-ignore a11y_click_events_have_key_events -->
               <!-- svelte-ignore a11y_no_static_element_interactions -->
-              <div class="message-content" onclick={handleContentClick}>{@html markdownToHtmlBody(msg.content)}</div>
+              <div class="message-content" onclick={handleContentClick}>{@html cachedHtml(msg)}</div>
             {:else}
-              <div class="message-content">{msg.content}</div>
+              {#if msg.images && msg.images.length > 0}
+                <div class="message-images">
+                  {#each msg.images as img (img.id)}
+                    <!-- svelte-ignore a11y_click_events_have_key_events -->
+                    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+                    <img
+                      src={getImageSrc(img)}
+                      alt=""
+                      class="message-image-thumb"
+                      onclick={() => openLightbox(img)}
+                    />
+                  {/each}
+                </div>
+              {/if}
+              {#if msg.content}
+                <div class="message-content">{msg.content}</div>
+              {/if}
             {/if}
             <span class="message-time">{formatTime(msg.timestamp)}</span>
             <div class="message-actions">
@@ -452,7 +645,7 @@
           </div>
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div class="message-content" onclick={handleContentClick}>{@html markdownToHtmlBody(streamingContent)}</div>
+          <div class="message-content" onclick={handleContentClick}>{@html renderedStreamHtml}</div>
           <span class="typing-indicator">{$t('ai.typing')}</span>
         </div>
       {:else if isLoading}
@@ -506,16 +699,49 @@
         </div>
       {/if}
 
+      {#if pendingImages.length > 0}
+        <div class="image-preview-strip">
+          {#each pendingImages as img (img.id)}
+            <div class="image-preview-item">
+              <img src={getImageSrc(img)} alt="" class="image-preview-thumb" />
+              <button class="image-remove-btn" onclick={() => removeImage(img.id)} title={$t('ai.removeImage')}>
+                <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor">
+                  <path d="M6 2L2 6m0-4l4 4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+                </svg>
+              </button>
+            </div>
+          {/each}
+          {#if pendingImages.length >= MAX_IMAGES}
+            <span class="image-max-hint">{$t('ai.attachImageMax', { max: String(MAX_IMAGES) })}</span>
+          {/if}
+        </div>
+      {/if}
+
       <div class="input-row">
-        <textarea
-          class="ai-input"
-          bind:this={inputEl}
-          bind:value={inputText}
-          oninput={autoResizeInput}
-          onkeydown={handleKeydown}
-          placeholder={inputPlaceholderOverride ?? (selectedText ? $t('ai.placeholderSelection') : $t('ai.placeholder'))}
-          rows={1}
-        ></textarea>
+        <div class="input-wrapper">
+          <button
+            class="attach-btn"
+            onclick={handleAttachImage}
+            title={$t('ai.attachImage')}
+            disabled={isLoading}
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M14 8.5a5.5 5.5 0 01-11 0V4a3.5 3.5 0 017 0v4.5a1.5 1.5 0 01-3 0V5h1v3.5a.5.5 0 001 0V4a2.5 2.5 0 00-5 0v4.5a4.5 4.5 0 009 0V5h1v3.5z"/>
+            </svg>
+          </button>
+          <textarea
+            class="ai-input"
+            bind:this={inputEl}
+            bind:value={inputText}
+            oninput={autoResizeInput}
+            onkeydown={handleKeydown}
+            onpaste={handleInputPaste}
+            ondrop={handleInputDrop}
+            ondragover={handleInputDragOver}
+            placeholder={inputPlaceholderOverride ?? (selectedText ? $t('ai.placeholderSelection') : $t('ai.placeholder'))}
+            rows={1}
+          ></textarea>
+        </div>
         {#if isLoading}
           <button
             class="send-btn stop"
@@ -530,7 +756,7 @@
           <button
             class="send-btn"
             onclick={handleSend}
-            disabled={!inputText.trim()}
+            disabled={!inputText.trim() && pendingImages.length === 0}
             title={$t('ai.send')}
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
@@ -541,7 +767,27 @@
       </div>
     </div>
   {/if}
+
+  {#if lightboxSrc}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="lightbox-overlay" onclick={closeLightbox}>
+      <img src={lightboxSrc} alt="" class="lightbox-image" />
+      <button class="lightbox-close" onclick={closeLightbox} title={$t('ai.closePreview')}>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M12 4L4 12m0-8l8 8" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+  {/if}
 </div>
+
+<svelte:window onkeydown={(e) => {
+  if (e.key === 'Escape') {
+    if (lightboxSrc) { closeLightbox(); return; }
+    if (isLoading) { abortAIRequest(); return; }
+  }
+}} />
 
 <style>
   .ai-panel {
@@ -855,20 +1101,19 @@
   }
 
   .message-time {
-    position: absolute;
-    left: 0.5rem;
-    bottom: 0.3rem;
+    display: block;
     font-size: 10px;
     color: var(--text-muted);
+    margin-top: 0.25rem;
   }
 
   .message.user .message-time {
     color: rgba(255, 255, 255, 0.5);
+    text-align: left;
   }
 
   .message-content {
     word-break: break-word;
-    padding-bottom: 1.25rem;
     -webkit-user-select: text;
     user-select: text;
     cursor: text;
@@ -1032,11 +1277,10 @@
   }
 
   .typing-indicator {
-    position: absolute;
-    left: 0.5rem;
-    bottom: 0.3rem;
+    display: block;
     font-size: 10px;
     color: var(--accent-color);
+    margin-top: 0.25rem;
     animation: pulse 1.5s infinite;
   }
 
@@ -1134,23 +1378,33 @@
     gap: 0.35rem;
   }
 
+  .input-wrapper {
+    flex: 1;
+    display: flex;
+    align-items: flex-end;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-primary);
+    transition: border-color var(--transition-fast);
+  }
+
+  .input-wrapper:focus-within {
+    border-color: var(--accent-color);
+  }
+
   .ai-input {
     flex: 1;
     resize: none;
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    padding: 0.5rem 0.75rem;
+    border: none;
+    border-radius: 0 8px 8px 0;
+    padding: 0.5rem 0.75rem 0.5rem 0;
     font-size: var(--font-size-sm);
     font-family: var(--font-sans);
-    background: var(--bg-primary);
+    background: transparent;
     color: var(--text-primary);
     line-height: 1.4;
     outline: none;
     overflow-y: hidden;
-  }
-
-  .ai-input:focus {
-    border-color: var(--accent-color);
   }
 
   .ai-input::placeholder {
@@ -1183,5 +1437,143 @@
 
   .send-btn:not(:disabled):hover {
     opacity: 0.85;
+  }
+
+  /* ── Image attach button ── */
+  .attach-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    align-self: stretch;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    border-radius: 7px 0 0 7px;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: color var(--transition-fast), background var(--transition-fast);
+  }
+
+  .attach-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .attach-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+  }
+
+  /* ── Image preview strip ── */
+  .image-preview-strip {
+    display: flex;
+    gap: 0.35rem;
+    padding: 0.35rem 0;
+    overflow-x: auto;
+    align-items: center;
+  }
+
+  .image-preview-item {
+    position: relative;
+    flex-shrink: 0;
+  }
+
+  .image-preview-thumb {
+    width: 48px;
+    height: 48px;
+    object-fit: cover;
+    border-radius: 6px;
+    border: 1px solid var(--border-light);
+  }
+
+  .image-remove-btn {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    width: 16px;
+    height: 16px;
+    border: none;
+    background: var(--text-muted);
+    color: white;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    opacity: 0;
+    transition: opacity var(--transition-fast);
+  }
+
+  .image-preview-item:hover .image-remove-btn {
+    opacity: 1;
+  }
+
+  .image-max-hint {
+    font-size: 10px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    padding: 0 0.25rem;
+  }
+
+  /* ── Message images ── */
+  .message-images {
+    display: flex;
+    gap: 0.25rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.25rem;
+  }
+
+  .message-image-thumb {
+    width: 64px;
+    height: 64px;
+    object-fit: cover;
+    border-radius: 6px;
+    cursor: pointer;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    transition: opacity var(--transition-fast);
+  }
+
+  .message-image-thumb:hover {
+    opacity: 0.8;
+  }
+
+  /* ── Lightbox ── */
+  .lightbox-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+
+  .lightbox-image {
+    max-width: 90%;
+    max-height: 90%;
+    object-fit: contain;
+    border-radius: 8px;
+  }
+
+  .lightbox-close {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    width: 2rem;
+    height: 2rem;
+    border: none;
+    background: rgba(255, 255, 255, 0.15);
+    color: white;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .lightbox-close:hover {
+    background: rgba(255, 255, 255, 0.3);
   }
 </style>

@@ -155,6 +155,10 @@
     "interrupted": "Interrupted",
     "insertToEditor": "Insert into editor",
     "replaceSelection": "Replace selection",
+    "attachImage": "Attach image",
+    "attachImageMax": "Maximum {max} images",
+    "removeImage": "Remove image",
+    "closePreview": "Close preview",
     "config": {
       "title": "AI Configuration",
       "provider": "Provider",

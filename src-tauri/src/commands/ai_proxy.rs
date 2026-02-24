@@ -267,9 +267,11 @@ fn resolve_api_key(
 
 /// Non-streaming AI API proxy.
 /// Frontend builds URL/body/headers (without auth); Rust injects auth from keychain.
+/// Supports abort via optional `request_id` — same mechanism as streaming.
 #[tauri::command]
 pub async fn ai_proxy_fetch(
     state: tauri::State<'_, AIProxyState>,
+    request_id: Option<String>,
     config_id: String,
     key_prefix: Option<String>,
     api_key_override: Option<String>,
@@ -291,6 +293,46 @@ pub async fn ai_proxy_fetch(
     let b = body.as_deref().unwrap_or("{}");
     let req = build_request(&client, &provider, &api_key, &url, b, &hdrs, m);
 
+    // Register abort flag when request_id is provided
+    let abort_flag = if let Some(ref rid) = request_id {
+        let flag = Arc::new(AtomicBool::new(false));
+        if let Ok(mut flags) = state.abort_flags.lock() {
+            flags.insert(rid.clone(), flag.clone());
+        }
+        Some(flag)
+    } else {
+        None
+    };
+
+    let result = if let Some(ref flag) = abort_flag {
+        let flag_clone = flag.clone();
+        let abort_checker = async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                if flag_clone.load(Ordering::SeqCst) {
+                    return;
+                }
+            }
+        };
+        tokio::select! {
+            res = do_fetch(req) => res,
+            _ = abort_checker => Err("Aborted by user".to_string()),
+        }
+    } else {
+        do_fetch(req).await
+    };
+
+    // Cleanup abort flag
+    if let Some(ref rid) = request_id {
+        if let Ok(mut flags) = state.abort_flags.lock() {
+            flags.remove(rid);
+        }
+    }
+
+    result
+}
+
+async fn do_fetch(req: reqwest::RequestBuilder) -> Result<String, String> {
     let response = req.send().await.map_err(|e| {
         if e.is_timeout() {
             "AI request timed out".to_string()
@@ -384,10 +426,28 @@ async fn do_stream(
     let mut stream = response.bytes_stream();
     let mut buffer = String::new();
 
-    while let Some(chunk) = stream.next().await {
-        if abort_flag.load(Ordering::SeqCst) {
-            break;
-        }
+    loop {
+        // Race the next chunk against the abort flag so abort takes effect
+        // immediately, even if the stream is waiting for data.
+        let chunk_opt = {
+            let abort_wait = async {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    if abort_flag.load(Ordering::SeqCst) {
+                        return;
+                    }
+                }
+            };
+            tokio::select! {
+                c = stream.next() => c,
+                _ = abort_wait => None,
+            }
+        };
+
+        let chunk = match chunk_opt {
+            Some(c) => c,
+            None => break, // stream ended or aborted
+        };
 
         let bytes = chunk.map_err(|_| "Stream read error".to_string())?;
         buffer.push_str(&String::from_utf8_lossy(&bytes));

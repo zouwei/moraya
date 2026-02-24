@@ -226,7 +226,9 @@ export type ImageGenMode = 'article' | 'design' | 'storyboard' | 'product' | 'mo
  */
 export function extractImagePrompts(content: string): ImagePrompt[] | null {
   // Match both ```image-prompt and ```image-prompts (with or without trailing 's')
-  const blockRegex = /```image-prompts?\s*\n([\s\S]*?)```/g;
+  // Allow optional spaces between ``` and language name (``` image-prompts)
+  // Use multiline flag: ^/$ match line boundaries so fences must be at line start.
+  const blockRegex = /^```\s*image-prompts?\s*\n([\s\S]*?)^```\s*$/gm;
   const prompts: ImagePrompt[] = [];
   let match: RegExpExecArray | null;
 
