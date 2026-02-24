@@ -1633,15 +1633,8 @@ ${tr('welcome.tip')}
   .app-container {
     display: flex;
     flex-direction: column;
-    height: var(--app-height, 100dvh);
+    height: var(--app-height, 100%);
     overflow: hidden;
-  }
-
-  /* Fallback for browsers without dvh support */
-  @supports not (height: 100dvh) {
-    .app-container {
-      height: var(--app-height, 100vh);
-    }
   }
 
   /* macOS: offset content below native traffic lights (TitleBarStyle::Overlay).

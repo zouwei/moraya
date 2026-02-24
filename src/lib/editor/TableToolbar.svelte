@@ -54,7 +54,8 @@
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <rect x="3" y="3" width="18" height="18" rx="2"/>
         <line x1="3" y1="12" x2="21" y2="12"/>
-        <line x1="9" y1="8" x2="15" y2="8"/>
+        <line x1="9" y1="5.5" x2="15" y2="10.5"/>
+        <line x1="15" y1="5.5" x2="9" y2="10.5"/>
       </svg>
     </button>
   </div>
@@ -82,7 +83,8 @@
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <rect x="3" y="3" width="18" height="18" rx="2"/>
         <line x1="12" y1="3" x2="12" y2="21"/>
-        <line x1="8" y1="9" x2="8" y2="15"/>
+        <line x1="5.5" y1="9" x2="10.5" y2="15"/>
+        <line x1="10.5" y1="9" x2="5.5" y2="15"/>
       </svg>
     </button>
   </div>
@@ -152,6 +154,10 @@
   .toolbar-btn:hover {
     background: var(--bg-hover);
     color: var(--text-primary);
+  }
+
+  .toolbar-btn.danger {
+    color: rgba(232, 17, 35, 0.55);
   }
 
   .toolbar-btn.danger:hover {
