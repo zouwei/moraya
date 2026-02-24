@@ -147,17 +147,29 @@
     color: white;
   }
 
-  /* macOS: hide custom buttons, use native traffic lights */
+  /* macOS: transparent overlay drag region for Overlay title bar style.
+     The native title bar is transparent in Overlay mode; this element provides
+     the drag region so the window can be moved by dragging and maximised by
+     double-clicking. Traffic lights are native OS controls rendered on top. */
+  :global(.platform-macos) .titlebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 28px;
+    background: transparent;
+    border-bottom: none;
+    z-index: 50;
+    padding: 0;
+  }
+
+  :global(.platform-macos) .titlebar-left,
+  :global(.platform-macos) .titlebar-center,
   :global(.platform-macos) .titlebar-right {
     display: none;
   }
 
-  :global(.platform-macos) .titlebar-left {
-    padding-left: 5rem; /* space for traffic lights */
-  }
-
-  /* All desktop platforms: hide custom titlebar, use native decorations */
-  :global(.platform-macos) .titlebar,
+  /* Windows/Linux: hide custom titlebar, use native decorations */
   :global(.platform-windows) .titlebar,
   :global(.platform-linux) .titlebar {
     display: none;
