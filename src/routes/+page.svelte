@@ -55,6 +55,13 @@
   import '$lib/styles/global.css';
   import '$lib/styles/editor.css';
 
+  // Set platform class BEFORE first render so CSS layout (titlebar, padding)
+  // is correct from the start. Avoids WebKit flex layout caching issues when
+  // the class is added later in onMount.
+  if (typeof document !== 'undefined') {
+    document.body.classList.add(getPlatformClass());
+  }
+
   function getDefaultContent(): string {
     const tr = $t;
     return `# ${tr('welcome.title')}
@@ -1187,9 +1194,7 @@ ${tr('welcome.tip')}
   });
 
   onMount(() => {
-    // Detect platform for CSS classes (iPadOS UA mimics macOS, needs maxTouchPoints check)
-    document.body.classList.add(getPlatformClass());
-
+    // Platform class is set above (before first render) for correct initial layout.
     // iPadOS + Tauri: track visual viewport height for virtual keyboard handling
     // (browser testing mode uses 100dvh fallback, no need for --app-height)
     let vvUnlisten: (() => void) | undefined;
@@ -1202,6 +1207,14 @@ ${tr('welcome.tip')}
       vvUnlisten = () => window.visualViewport?.removeEventListener('resize', onVVResize);
       // Set initial value
       onVVResize();
+    }
+
+    // Tauri desktop: nudge WKWebView to recalculate viewport units (100dvh/100vh)
+    // after the native window has fully settled. Prevents stale layout in new windows.
+    if (isTauri && !isIPadOS) {
+      requestAnimationFrame(() => {
+        window.dispatchEvent(new Event('resize'));
+      });
     }
 
     // Preload enhancement plugins in background (warms cache for editor creation)
@@ -1633,8 +1646,15 @@ ${tr('welcome.tip')}
   .app-container {
     display: flex;
     flex-direction: column;
-    height: var(--app-height, 100%);
+    height: var(--app-height, 100dvh);
     overflow: hidden;
+  }
+
+  /* Fallback for browsers without dvh support */
+  @supports not (height: 100dvh) {
+    .app-container {
+      height: var(--app-height, 100vh);
+    }
   }
 
   /* macOS: offset content below native traffic lights (TitleBarStyle::Overlay).

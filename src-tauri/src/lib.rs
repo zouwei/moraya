@@ -131,8 +131,10 @@ pub(crate) fn create_editor_window(
         pending_map.insert(label.clone(), p.clone());
     }
 
-    // Build window with same config as main
-    let window = tauri::WebviewWindowBuilder::new(
+    // Build window with same config as main.
+    // decorations + title_bar_style are set in the builder to avoid a post-build
+    // toggle that causes WKWebView to cache stale viewport measurements.
+    let mut builder = tauri::WebviewWindowBuilder::new(
         app,
         &label,
         tauri::WebviewUrl::default(),
@@ -140,26 +142,23 @@ pub(crate) fn create_editor_window(
     .title(&title)
     .inner_size(1200.0, 800.0)
     .min_inner_size(600.0, 400.0)
-    .decorations(false)
+    .decorations(true)
     .center()
-    .devtools(false)
-    .build()
-    .map_err(|e| format!("Failed to create window: {}", e))?;
+    .devtools(false);
 
-    // macOS: enable decorations for native traffic lights, then overlay
     #[cfg(target_os = "macos")]
     {
         use tauri::TitleBarStyle;
-        let _ = window.set_decorations(true);
-        let _ = window.set_title_bar_style(TitleBarStyle::Overlay);
+        builder = builder.title_bar_style(TitleBarStyle::Overlay);
     }
 
-    // Windows/Linux: enable decorations for native title bar + menu bar
+    let _window = builder
+        .build()
+        .map_err(|e| format!("Failed to create window: {}", e))?;
+
+    // Windows/Linux: shrink window to fit screen (taskbar/decorations)
     #[cfg(all(not(target_os = "macos"), not(target_os = "ios")))]
-    {
-        let _ = window.set_decorations(true);
-        fit_window_to_screen(&window);
-    }
+    fit_window_to_screen(&_window);
 
     Ok(label)
 }
@@ -276,23 +275,13 @@ pub fn run() {
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
 
-            // Desktop: configure window decorations
+            // Desktop: decorations & titleBarStyle are configured in tauri.conf.json
+            // to avoid a post-build toggle that causes WKWebView viewport issues.
             #[cfg(not(target_os = "ios"))]
             {
-                // macOS: enable decorations for native traffic lights, then overlay
-                #[cfg(target_os = "macos")]
-                {
-                    use tauri::TitleBarStyle;
-                    let _ = window.set_decorations(true);
-                    let _ = window.set_title_bar_style(TitleBarStyle::Overlay);
-                }
-
-                // Windows/Linux: enable decorations for native title bar + menu bar
+                // Windows/Linux: shrink window to fit screen (taskbar/decorations)
                 #[cfg(all(not(target_os = "macos"), not(target_os = "ios")))]
-                {
-                    let _ = window.set_decorations(true);
-                    fit_window_to_screen(&window);
-                }
+                fit_window_to_screen(&window);
 
                 // Create and set native menu
                 let app_handle = app.handle().clone();

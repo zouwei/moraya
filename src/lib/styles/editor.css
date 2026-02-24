@@ -605,7 +605,7 @@
 /* ProseMirror specific */
 .ProseMirror {
   outline: none;
-  min-height: calc(100% - 4rem);
+  min-height: calc(100vh - var(--titlebar-height) - var(--statusbar-height) - 8rem);
   caret-color: var(--text-primary);
   cursor: text;
 }
