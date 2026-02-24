@@ -156,6 +156,13 @@ pub(crate) fn create_editor_window(
         .build()
         .map_err(|e| format!("Failed to create window: {}", e))?;
 
+    // Runtime fallback: ensure overlay is set even if the builder didn't apply it
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::TitleBarStyle;
+        let _ = _window.set_title_bar_style(TitleBarStyle::Overlay);
+    }
+
     // Windows/Linux: shrink window to fit screen (taskbar/decorations)
     #[cfg(all(not(target_os = "macos"), not(target_os = "ios")))]
     fit_window_to_screen(&_window);
@@ -275,10 +282,20 @@ pub fn run() {
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
 
-            // Desktop: decorations & titleBarStyle are configured in tauri.conf.json
-            // to avoid a post-build toggle that causes WKWebView viewport issues.
+            // Desktop: decorations: true + titleBarStyle: Overlay are set in
+            // tauri.conf.json. The runtime call below is a fallback in case
+            // the config field is not applied (e.g. older CLI version on CI).
+            // Because decorations starts as true, this is at most a one-step
+            // transition (standard → overlay), avoiding the old three-step
+            // toggle (false → true → overlay) that broke WKWebView layout.
             #[cfg(not(target_os = "ios"))]
             {
+                #[cfg(target_os = "macos")]
+                {
+                    use tauri::TitleBarStyle;
+                    let _ = window.set_title_bar_style(TitleBarStyle::Overlay);
+                }
+
                 // Windows/Linux: shrink window to fit screen (taskbar/decorations)
                 #[cfg(all(not(target_os = "macos"), not(target_os = "ios")))]
                 fit_window_to_screen(&window);
