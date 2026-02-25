@@ -2,6 +2,7 @@
   import { settingsStore, type Theme } from '../stores/settings-store';
   import { filesStore, type KnowledgeBase } from '../stores/files-store';
   import { t, SUPPORTED_LOCALES, type LocaleSelection } from '$lib/i18n';
+  import { isMacOS } from '$lib/utils/platform';
   import { builtinThemes, getLightThemes, getDarkThemes } from '$lib/styles/themes';
   import AISettings from './ai/AISettings.svelte';
   import MCPPanel from './ai/MCPPanel.svelte';
@@ -141,42 +142,52 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="settings-overlay" onclick={onClose}>
   <div class="settings-panel" onclick={(e) => e.stopPropagation()}>
-    <!-- Left sidebar -->
-    <div class="settings-sidebar">
-      <div class="sidebar-header">
-        <h2>{$t('settings.title')}</h2>
-      </div>
-      <nav class="sidebar-nav">
-        {#each tabs as tab}
-          <button
-            class="nav-item"
-            class:active={activeTab === tab.key}
-            onclick={() => activeTab = tab.key}
-          >
-            <span class="nav-icon">{tab.icon}</span>
-            <span class="nav-label">{$t(tab.labelKey)}</span>
-          </button>
-        {/each}
-      </nav>
-      <div class="sidebar-footer">
-        <span class="version">{$t('settings.version', { version: __APP_VERSION__ })}</span>
-      </div>
-    </div>
-
-    <!-- Right content -->
-    <div class="settings-content">
-      <div class="content-header">
-        <h3>{$t(tabs.find(t => t.key === activeTab)?.labelKey ?? '')}</h3>
+    <!-- Full-width top bar -->
+    <div class="panel-header">
+      {#if isMacOS}
         <button class="close-btn" onclick={onClose} title={$t('common.close')}>
           <svg width="14" height="14" viewBox="0 0 10 10">
             <path fill="currentColor" d="M1 0L0 1l4 4-4 4 1 1 4-4 4 4 1-1-4-4 4-4-1-1-4 4z"/>
           </svg>
         </button>
+      {/if}
+      <h2 class="panel-title">{$t('settings.title')}</h2>
+      {#if !isMacOS}
+        <button class="close-btn" onclick={onClose} title={$t('common.close')}>
+          <svg width="14" height="14" viewBox="0 0 10 10">
+            <path fill="currentColor" d="M1 0L0 1l4 4-4 4 1 1 4-4 4 4 1-1-4-4 4-4-1-1-4 4z"/>
+          </svg>
+        </button>
+      {/if}
+    </div>
+
+    <!-- Body: sidebar + content side by side -->
+    <div class="panel-body">
+      <!-- Left sidebar -->
+      <div class="settings-sidebar">
+        <nav class="sidebar-nav">
+          {#each tabs as tab}
+            <button
+              class="nav-item"
+              class:active={activeTab === tab.key}
+              onclick={() => activeTab = tab.key}
+            >
+              <span class="nav-icon">{tab.icon}</span>
+              <span class="nav-label">{$t(tab.labelKey)}</span>
+            </button>
+          {/each}
+        </nav>
+        <div class="sidebar-footer">
+          <span class="version">{$t('settings.version', { version: __APP_VERSION__ })}</span>
+        </div>
       </div>
 
-      <div class="content-body">
-        <!-- Heavy components: always mounted, shown/hidden via CSS to avoid remount lag -->
-        <div class="tab-pane" class:active={activeTab === 'ai'}><AISettings /></div>
+      <!-- Right content -->
+      <div class="settings-content">
+        <div class="content-body">
+          <h3 class="content-title">{$t(tabs.find(t => t.key === activeTab)?.labelKey ?? '')}</h3>
+          <!-- Heavy components: always mounted, shown/hidden via CSS to avoid remount lag -->
+          <div class="tab-pane" class:active={activeTab === 'ai'}><AISettings /></div>
         <div class="tab-pane" class:active={activeTab === 'mcp'}><MCPPanel /></div>
         <div class="tab-pane" class:active={activeTab === 'image'}><ImageHostingSettings /></div>
         <div class="tab-pane" class:active={activeTab === 'publish'}><PublishSettings /></div>
@@ -397,10 +408,11 @@
             </div>
           </div>
         {/if}
-      </div>
-    </div>
-  </div>
-</div>
+        </div><!-- content-body -->
+      </div><!-- settings-content -->
+    </div><!-- panel-body -->
+  </div><!-- settings-panel -->
+</div><!-- settings-overlay -->
 
 {#if showKBManager}
   {#await import('./KnowledgeBaseManager.svelte') then { default: KnowledgeBaseManager }}
@@ -426,8 +438,40 @@
     width: 720px;
     height: 520px;
     display: flex;
+    flex-direction: column;
     overflow: hidden;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+  }
+
+  /* Full-width top bar */
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1.25rem;
+    border-bottom: 1px solid var(--border-light);
+    flex-shrink: 0;
+  }
+
+  .panel-title {
+    font-size: var(--font-size-base);
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+  }
+
+  /* macOS: close btn on left → use flex-start, gap between btn and title */
+  :global(.platform-macos) .panel-header {
+    justify-content: flex-start;
+    gap: 0.5rem;
+  }
+
+  /* Sidebar + content side by side */
+  .panel-body {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+    min-height: 0;
   }
 
   /* Left sidebar */
@@ -438,17 +482,6 @@
     flex-direction: column;
     background: var(--bg-secondary);
     border-right: 1px solid var(--border-light);
-  }
-
-  .sidebar-header {
-    padding: 1.25rem 1rem 0.75rem;
-  }
-
-  .sidebar-header h2 {
-    font-size: var(--font-size-sm);
-    font-weight: 600;
-    color: var(--text-primary);
-    margin: 0;
   }
 
   .sidebar-nav {
@@ -513,21 +546,6 @@
     min-width: 0;
   }
 
-  .content-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 1rem 1.25rem;
-    border-bottom: 1px solid var(--border-light);
-  }
-
-  .content-header h3 {
-    font-size: 1rem;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin: 0;
-  }
-
   .close-btn {
     display: flex;
     align-items: center;
@@ -539,11 +557,19 @@
     color: var(--text-muted);
     cursor: pointer;
     border-radius: 3px;
+    flex-shrink: 0;
   }
 
   .close-btn:hover {
     background: var(--bg-hover);
     color: var(--text-primary);
+  }
+
+  .content-title {
+    font-size: var(--font-size-base);
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 0.25rem;
   }
 
   .content-body {

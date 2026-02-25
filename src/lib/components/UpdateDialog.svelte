@@ -220,6 +220,15 @@
     color: var(--text-primary);
   }
 
+  /* macOS: close button on the left, consistent with macOS window controls */
+  :global(.platform-macos) .dialog-header {
+    justify-content: flex-start;
+    gap: 0.75rem;
+  }
+  :global(.platform-macos) .dialog-header .close-btn {
+    order: -1;
+  }
+
   .dialog-body {
     padding: 1.25rem;
     display: flex;
