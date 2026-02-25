@@ -37,26 +37,28 @@
   let knowledgeBases = $state<KnowledgeBase[]>([]);
   let showKBManager = $state(false);
 
-  filesStore.subscribe(state => {
-    knowledgeBases = state.knowledgeBases;
-  });
-
   const lightThemes = getLightThemes();
   const darkThemes = getDarkThemes();
 
-  settingsStore.subscribe(state => {
-    theme = state.theme;
-    colorTheme = state.colorTheme;
-    darkColorTheme = state.darkColorTheme;
-    useSeparateDarkTheme = state.useSeparateDarkTheme;
-    fontSize = state.fontSize;
-    autoSave = state.autoSave;
-    autoSaveInterval = state.autoSaveInterval / 1000;
-    rememberLastFolder = state.rememberLastFolder;
-    currentLocale = state.localeSelection;
-    editorLineWidth = state.editorLineWidth;
-    editorTabSize = state.editorTabSize;
-    showLineNumbers = state.showLineNumbers;
+  $effect(() => {
+    const unsub1 = filesStore.subscribe(state => {
+      knowledgeBases = state.knowledgeBases;
+    });
+    const unsub2 = settingsStore.subscribe(state => {
+      theme = state.theme;
+      colorTheme = state.colorTheme;
+      darkColorTheme = state.darkColorTheme;
+      useSeparateDarkTheme = state.useSeparateDarkTheme;
+      fontSize = state.fontSize;
+      autoSave = state.autoSave;
+      autoSaveInterval = state.autoSaveInterval / 1000;
+      rememberLastFolder = state.rememberLastFolder;
+      currentLocale = state.localeSelection;
+      editorLineWidth = state.editorLineWidth;
+      editorTabSize = state.editorTabSize;
+      showLineNumbers = state.showLineNumbers;
+    });
+    return () => { unsub1(); unsub2(); };
   });
 
   function handleLocaleChange(event: Event) {
@@ -173,6 +175,12 @@
       </div>
 
       <div class="content-body">
+        <!-- Heavy components: always mounted, shown/hidden via CSS to avoid remount lag -->
+        <div class="tab-pane" class:active={activeTab === 'ai'}><AISettings /></div>
+        <div class="tab-pane" class:active={activeTab === 'mcp'}><MCPPanel /></div>
+        <div class="tab-pane" class:active={activeTab === 'image'}><ImageHostingSettings /></div>
+        <div class="tab-pane" class:active={activeTab === 'publish'}><PublishSettings /></div>
+
         {#if activeTab === 'general'}
           <div class="setting-group">
             <label class="setting-label" for="settings-locale">{$t('settings.language.label')}</label>
@@ -351,18 +359,6 @@
               </div>
             </div>
           </div>
-
-        {:else if activeTab === 'ai'}
-          <AISettings />
-
-        {:else if activeTab === 'mcp'}
-          <MCPPanel />
-
-        {:else if activeTab === 'image'}
-          <ImageHostingSettings />
-
-        {:else if activeTab === 'publish'}
-          <PublishSettings />
 
         {:else if activeTab === 'permissions'}
           <div class="setting-section">
@@ -557,6 +553,14 @@
     display: flex;
     flex-direction: column;
     gap: 1.25rem;
+  }
+
+  /* Heavy tab components stay mounted; CSS toggles visibility */
+  .tab-pane {
+    display: none;
+  }
+  .tab-pane.active {
+    display: contents; /* transparent wrapper — children flow directly into flex container */
   }
 
   .setting-group {

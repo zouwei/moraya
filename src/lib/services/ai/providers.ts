@@ -493,6 +493,11 @@ export async function sendAIRequest(config: AIProviderConfig, request: AIRequest
       return callClaude(config, request, signal);
     case 'openai':
     case 'deepseek':
+    case 'grok':
+    case 'mistral':
+    case 'glm':
+    case 'minimax':
+    case 'doubao':
     case 'custom':
       return callOpenAICompatible(config, request, signal);
     case 'gemini':
@@ -511,11 +516,16 @@ export async function* streamAIRequest(config: AIProviderConfig, request: AIRequ
       break;
     case 'openai':
     case 'deepseek':
+    case 'grok':
+    case 'mistral':
+    case 'glm':
+    case 'minimax':
+    case 'doubao':
     case 'custom':
       yield* streamOpenAICompatible(config, request, signal);
       break;
     default:
-      // Fallback: non-streaming
+      // Fallback: non-streaming (gemini, ollama)
       const response = await sendAIRequest(config, request);
       yield response.content;
   }

@@ -3,7 +3,7 @@
  * Supports multiple LLM providers: Claude, OpenAI, Gemini, DeepSeek, local models
  */
 
-export type AIProvider = 'claude' | 'openai' | 'gemini' | 'deepseek' | 'ollama' | 'custom';
+export type AIProvider = 'claude' | 'openai' | 'gemini' | 'deepseek' | 'ollama' | 'grok' | 'mistral' | 'glm' | 'minimax' | 'doubao' | 'custom';
 
 export interface AIProviderConfig {
   id: string;
@@ -16,21 +16,31 @@ export interface AIProviderConfig {
 }
 
 export const DEFAULT_MODELS: Record<AIProvider, string[]> = {
-  claude: ['claude-opus-4-6', 'claude-opus-4-5-20251101', 'claude-sonnet-4-20250514', 'claude-3-5-haiku-20241022'],
-  openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o1', 'o1-mini'],
-  gemini: ['gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
+  claude:  ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'],
+  openai:  ['gpt-5.2', 'gpt-5.2-pro', 'gpt-5', 'gpt-5-mini', 'o4-mini', 'gpt-4o', 'gpt-4o-mini', 'o3', 'o3-mini'],
+  gemini:  ['gemini-3.1-pro-preview', 'gemini-3-flash-preview', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-pro-exp'],
   deepseek: ['deepseek-chat', 'deepseek-reasoner'],
-  ollama: ['llama3', 'mistral', 'codellama', 'qwen2'],
-  custom: [],
+  ollama:  ['llama3.3', 'llama3.2', 'qwen2.5', 'qwen2.5-coder', 'phi4', 'gemma3', 'deepseek-r1', 'mistral', 'codellama'],
+  grok:    ['grok-4', 'grok-4-1-fast-reasoning', 'grok-4-1-fast-non-reasoning', 'grok-code-fast-1', 'grok-3'],
+  mistral: ['mistral-large-latest', 'mistral-small-latest', 'magistral-medium-latest', 'magistral-small-latest', 'codestral-latest', 'devstral-latest'],
+  glm:     ['glm-5', 'glm-4-plus', 'glm-4-air', 'glm-4-flash', 'glm-z1-flash', 'glm-z1-air'],
+  minimax: ['MiniMax-M2.5', 'MiniMax-M2.5-highspeed', 'MiniMax-Text-01'],
+  doubao:  ['doubao-seed-2-0-pro', 'doubao-seed-2-0-lite', 'doubao-seed-2-0-mini', 'doubao-seed-2-0-code', 'doubao-pro-32k', 'doubao-pro-128k'],
+  custom:  [],
 };
 
 export const PROVIDER_BASE_URLS: Record<AIProvider, string> = {
-  claude: 'https://api.anthropic.com',
-  openai: 'https://api.openai.com',
-  gemini: 'https://generativelanguage.googleapis.com',
+  claude:   'https://api.anthropic.com',
+  openai:   'https://api.openai.com',
+  gemini:   'https://generativelanguage.googleapis.com',
   deepseek: 'https://api.deepseek.com',
-  ollama: 'http://localhost:11434',
-  custom: '',
+  ollama:   'http://localhost:11434',
+  grok:     'https://api.x.ai',
+  mistral:  'https://api.mistral.ai',
+  glm:      'https://open.bigmodel.cn/api/paas/v4',
+  minimax:  'https://api.minimax.io/v1',
+  doubao:   'https://ark.cn-beijing.volces.com/api/v3',
+  custom:   '',
 };
 
 export interface ImageAttachment {
@@ -105,7 +115,16 @@ export interface AICommandOption {
 
 // --- Image Generation (AIGC) Types ---
 
-export type ImageProvider = 'openai' | 'grok' | 'custom';
+export type ImageProvider = 'openai' | 'grok' | 'gemini' | 'qwen' | 'doubao' | 'custom';
+
+export const DEFAULT_IMAGE_MODELS: Record<ImageProvider, string[]> = {
+  openai: ['dall-e-3', 'dall-e-2', 'gpt-image-1'],
+  grok:   ['aurora'],
+  gemini: ['imagen-3.0-generate-002', 'imagen-3.0-fast-generate-001'],
+  qwen:   ['wanx2.1-t2i-turbo', 'wanx2.1-t2i-plus', 'wanx-v1'],
+  doubao: ['doubao-seedream-5-0-260128', 'doubao-seedream-3-0-t2i-250415'],
+  custom: [],
+};
 
 export type ImageAspectRatio = '16:9' | '4:3' | '3:2' | '1:1' | '2:3' | '3:4' | '9:16';
 export type ImageSizeLevel = 'large' | 'medium' | 'small';
@@ -138,9 +157,12 @@ export function resolveImageSize(ratio: ImageAspectRatio, level: ImageSizeLevel)
 }
 
 export const IMAGE_PROVIDER_PRESETS: Record<ImageProvider, { baseURL: string; model: string }> = {
-  openai: { baseURL: 'https://api.openai.com/v1', model: 'dall-e-3' },
-  grok: { baseURL: 'https://api.x.ai/v1', model: 'grok-2-image' },
-  custom: { baseURL: '', model: '' },
+  openai:  { baseURL: 'https://api.openai.com/v1',                          model: 'dall-e-3' },
+  grok:    { baseURL: 'https://api.x.ai/v1',                                model: 'aurora' },
+  gemini:  { baseURL: 'https://generativelanguage.googleapis.com',           model: 'imagen-3.0-generate-002' },
+  qwen:    { baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',   model: 'wanx2.1-t2i-turbo' },
+  doubao:  { baseURL: 'https://ark.cn-beijing.volces.com/api/v3',            model: 'doubao-seedream-5-0-260128' },
+  custom:  { baseURL: '', model: '' },
 };
 
 export const DEFAULT_IMAGE_PROVIDER_CONFIG: Omit<ImageProviderConfig, 'id'> = {

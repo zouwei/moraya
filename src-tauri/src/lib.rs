@@ -272,6 +272,7 @@ pub fn run() {
             commands::update::get_platform_info,
             commands::update::exit_app,
             commands::update::download_update,
+            commands::object_storage::upload_to_object_storage,
             set_editor_mode_menu,
             update_menu_labels,
             set_menu_check,

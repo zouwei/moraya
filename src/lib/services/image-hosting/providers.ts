@@ -1,4 +1,5 @@
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
+import { invoke } from '@tauri-apps/api/core';
 import type { ImageHostConfig, UploadResult } from './types';
 
 /**
@@ -16,13 +17,13 @@ function timestampedName(originalName: string): string {
 }
 
 /**
- * Parse owner and repo from a GitHub URL.
+ * Parse owner and repo from a GitHub/Gitea/git-custom URL.
  */
-function parseGitHubUrl(repoUrl: string): { owner: string; repo: string } {
+function parseGitRepoUrl(repoUrl: string): { host: string; owner: string; repo: string } {
   const cleaned = repoUrl.replace(/\.git$/, '').replace(/\/$/, '');
-  const match = cleaned.match(/github\.com\/([^/]+)\/([^/]+)/);
-  if (!match) throw new Error(`Invalid GitHub URL: ${repoUrl}`);
-  return { owner: match[1], repo: match[2] };
+  const match = cleaned.match(/^(https?:\/\/[^/]+)\/([^/]+)\/([^/]+)$/);
+  if (!match) throw new Error(`Invalid repository URL: ${repoUrl}`);
+  return { host: match[1], owner: match[2], repo: match[3] };
 }
 
 async function uploadToGitHub(blob: Blob, config: ImageHostConfig): Promise<UploadResult> {
@@ -30,7 +31,7 @@ async function uploadToGitHub(blob: Blob, config: ImageHostConfig): Promise<Uplo
     throw new Error('GitHub image hosting is not configured');
   }
 
-  const { owner, repo } = parseGitHubUrl(config.githubRepoUrl);
+  const { owner, repo } = parseGitRepoUrl(config.githubRepoUrl);
   const branch = config.githubBranch || 'main';
   const dir = (config.githubDir || 'images/').replace(/\/$/, '');
 
@@ -76,6 +77,102 @@ async function uploadToGitHub(blob: Blob, config: ImageHostConfig): Promise<Uplo
     imageUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filePath}`;
   }
 
+  return { url: imageUrl };
+}
+
+async function uploadToGitLab(blob: Blob, config: ImageHostConfig): Promise<UploadResult> {
+  if (!config.gitlabRepoUrl || !config.gitlabToken) {
+    throw new Error('GitLab image hosting is not configured');
+  }
+
+  const { host, owner, repo } = parseGitRepoUrl(config.gitlabRepoUrl);
+  const branch = config.gitlabBranch || 'main';
+  const dir = (config.gitlabDir || 'images/').replace(/\/$/, '');
+
+  const fileName = timestampedName((blob as File).name || 'image.png');
+  const filePath = `${dir}/${fileName}`;
+
+  // Read blob as base64
+  const arrayBuffer = await blob.arrayBuffer();
+  const bytes = new Uint8Array(arrayBuffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  const base64Content = btoa(binary);
+
+  // URL-encode the project path and file path for GitLab API
+  const projectPath = encodeURIComponent(`${owner}/${repo}`);
+  const encodedFilePath = encodeURIComponent(filePath);
+  const url = `${host}/api/v4/projects/${projectPath}/repository/files/${encodedFilePath}`;
+
+  const res = await tauriFetch(url, {
+    method: 'PUT',
+    headers: {
+      'PRIVATE-TOKEN': config.gitlabToken,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      branch,
+      content: base64Content,
+      encoding: 'base64',
+      commit_message: `upload: ${fileName}`,
+    }),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new Error(`GitLab upload failed (${res.status}): ${errBody}`);
+  }
+
+  // GitLab raw file URL
+  const imageUrl = `${host}/${owner}/${repo}/-/raw/${branch}/${filePath}`;
+  return { url: imageUrl };
+}
+
+async function uploadToGitCustom(blob: Blob, config: ImageHostConfig): Promise<UploadResult> {
+  if (!config.gitCustomRepoUrl || !config.gitCustomToken) {
+    throw new Error('Custom Git image hosting is not configured');
+  }
+
+  const { host, owner, repo } = parseGitRepoUrl(config.gitCustomRepoUrl);
+  const branch = config.gitCustomBranch || 'main';
+  const dir = (config.gitCustomDir || 'images/').replace(/\/$/, '');
+
+  const fileName = timestampedName((blob as File).name || 'image.png');
+  const filePath = `${dir}/${fileName}`;
+
+  // Read blob as base64
+  const arrayBuffer = await blob.arrayBuffer();
+  const bytes = new Uint8Array(arrayBuffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  const base64Content = btoa(binary);
+
+  // Gitea/Forgejo: GitHub Contents API compatible
+  const url = `${host}/api/v1/repos/${owner}/${repo}/contents/${filePath}`;
+  const res = await tauriFetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.gitCustomToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      message: `upload: ${fileName}`,
+      content: base64Content,
+      branch,
+    }),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new Error(`Git upload failed (${res.status}): ${errBody}`);
+  }
+
+  // Gitea/Forgejo raw URL
+  const imageUrl = `${host}/${owner}/${repo}/raw/branch/${branch}/${filePath}`;
   return { url: imageUrl };
 }
 
@@ -177,6 +274,42 @@ async function uploadToCustom(blob: Blob, config: ImageHostConfig): Promise<Uplo
   return { url };
 }
 
+/**
+ * Upload to object storage providers (Qiniu, Aliyun OSS, Tencent COS, AWS S3, Google GCS).
+ * HMAC signing is handled by the Rust backend to keep secrets out of frontend.
+ */
+async function uploadToObjectStorage(blob: Blob, config: ImageHostConfig): Promise<UploadResult> {
+  if (!config.ossBucket || !config.ossRegion) {
+    throw new Error('Object storage is not configured (missing bucket or region)');
+  }
+
+  const arrayBuffer = await blob.arrayBuffer();
+  const bytes = Array.from(new Uint8Array(arrayBuffer));
+  const fileName = timestampedName((blob as File).name || 'image.png');
+  const prefix = (config.ossPathPrefix || '').replace(/\/$/, '');
+  const objectKey = prefix ? `${prefix}/${fileName}` : fileName;
+
+  const resultUrl = await invoke<string>('upload_to_object_storage', {
+    provider: config.provider,
+    accessKey: config.ossAccessKey,
+    secretKey: config.ossSecretKey,
+    bucket: config.ossBucket,
+    region: config.ossRegion,
+    endpoint: config.ossEndpoint || null,
+    objectKey,
+    data: bytes,
+    contentType: blob.type || 'image/png',
+  });
+
+  // Apply CDN domain if configured
+  if (config.ossCdnDomain) {
+    const cdnBase = config.ossCdnDomain.replace(/\/$/, '');
+    return { url: `${cdnBase}/${objectKey}` };
+  }
+
+  return { url: resultUrl };
+}
+
 export const providers: Record<
   string,
   (blob: Blob, config: ImageHostConfig) => Promise<UploadResult>
@@ -184,5 +317,12 @@ export const providers: Record<
   smms: uploadToSmms,
   imgur: uploadToImgur,
   github: uploadToGitHub,
+  gitlab: uploadToGitLab,
+  'git-custom': uploadToGitCustom,
   custom: uploadToCustom,
+  qiniu: uploadToObjectStorage,
+  'aliyun-oss': uploadToObjectStorage,
+  'tencent-cos': uploadToObjectStorage,
+  'aws-s3': uploadToObjectStorage,
+  'google-gcs': uploadToObjectStorage,
 };

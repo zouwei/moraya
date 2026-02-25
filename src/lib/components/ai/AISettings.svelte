@@ -3,6 +3,7 @@
     aiStore,
     testAIConnectionWithResolve,
     DEFAULT_MODELS,
+    DEFAULT_IMAGE_MODELS,
     PROVIDER_BASE_URLS,
     type AIProvider,
     type AIProviderConfig,
@@ -33,7 +34,9 @@
   let formMaxTokens = $state(8192);
   let formTemperature = $state(0.7);
   let formTestStatus = $state<'idle' | 'testing' | 'success' | 'failed'>('idle');
+  let formTestError = $state('');
   let showModelDropdown = $state(false);
+  let chatTestTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ── AI Image Model State ──
   let imageConfigs = $state<ImageProviderConfig[]>([]);
@@ -49,6 +52,9 @@
   let imgFormRatio = $state<ImageAspectRatio>('16:9');
   let imgFormSizeLevel = $state<ImageSizeLevel>('medium');
   let imgFormTestStatus = $state<'idle' | 'testing' | 'success' | 'failed'>('idle');
+  let imgFormTestError = $state('');
+  let showImageModelDropdown = $state(false);
+  let imgTestTimer: ReturnType<typeof setTimeout> | null = null;
 
   const RATIO_OPTIONS: ImageAspectRatio[] = ['16:9', '4:3', '3:2', '1:1', '2:3', '3:4', '9:16'];
   const SIZE_LEVEL_OPTIONS: ImageSizeLevel[] = ['large', 'medium', 'small'];
@@ -56,19 +62,30 @@
   let imgFormResolvedSize = $derived(resolveImageSize(imgFormRatio, imgFormSizeLevel));
 
   // ── Subscribe to stores ──
-  aiStore.subscribe(state => {
-    chatConfigs = state.providerConfigs;
-    activeChatConfigId = state.activeConfigId;
-  });
-
-  settingsStore.subscribe(state => {
-    imageConfigs = state.imageProviderConfigs;
-    activeImageConfigId = state.activeImageConfigId;
+  $effect(() => {
+    const unsub1 = aiStore.subscribe(state => {
+      chatConfigs = state.providerConfigs;
+      activeChatConfigId = state.activeConfigId;
+    });
+    const unsub2 = settingsStore.subscribe(state => {
+      imageConfigs = state.imageProviderConfigs;
+      activeImageConfigId = state.activeImageConfigId;
+    });
+    return () => {
+      unsub1();
+      unsub2();
+      if (chatTestTimer) clearTimeout(chatTestTimer);
+      if (imgTestTimer) clearTimeout(imgTestTimer);
+    };
   });
 
   // ── Chat Model Functions ──
   function getChatModels(): string[] {
     return DEFAULT_MODELS[formProvider] || [];
+  }
+
+  function getImageModels(): string[] {
+    return DEFAULT_IMAGE_MODELS[imgFormProvider] || [];
   }
 
   function startEditChat(config: AIProviderConfig) {
@@ -150,7 +167,9 @@
       formBaseUrl = result.resolvedBaseUrl;
     }
     formTestStatus = result.success ? 'success' : 'failed';
-    setTimeout(() => { formTestStatus = 'idle'; }, 3000);
+    formTestError = result.success ? '' : (result.error || $t('ai.config.testFailed'));
+    if (chatTestTimer) clearTimeout(chatTestTimer);
+    chatTestTimer = setTimeout(() => { formTestStatus = 'idle'; formTestError = ''; }, 3000);
   }
 
   // ── Image Model Functions ──
@@ -242,7 +261,9 @@
       imgFormBaseUrl = result.resolvedBaseUrl;
     }
     imgFormTestStatus = result.success ? 'success' : 'failed';
-    setTimeout(() => { imgFormTestStatus = 'idle'; }, 3000);
+    imgFormTestError = result.success ? '' : (result.error || $t('ai.config.testFailed'));
+    if (imgTestTimer) clearTimeout(imgTestTimer);
+    imgTestTimer = setTimeout(() => { imgFormTestStatus = 'idle'; imgFormTestError = ''; }, 3000);
   }
 </script>
 
@@ -268,6 +289,11 @@
             <option value="openai">{$t('ai.providers.openai')}</option>
             <option value="gemini">{$t('ai.providers.gemini')}</option>
             <option value="deepseek">{$t('ai.providers.deepseek')}</option>
+            <option value="grok">{$t('ai.providers.grok')}</option>
+            <option value="mistral">{$t('ai.providers.mistral')}</option>
+            <option value="glm">{$t('ai.providers.glm')}</option>
+            <option value="minimax">{$t('ai.providers.minimax')}</option>
+            <option value="doubao">{$t('ai.providers.doubao')}</option>
             <option value="ollama">{$t('ai.providers.ollama')}</option>
             <option value="custom">{$t('ai.providers.custom')}</option>
           </select>
@@ -331,6 +357,9 @@
             {:else if formTestStatus === 'failed'}{$t('ai.config.failed')}
             {:else}{$t('ai.config.testConnection')}{/if}
           </button>
+          {#if formTestError && formTestStatus === 'failed'}
+            <p class="test-error">{formTestError}</p>
+          {/if}
           <div class="form-actions-right">
             <button class="btn-sm" onclick={cancelChatForm}>{$t('common.cancel')}</button>
             <button class="btn-sm primary" onclick={saveChatConfig}>{$t('common.save')}</button>
@@ -370,6 +399,11 @@
           <option value="openai">{$t('ai.providers.openai')}</option>
           <option value="gemini">{$t('ai.providers.gemini')}</option>
           <option value="deepseek">{$t('ai.providers.deepseek')}</option>
+          <option value="grok">{$t('ai.providers.grok')}</option>
+          <option value="mistral">{$t('ai.providers.mistral')}</option>
+          <option value="glm">{$t('ai.providers.glm')}</option>
+          <option value="minimax">{$t('ai.providers.minimax')}</option>
+          <option value="doubao">{$t('ai.providers.doubao')}</option>
           <option value="ollama">{$t('ai.providers.ollama')}</option>
           <option value="custom">{$t('ai.providers.custom')}</option>
         </select>
@@ -433,6 +467,9 @@
           {:else if formTestStatus === 'failed'}{$t('ai.config.failed')}
           {:else}{$t('ai.config.testConnection')}{/if}
         </button>
+        {#if formTestError && formTestStatus === 'failed'}
+          <p class="test-error">{formTestError}</p>
+        {/if}
         <div class="form-actions-right">
           <button class="btn-sm" onclick={cancelChatForm}>{$t('common.cancel')}</button>
           <button class="btn-sm primary" onclick={saveChatConfig}>{$t('common.save')}</button>
@@ -463,6 +500,9 @@
           <select class="setting-input" value={imgFormProvider} onchange={handleImgProviderChange}>
             <option value="openai">{$t('ai.imageConfig.providerOpenai')}</option>
             <option value="grok">{$t('ai.imageConfig.providerGrok')}</option>
+            <option value="gemini">{$t('ai.imageConfig.providerGemini')}</option>
+            <option value="qwen">{$t('ai.imageConfig.providerQwen')}</option>
+            <option value="doubao">{$t('ai.imageConfig.providerDoubao')}</option>
             <option value="custom">{$t('ai.imageConfig.providerCustom')}</option>
           </select>
         </div>
@@ -479,7 +519,21 @@
 
         <div class="setting-group">
           <label class="setting-label">{$t('ai.imageConfig.model')}</label>
-          <input type="text" class="setting-input" bind:value={imgFormModel} placeholder={$t('ai.imageConfig.modelPlaceholder')} />
+          <div class="combo-wrapper">
+            <input type="text" class="setting-input" bind:value={imgFormModel}
+              onfocus={() => { if (getImageModels().length > 0) showImageModelDropdown = true; }}
+              onblur={() => { setTimeout(() => { showImageModelDropdown = false; }, 150); }}
+              placeholder={$t('ai.imageConfig.modelPlaceholder')} />
+            {#if showImageModelDropdown && getImageModels().length > 0}
+              <div class="model-dropdown">
+                {#each getImageModels() as m}
+                  <button class="model-option" class:active={imgFormModel === m}
+                    onmousedown={(e) => { e.preventDefault(); imgFormModel = m; showImageModelDropdown = false; }}
+                  >{m}</button>
+                {/each}
+              </div>
+            {/if}
+          </div>
         </div>
 
         <div class="setting-group">
@@ -515,6 +569,9 @@
             {:else if imgFormTestStatus === 'failed'}{$t('ai.config.failed')}
             {:else}{$t('ai.config.testConnection')}{/if}
           </button>
+          {#if imgFormTestError && imgFormTestStatus === 'failed'}
+            <p class="test-error">{imgFormTestError}</p>
+          {/if}
           <div class="form-actions-right">
             <button class="btn-sm" onclick={cancelImageForm}>{$t('common.cancel')}</button>
             <button class="btn-sm primary" onclick={saveImageConfig}>{$t('common.save')}</button>
@@ -550,6 +607,9 @@
         <select class="setting-input" value={imgFormProvider} onchange={handleImgProviderChange}>
           <option value="openai">{$t('ai.imageConfig.providerOpenai')}</option>
           <option value="grok">{$t('ai.imageConfig.providerGrok')}</option>
+          <option value="gemini">{$t('ai.imageConfig.providerGemini')}</option>
+          <option value="qwen">{$t('ai.imageConfig.providerQwen')}</option>
+          <option value="doubao">{$t('ai.imageConfig.providerDoubao')}</option>
           <option value="custom">{$t('ai.imageConfig.providerCustom')}</option>
         </select>
       </div>
@@ -602,6 +662,9 @@
           {:else if imgFormTestStatus === 'failed'}{$t('ai.config.failed')}
           {:else}{$t('ai.config.testConnection')}{/if}
         </button>
+        {#if imgFormTestError && imgFormTestStatus === 'failed'}
+          <p class="test-error">{imgFormTestError}</p>
+        {/if}
         <div class="form-actions-right">
           <button class="btn-sm" onclick={cancelImageForm}>{$t('common.cancel')}</button>
           <button class="btn-sm primary" onclick={saveImageConfig}>{$t('common.save')}</button>
@@ -915,5 +978,12 @@
     border-color: #dc3545;
     color: #dc3545;
     background: #dc354510;
+  }
+
+  .test-error {
+    margin: 4px 0 0 0;
+    font-size: var(--font-size-xs);
+    color: #dc3545;
+    word-break: break-all;
   }
 </style>

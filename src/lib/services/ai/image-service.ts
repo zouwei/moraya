@@ -45,6 +45,44 @@ function isDashScope(baseURL: string): boolean {
 }
 
 /**
+ * Generate an image using Google Gemini Imagen API.
+ * Endpoint: POST /v1beta/models/{model}:predict?key={apiKey}
+ * Response: predictions[0].bytesBase64Encoded → data:image/png;base64,...
+ */
+async function generateImageGemini(
+  config: ImageProviderConfig,
+  prompt: string,
+): Promise<ImageGenerationResult> {
+  const base = config.baseURL.replace(/\/+$/, '');
+  const url = `${base}/v1beta/models/${config.model}:predict`;
+
+  const bodyPayload = JSON.stringify({
+    instances: [{ prompt }],
+    parameters: {
+      sampleCount: 1,
+      aspectRatio: config.defaultRatio,
+    },
+  });
+
+  const responseText = await invoke<string>('ai_proxy_fetch', {
+    configId: config.id,
+    keyPrefix: 'image-key:',
+    apiKeyOverride: config.apiKey !== '***' ? config.apiKey : undefined,
+    provider: 'gemini',
+    url,
+    body: bodyPayload,
+  });
+
+  const data = JSON.parse(responseText);
+  const b64 = data.predictions?.[0]?.bytesBase64Encoded;
+  if (!b64) {
+    throw new Error(`No image data in Gemini Imagen response: ${JSON.stringify(data).slice(0, 500)}`);
+  }
+
+  return { url: `data:image/png;base64,${b64}` };
+}
+
+/**
  * Generate an image using DashScope's native multimodal-generation API.
  * Used for Alibaba Cloud qwen-image / wanx models.
  */
@@ -109,6 +147,11 @@ export async function generateImage(
     return generateImageDashScope(config, prompt, size);
   }
 
+  // Route to Gemini Imagen adapter
+  if (config.provider === 'gemini') {
+    return generateImageGemini(config, prompt);
+  }
+
   // Standard OpenAI-compatible path — via Rust proxy
   const url = openaiEndpoint(config.baseURL, '/images/generations');
 
@@ -146,34 +189,79 @@ export async function generateImage(
  * Test the AIGC provider connection by making a minimal request.
  * Uses a simple prompt to verify credentials and endpoint.
  */
-export async function testImageConnection(config: ImageProviderConfig): Promise<boolean> {
-  try {
-    if (isDashScope(config.baseURL)) {
-      // DashScope: verify auth via native API POST with test input
-      const base = config.baseURL.replace(/\/+$/, '').replace(/\/compatible-mode\/v1$/, '');
-      const url = `${base}/api/v1/services/aigc/multimodal-generation/generation`;
-      try {
-        await invoke<string>('ai_proxy_fetch', {
-          configId: config.id,
-          keyPrefix: 'image-key:',
-          apiKeyOverride: config.apiKey !== '***' ? config.apiKey : undefined,
-          provider: 'dashscope',
-          url,
-          body: JSON.stringify({
-            model: config.model,
-            input: { messages: [{ role: 'user', content: [{ text: 'test' }] }] },
-          }),
-        });
-        return true; // 200 = OK
-      } catch (e: unknown) {
-        const msg = typeof e === 'string' ? e : '';
-        // 400 = bad input but key is valid, 401/403 = bad key
-        if (msg.includes('(400)')) return true;
-        return false;
-      }
-    }
+export async function testImageConnection(config: ImageProviderConfig): Promise<{ success: boolean; error?: string }> {
+  function errMsg(e: unknown): string {
+    return typeof e === 'string' ? e : (e instanceof Error ? e.message : 'Connection failed');
+  }
 
-    // Standard: check /models endpoint via proxy
+  if (isDashScope(config.baseURL)) {
+    // DashScope: verify auth via native API POST with test input
+    const base = config.baseURL.replace(/\/+$/, '').replace(/\/compatible-mode\/v1$/, '');
+    const url = `${base}/api/v1/services/aigc/multimodal-generation/generation`;
+    try {
+      await invoke<string>('ai_proxy_fetch', {
+        configId: config.id,
+        keyPrefix: 'image-key:',
+        apiKeyOverride: config.apiKey !== '***' ? config.apiKey : undefined,
+        provider: 'dashscope',
+        url,
+        body: JSON.stringify({
+          model: config.model,
+          input: { messages: [{ role: 'user', content: [{ text: 'test' }] }] },
+        }),
+      });
+      return { success: true };
+    } catch (e: unknown) {
+      const msg = errMsg(e);
+      if (msg.includes('(400)')) return { success: true };
+      return { success: false, error: msg };
+    }
+  }
+
+  if (config.provider === 'gemini') {
+    // Gemini: check models list endpoint (key injected as query param by Rust proxy)
+    const base = config.baseURL.replace(/\/+$/, '');
+    const url = `${base}/v1beta/models`;
+    try {
+      await invoke<string>('ai_proxy_fetch', {
+        configId: config.id,
+        keyPrefix: 'image-key:',
+        apiKeyOverride: config.apiKey !== '***' ? config.apiKey : undefined,
+        provider: 'gemini',
+        url,
+        body: '{}',
+      });
+      return { success: true };
+    } catch (e: unknown) {
+      const msg = errMsg(e);
+      if (msg.includes('(400)')) return { success: true };
+      return { success: false, error: msg };
+    }
+  }
+
+  if (config.provider === 'doubao') {
+    // VolcEngine /models only accepts GET; use /images/generations POST instead
+    const url = openaiEndpoint(config.baseURL, '/images/generations');
+    try {
+      await invoke<string>('ai_proxy_fetch', {
+        configId: config.id,
+        keyPrefix: 'image-key:',
+        apiKeyOverride: config.apiKey !== '***' ? config.apiKey : undefined,
+        provider: 'openai',
+        url,
+        body: JSON.stringify({ model: config.model, prompt: 'test', n: 1 }),
+      });
+      return { success: true };
+    } catch (e: unknown) {
+      const msg = errMsg(e);
+      // 400/422 = valid key but bad params, 401/403 = bad key
+      if (msg.includes('(400)') || msg.includes('(422)')) return { success: true };
+      return { success: false, error: msg };
+    }
+  }
+
+  // Standard: check /models endpoint via proxy
+  try {
     const url = openaiEndpoint(config.baseURL, '/models');
     await invoke<string>('ai_proxy_fetch', {
       configId: config.id,
@@ -183,9 +271,9 @@ export async function testImageConnection(config: ImageProviderConfig): Promise<
       url,
       body: '{}',
     });
-    return true;
-  } catch {
-    return false;
+    return { success: true };
+  } catch (e: unknown) {
+    return { success: false, error: errMsg(e) };
   }
 }
 
@@ -195,13 +283,15 @@ export async function testImageConnection(config: ImageProviderConfig): Promise<
  */
 export async function testImageConnectionWithResolve(
   config: ImageProviderConfig,
-): Promise<{ success: boolean; resolvedBaseUrl?: string }> {
+): Promise<{ success: boolean; resolvedBaseUrl?: string; error?: string }> {
   const candidates = generateBaseUrlCandidates(config.baseURL);
+  let lastError: string | undefined;
   for (const url of candidates) {
-    const ok = await testImageConnection({ ...config, baseURL: url || config.baseURL });
-    if (ok) return { success: true, resolvedBaseUrl: url };
+    const result = await testImageConnection({ ...config, baseURL: url || config.baseURL });
+    if (result.success) return { success: true, resolvedBaseUrl: url };
+    lastError = result.error;
   }
-  return { success: false };
+  return { success: false, error: lastError };
 }
 
 export type ImageGenMode = 'article' | 'design' | 'storyboard' | 'product' | 'moodboard' | 'portrait';

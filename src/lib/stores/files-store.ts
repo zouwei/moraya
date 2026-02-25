@@ -168,10 +168,10 @@ function createFilesStore() {
       });
     },
 
-    async setActiveKnowledgeBase(id: string) {
+    async setActiveKnowledgeBase(id: string): Promise<{ success: boolean; error?: string }> {
       const state = get({ subscribe });
       const kb = state.knowledgeBases.find(k => k.id === id);
-      if (!kb) return;
+      if (!kb) return { success: false, error: 'Knowledge base not found' };
 
       try {
         const tree = await invoke<FileEntry[]>('read_dir_recursive', {
@@ -192,8 +192,10 @@ function createFilesStore() {
           fileTree: tree,
           filePreviews: [],
         }));
-      } catch {
-        // Folder inaccessible (external drive removed, deleted, etc.)
+        return { success: true };
+      } catch (e: unknown) {
+        const error = typeof e === 'string' ? e : (e instanceof Error ? e.message : 'Folder inaccessible');
+        return { success: false, error };
       }
     },
 

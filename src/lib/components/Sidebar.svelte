@@ -3,9 +3,8 @@
   import { filesStore, type FileEntry, type FilePreview, type KnowledgeBase } from '../stores/files-store';
   import { settingsStore } from '../stores/settings-store';
   import { invoke } from '@tauri-apps/api/core';
-  import { open } from '@tauri-apps/plugin-dialog';
+  import { open, ask, message } from '@tauri-apps/plugin-dialog';
   import { revealItemInDir } from '@tauri-apps/plugin-opener';
-  import { ask } from '@tauri-apps/plugin-dialog';
   import { t } from '$lib/i18n';
   import { startWatching, stopWatching, refreshFileTree } from '$lib/services/file-watcher';
   import FileContextMenu from './FileContextMenu.svelte';
@@ -78,9 +77,12 @@
     showKBDropdown = !showKBDropdown;
   }
 
-  function switchKB(id: string) {
+  async function switchKB(id: string) {
     showKBDropdown = false;
-    filesStore.setActiveKnowledgeBase(id);
+    const result = await filesStore.setActiveKnowledgeBase(id);
+    if (!result.success) {
+      await message(result.error || 'Failed to open knowledge base', { title: 'Error', kind: 'error' });
+    }
   }
 
   function getActiveKBName(): string {

@@ -295,6 +295,8 @@ cd src-tauri && cargo check
 
 - [x] **v0.13.0** — AI Vision Input: Multimodal image support for AI chat (paste, drag-and-drop, file picker), auto-compression, 4-provider adaptation (Claude/OpenAI/Gemini/Ollama), thumbnail preview, lightbox viewer, AI abort fix, and MCP async optimization. → [Detailed Requirements](docs/iterations/v0.13.0-vision-input.md)
 
+- [x] **v0.14.0** — AI Model & Image Hosting Enhancement: 5 new chat providers (Grok/Mistral/GLM/MiniMax/Doubao), refreshed model lists for all providers, smart model datalist for image generation, 3 new image generation providers (Gemini Imagen/Qwen/Doubao), 5 object storage image hosts (Qiniu Kodo/Aliyun OSS/Tencent COS/AWS S3/Google GCS) with HMAC signing in Rust backend, region datalist with per-provider presets, settings performance fix (subscription cleanup), instant tab switching (CSS keep-alive), macOS external drive support. → [Detailed Requirements](docs/iterations/v0.14.0-ai-model-imagehost-enhancement.md)
+
 ## License
 
 [Apache License 2.0](LICENSE)

@@ -10,8 +10,11 @@
   let editingName = $state('');
   let editInputEl = $state<HTMLInputElement | null>(null);
 
-  filesStore.subscribe(state => {
-    knowledgeBases = state.knowledgeBases;
+  $effect(() => {
+    const unsub = filesStore.subscribe(state => {
+      knowledgeBases = state.knowledgeBases;
+    });
+    return unsub;
   });
 
   async function addKnowledgeBase() {
@@ -102,7 +105,13 @@
                     onblur={confirmRename}
                   />
                 {:else}
-                  <span class="kb-list-name">{kb.name}</span>
+                  <span class="kb-list-name" role="button" tabindex="0"
+                    onclick={async () => {
+                      const result = await filesStore.setActiveKnowledgeBase(kb.id);
+                      if (result.success) { onClose(); }
+                    }}
+                    onkeydown={(e) => { if (e.key === 'Enter') e.currentTarget.click(); }}
+                  >{kb.name}</span>
                 {/if}
                 <span class="kb-list-path" title={kb.path}>{kb.path}</span>
               </div>
@@ -225,6 +234,10 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    cursor: pointer;
+  }
+  .kb-list-name:hover {
+    color: var(--accent-color, #0969da);
   }
 
   .kb-list-path {

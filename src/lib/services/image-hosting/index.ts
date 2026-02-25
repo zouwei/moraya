@@ -1,5 +1,5 @@
 export type { ImageHostProvider, ImageHostConfig, UploadResult, GitHubCdnMode, ImageHostTarget } from './types';
-export { DEFAULT_IMAGE_HOST_CONFIG, generateImageHostTargetId, createDefaultImageHostTarget, targetToConfig } from './types';
+export { DEFAULT_IMAGE_HOST_CONFIG, generateImageHostTargetId, createDefaultImageHostTarget, targetToConfig, isObjectStorageProvider, isGitProvider } from './types';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import type { ImageHostConfig, UploadResult } from './types';
 import { providers } from './providers';

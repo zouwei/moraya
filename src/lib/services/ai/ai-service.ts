@@ -919,9 +919,9 @@ export async function sendChatMessage(message: string, documentContext?: string,
 /**
  * Test the AI connection with a given or active config
  */
-export async function testAIConnection(config?: AIProviderConfig): Promise<boolean> {
+export async function testAIConnection(config?: AIProviderConfig): Promise<{ success: boolean; error?: string }> {
   const testConfig = config || aiStore.getActiveConfig();
-  if (!testConfig) return false;
+  if (!testConfig) return { success: false, error: 'No configuration' };
 
   try {
     const response = await sendAIRequest(testConfig, {
@@ -929,9 +929,10 @@ export async function testAIConnection(config?: AIProviderConfig): Promise<boole
         { role: 'user', content: 'Say "Hello from Moraya!" in exactly 3 words.', timestamp: Date.now() },
       ],
     });
-    return !!response.content;
-  } catch {
-    return false;
+    return { success: !!response.content };
+  } catch (e: unknown) {
+    const error = typeof e === 'string' ? e : (e instanceof Error ? e.message : 'Connection failed');
+    return { success: false, error };
   }
 }
 
@@ -961,13 +962,15 @@ export function generateBaseUrlCandidates(baseUrl?: string): string[] {
  */
 export async function testAIConnectionWithResolve(
   config: AIProviderConfig,
-): Promise<{ success: boolean; resolvedBaseUrl?: string }> {
+): Promise<{ success: boolean; resolvedBaseUrl?: string; error?: string }> {
   const candidates = generateBaseUrlCandidates(config.baseUrl);
+  let lastError: string | undefined;
   for (const url of candidates) {
-    const ok = await testAIConnection({ ...config, baseUrl: url || undefined });
-    if (ok) return { success: true, resolvedBaseUrl: url };
+    const result = await testAIConnection({ ...config, baseUrl: url || undefined });
+    if (result.success) return { success: true, resolvedBaseUrl: url };
+    lastError = result.error;
   }
-  return { success: false };
+  return { success: false, error: lastError };
 }
 
 /** Load persisted AI config from disk. Call once at app startup. */

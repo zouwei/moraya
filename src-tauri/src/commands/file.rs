@@ -34,8 +34,12 @@ fn strip_unc_prefix(p: PathBuf) -> PathBuf {
 }
 
 /// Validate that a path is safe to access:
-/// 1. Canonicalize the path (resolve `..` and symlinks)
-/// 2. Ensure the resolved path is within the user's home directory
+/// 1. Canonicalize the path (resolve `..` and symlinks) — prevents path traversal attacks
+/// 2. Ensure the resolved path is within an allowed root:
+///    - User's home directory (all platforms)
+///    - /Volumes/* on macOS (external drives, e.g. USB / HDD mounted by the OS)
+///    - /media/* or /mnt/* on Linux (external drive mount points)
+///    - Any drive letter other than C:\ on Windows is permitted (non-system volumes)
 fn validate_path(path: &str) -> Result<PathBuf, String> {
     let canonical = std::fs::canonicalize(path)
         .or_else(|_| {
@@ -54,11 +58,38 @@ fn validate_path(path: &str) -> Result<PathBuf, String> {
 
     let home = dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
 
-    if !canonical.starts_with(&home) {
-        return Err("Access denied: path outside allowed directory".to_string());
+    // Always allow paths within the user's home directory
+    if canonical.starts_with(&home) {
+        return Ok(canonical);
     }
 
-    Ok(canonical)
+    // macOS: allow external drives mounted under /Volumes/
+    // (e.g. /Volumes/MyUSB/notes.md — user selected via native file dialog)
+    #[cfg(target_os = "macos")]
+    if canonical.starts_with("/Volumes/") {
+        return Ok(canonical);
+    }
+
+    // Linux: allow external drives mounted under /media/ or /mnt/
+    #[cfg(target_os = "linux")]
+    if canonical.starts_with("/media/") || canonical.starts_with("/mnt/") {
+        return Ok(canonical);
+    }
+
+    // Windows: allow non-system drive letters (D:\, E:\, F:\, ...)
+    // C:\ is the system drive; other letters are typically data / external drives.
+    #[cfg(target_os = "windows")]
+    {
+        let s = canonical.to_string_lossy();
+        if s.len() >= 3 {
+            let drive = s.chars().next().unwrap_or('C').to_ascii_uppercase();
+            if drive != 'C' && s.chars().nth(1) == Some(':') {
+                return Ok(canonical);
+            }
+        }
+    }
+
+    Err("Access denied: path outside allowed directory".to_string())
 }
 
 #[tauri::command]
