@@ -5,7 +5,7 @@
  */
 
 import type { ImageProviderConfig, AIProviderConfig } from './types';
-import { resolveImageSize } from './types';
+import { resolveImageSize, DOUBAO_SIZE_MAP } from './types';
 import { sendAIRequest, openaiEndpoint } from './providers';
 import { generateBaseUrlCandidates } from './ai-service';
 import { invoke } from '@tauri-apps/api/core';
@@ -159,7 +159,9 @@ export async function generateImage(
     model: config.model,
     prompt,
     n: 1,
-    size: size || resolveImageSize(config.defaultRatio, config.defaultSizeLevel),
+    size: size || (config.provider === 'doubao'
+      ? (DOUBAO_SIZE_MAP[config.defaultRatio]?.[config.defaultSizeLevel] ?? '2048x2048')
+      : resolveImageSize(config.defaultRatio, config.defaultSizeLevel)),
     response_format: 'url',
   });
 

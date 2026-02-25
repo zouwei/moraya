@@ -14,7 +14,7 @@
     type ImageGenMode,
   } from '$lib/services/ai/image-service';
   import type { AIProviderConfig, ImageProviderConfig, ImageAspectRatio, ImageSizeLevel } from '$lib/services/ai/types';
-  import { resolveImageSize, IMAGE_SIZE_MAP } from '$lib/services/ai/types';
+  import { resolveImageSize, IMAGE_SIZE_MAP, DOUBAO_SIZE_MAP } from '$lib/services/ai/types';
 
   let {
     onClose,
@@ -50,7 +50,11 @@
   let imgSizeLevel = $state<ImageSizeLevel>('medium');
   const RATIO_OPTIONS: ImageAspectRatio[] = ['16:9', '4:3', '3:2', '1:1', '2:3', '3:4', '9:16'];
   const SIZE_LEVEL_OPTIONS: ImageSizeLevel[] = ['large', 'medium', 'small'];
-  let imgResolvedSize = $derived(resolveImageSize(imgRatio, imgSizeLevel));
+  let imgResolvedSize = $derived(
+    imageConfig?.provider === 'doubao'
+      ? (DOUBAO_SIZE_MAP[imgRatio]?.[imgSizeLevel] ?? '2048x2048')
+      : resolveImageSize(imgRatio, imgSizeLevel)
+  );
   let imgCssAspectRatio = $derived(imgRatio.replace(':', '/'));
   let availableStyles = $derived(MODE_STYLES[imageMode] || MODE_STYLES.article);
 

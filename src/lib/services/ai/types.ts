@@ -156,6 +156,22 @@ export function resolveImageSize(ratio: ImageAspectRatio, level: ImageSizeLevel)
   return IMAGE_SIZE_MAP[ratio]?.[level] ?? '1024x1024';
 }
 
+/**
+ * Doubao (VolcEngine SeedDream) requires minimum 3,686,400 pixels (1920×1920).
+ * All sizes here satisfy this constraint. 16:9/9:16 small=medium because
+ * 2560×1440 / 1440×2560 is already the minimum valid size for those ratios.
+ * Similarly 3:2/2:3 minimum rounds to 2400×1600 / 1600×2400.
+ */
+export const DOUBAO_SIZE_MAP: Record<ImageAspectRatio, Record<ImageSizeLevel, string>> = {
+  '16:9': { large: '3840x2160', medium: '2560x1440', small: '2560x1440' },
+  '4:3':  { large: '3200x2400', medium: '2560x1920', small: '2240x1680' },
+  '3:2':  { large: '3000x2000', medium: '2400x1600', small: '2400x1600' },
+  '1:1':  { large: '2560x2560', medium: '2048x2048', small: '1920x1920' },
+  '2:3':  { large: '2000x3000', medium: '1600x2400', small: '1600x2400' },
+  '3:4':  { large: '2400x3200', medium: '1920x2560', small: '1680x2240' },
+  '9:16': { large: '2160x3840', medium: '1440x2560', small: '1440x2560' },
+};
+
 export const IMAGE_PROVIDER_PRESETS: Record<ImageProvider, { baseURL: string; model: string }> = {
   openai:  { baseURL: 'https://api.openai.com/v1',                          model: 'dall-e-3' },
   grok:    { baseURL: 'https://api.x.ai/v1',                                model: 'aurora' },
