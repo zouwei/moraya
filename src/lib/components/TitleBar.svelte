@@ -1,7 +1,7 @@
 <script lang="ts">
   import { editorStore } from '../stores/editor-store';
   import { t } from '$lib/i18n';
-  import { isTauri } from '$lib/utils/platform';
+  import { isTauri, isMacOS } from '$lib/utils/platform';
   import { getCurrentWindow, type Window as TauriWindow } from '@tauri-apps/api/window';
 
   let {
@@ -40,9 +40,17 @@
 
   let displayTitle = $derived(isDirty ? `${title} - ${$t('titlebar.unsaved')}` : title);
 
-  // Sync native window title so macOS Window menu and Dock show the document name
+  // Sync native window title.
+  // On macOS with Overlay titlebar, native title text renders in the OS title bar area
+  // alongside our custom .title-text, causing duplicates. Set native title to '' so the
+  // OS renders no text; the custom .title-text (with proper sidebar/AI-panel CSS offsets)
+  // handles the visible filename. On other platforms, sync normally.
   $effect(() => {
-    appWindow?.setTitle(displayTitle);
+    if (isMacOS) {
+      appWindow?.setTitle('');
+    } else {
+      appWindow?.setTitle(displayTitle);
+    }
   });
 </script>
 

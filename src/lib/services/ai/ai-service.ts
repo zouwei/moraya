@@ -447,6 +447,17 @@ function buildSystemPrompt(
   if (toolCount > 0) {
     prompt += ' You have access to tools. Use them when they can help answer the user\'s question. You can use add_mcp_server to help users install and configure new MCP servers.';
 
+    // Image URL handling — graceful fallback for expired/temporary URLs
+    prompt +=
+      '\n\nIMPORTANT — Image URL handling (use this tiered strategy):' +
+      '\nWhen the user asks to upload or process images that appear in the document as URLs:' +
+      '\n1. **Try the URL directly** — pass it to the MCP tool first. If the URL is valid, this is fastest.' +
+      '\n2. **If the MCP call fails or times out** (URL may be expired or temporary):' +
+      '\n   - Call `fetch_image_to_local(url)` — this uses the browser cache, so it can retrieve images even if the URL has expired.' +
+      '\n   - On success it returns a local file path; retry the MCP tool with that local path.' +
+      '\n3. **If `fetch_image_to_local` also fails** — the image is not accessible. Report the error to the user and continue with the remaining images.' +
+      '\nNever abandon the whole batch because one image failed — process each image independently.';
+
     // File writing rules
     prompt +=
       '\n\nIMPORTANT — Rules for writing generated content:' +
@@ -520,9 +531,18 @@ export async function sendChatMessage(message: string, documentContext?: string,
   const signal = controller.signal;
 
   try {
-    // Collect MCP tools + internal tools
+    // Collect MCP tools + internal tools.
+    // Deduplicate by name: internal tools take priority; among MCP tools,
+    // the first server's tool wins. This prevents "Tool names must be unique"
+    // errors when multiple MCP servers expose identically-named tools.
     const mcpTools = getAllTools();
-    const toolDefs = [...INTERNAL_TOOLS, ...mcpToolsToToolDefs(mcpTools)];
+    const allDefs = [...INTERNAL_TOOLS, ...mcpToolsToToolDefs(mcpTools)];
+    const seen = new Set<string>();
+    const toolDefs = allDefs.filter(t => {
+      if (seen.has(t.name)) return false;
+      seen.add(t.name);
+      return true;
+    });
 
     // Build directory context for file writing rules
     const currentFilePath = editorStore.getState().currentFilePath;
@@ -720,17 +740,26 @@ export async function sendChatMessage(message: string, documentContext?: string,
         let resultText = '';
         let isError = false;
 
-        // Helper: race a promise against the abort signal so tool calls
-        // (especially slow MCP requests) can be interrupted immediately.
-        const raceAbort = <T>(p: Promise<T>): Promise<T> => {
-          if (!signal) return p;
-          return Promise.race([
-            p,
-            new Promise<never>((_, reject) => {
+        // Per-tool timeout: if an MCP tool stalls (e.g. slow network, hanging API),
+        // the call times out and returns an error to the AI instead of freezing forever.
+        const TOOL_TIMEOUT_MS = 20_000;
+
+        // Helper: race a promise against the abort signal AND a per-tool timeout.
+        const raceAbortOrTimeout = <T>(p: Promise<T>): Promise<T> => {
+          const racers: Promise<never>[] = [];
+
+          if (signal) {
+            racers.push(new Promise<never>((_, reject) => {
               if (signal.aborted) { reject(new DOMException('Aborted', 'AbortError')); return; }
               signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
-            }),
-          ]);
+            }));
+          }
+
+          racers.push(new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error(`Tool call timed out after ${TOOL_TIMEOUT_MS / 1000}s`)), TOOL_TIMEOUT_MS)
+          ));
+
+          return Promise.race([p, ...racers]);
         };
 
         try {
@@ -738,7 +767,7 @@ export async function sendChatMessage(message: string, documentContext?: string,
 
           if (isInternalTool(tc.name)) {
             // Internal tool — execute locally
-            const result = await raceAbort(executeInternalTool(tc));
+            const result = await raceAbortOrTimeout(executeInternalTool(tc));
             resultText = result.content;
             isError = result.isError;
           } else {
@@ -760,7 +789,7 @@ export async function sendChatMessage(message: string, documentContext?: string,
             } else if (isTargetOpenFile && isWriteOp && typeof tc.arguments.content === 'string') {
               // Redirect to internal update_editor_content to avoid file conflict
               console.log('[AI] Intercepted write_file on open file, redirecting to update_editor_content');
-              const result = await raceAbort(executeInternalTool({
+              const result = await raceAbortOrTimeout(executeInternalTool({
                 ...tc,
                 name: 'update_editor_content',
                 arguments: { content: tc.arguments.content },
@@ -769,7 +798,7 @@ export async function sendChatMessage(message: string, documentContext?: string,
               isError = result.isError;
             } else {
               // MCP tool — race against abort signal so user can interrupt slow MCP calls
-              const result = await raceAbort(callTool(tc.name, tc.arguments));
+              const result = await raceAbortOrTimeout(callTool(tc.name, tc.arguments));
               resultText = result.content?.map(c => c.text || '').join('\n') || '';
               isError = result.isError || false;
 
@@ -801,6 +830,20 @@ export async function sendChatMessage(message: string, documentContext?: string,
           console.error(`[AI] Tool call failed: ${tc.name}`, error);
           resultText = `Error: ${error instanceof Error ? error.message : String(error)}`;
           isError = true;
+
+          // If this tool call timed out or failed and its arguments contain HTTP URLs,
+          // suggest the fetch_image_to_local fallback strategy so the AI can recover.
+          const argValues = Object.values(tc.arguments as Record<string, unknown>);
+          const hasHttpUrl = argValues.some(
+            v => typeof v === 'string' && (v.startsWith('http://') || v.startsWith('https://')),
+          );
+          if (hasHttpUrl) {
+            resultText +=
+              '\n\nRecovery hint: This tool call failed while working with an image URL. ' +
+              'The URL may be expired. Use `fetch_image_to_local(url)` to retrieve the image ' +
+              'via browser cache (works even for expired URLs), then retry this tool with the ' +
+              'returned local file path instead of the URL.';
+          }
         }
 
         // Truncate excessively large tool results to prevent exceeding AI context limits

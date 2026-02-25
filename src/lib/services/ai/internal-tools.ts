@@ -14,6 +14,7 @@ import {
 import { containerStore } from '$lib/services/mcp/container-store';
 import { editorStore } from '$lib/stores/editor-store';
 import { invoke } from '@tauri-apps/api/core';
+import { appDataDir } from '@tauri-apps/api/path';
 
 /** Extract a human-readable message from unknown caught values (Error objects, strings, etc.). */
 function errMsg(e: unknown): string {
@@ -178,6 +179,30 @@ export const INTERNAL_TOOLS: ToolDefinition[] = [
       required: ['content'],
     },
   },
+  {
+    name: 'fetch_image_to_local',
+    description:
+      'Fetch an image URL and save it to a local file. ' +
+      'Uses the WebView browser cache, so this works even for expired or temporary URLs ' +
+      'that are still cached from when they were first displayed in the editor. ' +
+      'Use this BEFORE calling MCP tools that require a local file path (e.g. image upload tools). ' +
+      'Returns the absolute local file path that can be passed directly to MCP tools.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        url: {
+          type: 'string',
+          description: 'The image URL to fetch (can be an expired URL if still cached in browser)',
+        },
+        filename: {
+          type: 'string',
+          description:
+            'Optional desired filename (e.g. "banner.jpg"). If omitted, extracted from the URL.',
+        },
+      },
+      required: ['url'],
+    },
+  },
 ];
 
 /** Check if a tool name belongs to an internal tool. */
@@ -202,6 +227,8 @@ export async function executeInternalTool(
       return handleRemoveDynamicService(tc.arguments);
     case 'update_editor_content':
       return handleUpdateEditorContent(tc.arguments);
+    case 'fetch_image_to_local':
+      return handleFetchImageToLocal(tc.arguments);
     default:
       return { content: `Unknown internal tool: ${tc.name}`, isError: true };
   }
@@ -353,6 +380,144 @@ async function handleRemoveDynamicService(
   } catch (e: any) {
     return { content: `Failed to remove service: ${errMsg(e)}`, isError: true };
   }
+}
+
+/** Try to get image bytes from a URL using a timed fetch with the specified cache mode. */
+async function fetchWithTimeout(
+  url: string,
+  cacheMode: RequestCache,
+  timeoutMs: number,
+): Promise<{ buffer: ArrayBuffer; error: null } | { buffer: null; error: string }> {
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const r = await fetch(url, { cache: cacheMode, signal: ctrl.signal });
+    clearTimeout(tid);
+    if (!r.ok) return { buffer: null, error: `HTTP ${r.status}` };
+    const buf = await r.arrayBuffer();
+    if (buf.byteLength === 0) return { buffer: null, error: 'empty response' };
+    return { buffer: buf, error: null };
+  } catch (e: any) {
+    clearTimeout(tid);
+    return {
+      buffer: null,
+      error: e?.name === 'AbortError' ? `timed out after ${timeoutMs / 1000}s` : errMsg(e),
+    };
+  }
+}
+
+/**
+ * Level-3 fallback: extract image bytes from a rendered <img> element via canvas.
+ * Works even for images that are displayed in the editor but whose URL has expired,
+ * as long as the browser still has the decoded bitmap in memory.
+ * Returns null if the image is not rendered or is cross-origin tainted.
+ */
+async function extractImageViaCanvas(url: string): Promise<ArrayBuffer | null> {
+  return new Promise((resolve) => {
+    // Search for a rendered <img> whose src matches the URL
+    let target: HTMLImageElement | null = null;
+    for (const img of document.querySelectorAll('img')) {
+      if (img.src === url || img.currentSrc === url) {
+        target = img;
+        break;
+      }
+    }
+    if (!target || target.naturalWidth === 0 || target.naturalHeight === 0) {
+      resolve(null);
+      return;
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = target.naturalWidth;
+    canvas.height = target.naturalHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) { resolve(null); return; }
+    try {
+      ctx.drawImage(target, 0, 0);
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) { resolve(null); return; }
+          blob.arrayBuffer().then(resolve).catch(() => resolve(null));
+        },
+        'image/jpeg',
+        0.92,
+      );
+    } catch {
+      // SecurityError: cross-origin taint — canvas.toBlob would throw
+      resolve(null);
+    }
+  });
+}
+
+async function handleFetchImageToLocal(
+  args: Record<string, unknown>,
+): Promise<{ content: string; isError: boolean }> {
+  const url = args.url as string;
+  if (!url) return { content: 'Error: "url" is required', isError: true };
+
+  let buffer: ArrayBuffer | null = null;
+  const errors: string[] = [];
+
+  // Level 1: force-cache — returns stale cached response without revalidating the origin.
+  // Best for expired presigned URLs that are still in the browser HTTP cache.
+  const l1 = await fetchWithTimeout(url, 'force-cache', 10_000);
+  if (l1.buffer) {
+    buffer = l1.buffer;
+  } else {
+    errors.push(`cache: ${l1.error}`);
+
+    // Level 2: network fetch — works if the URL is still valid on the server.
+    const l2 = await fetchWithTimeout(url, 'default', 10_000);
+    if (l2.buffer) {
+      buffer = l2.buffer;
+    } else {
+      errors.push(`network: ${l2.error}`);
+
+      // Level 3: DOM canvas extraction — works if the image is rendered in the editor
+      // even when the URL has expired AND is not in the HTTP cache.
+      buffer = await extractImageViaCanvas(url);
+      if (!buffer) errors.push('DOM canvas: image not rendered or cross-origin tainted');
+    }
+  }
+
+  if (!buffer) {
+    return {
+      content: `Failed to retrieve image from ${url}. Tried: ${errors.join(' | ')}. The image cannot be accessed through any available method.`,
+      isError: true,
+    };
+  }
+
+  // Encode to base64 for write_file_binary
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  const CHUNK = 8192;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  const base64Data = btoa(binary);
+
+  // Determine filename
+  let filename = (args.filename as string) || '';
+  if (!filename) {
+    try {
+      filename = new URL(url).pathname.split('/').pop()?.split('?')[0] || 'image';
+    } catch {
+      filename = 'image';
+    }
+  }
+  filename = filename.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 100) || 'image';
+  if (!filename.includes('.')) filename += '.jpg';
+  const uniqueFilename = `${Date.now()}_${filename}`;
+
+  const dataDir = await appDataDir();
+  const base = dataDir.replace(/[/\\]$/, '');
+  const localPath = `${base}/image-cache/${uniqueFilename}`;
+
+  await invoke('write_file_binary', { path: localPath, base64Data });
+
+  return {
+    content: `Image saved to: ${localPath} (${buffer.byteLength} bytes). Pass this local path to MCP tools that require a file path.`,
+    isError: false,
+  };
 }
 
 async function handleUpdateEditorContent(

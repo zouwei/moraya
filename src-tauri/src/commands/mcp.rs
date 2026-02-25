@@ -12,7 +12,10 @@ const MAX_LINE_LENGTH: usize = 256 * 1024;
 /// Maximum iterations when reading MCP responses
 const MAX_READ_ITERATIONS: usize = 1000;
 /// Timeout for waiting on a single line from the MCP server
-const READ_LINE_TIMEOUT: Duration = Duration::from_secs(60);
+const READ_LINE_TIMEOUT: Duration = Duration::from_secs(20);
+/// Total wall-clock cap per request — prevents indefinite wait when a server
+/// outputs many non-JSON progress lines (each line would otherwise reset READ_LINE_TIMEOUT)
+const TOTAL_RESPONSE_TIMEOUT: Duration = Duration::from_secs(25);
 
 /// Dangerous or interfering environment variable prefixes that must not be passed to child processes
 const BLOCKED_ENV_PREFIXES: &[&str] = &[
@@ -417,13 +420,20 @@ pub async fn mcp_send_request(
 }
 
 /// Read a JSON response from the channel (fed by the background reader thread).
-/// Uses recv_timeout to ensure this never blocks forever.
+/// Uses recv_timeout (per-line) and a total wall-clock cap to ensure this never blocks forever.
 fn read_response_channel(proc: &mut MCPProcess) -> Result<String, String> {
+    let start = std::time::Instant::now();
     let mut iterations = 0;
     loop {
         iterations += 1;
         if iterations > MAX_READ_ITERATIONS {
             return Err("MCP response exceeded iteration limit".to_string());
+        }
+
+        // Total wall-clock cap: prevents indefinite wait when the server outputs many
+        // non-JSON lines (e.g. progress logs), each of which would otherwise reset READ_LINE_TIMEOUT
+        if start.elapsed() > TOTAL_RESPONSE_TIMEOUT {
+            return Err("MCP response timeout".to_string());
         }
 
         match proc.line_rx.recv_timeout(READ_LINE_TIMEOUT) {
