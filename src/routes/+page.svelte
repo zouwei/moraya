@@ -172,7 +172,7 @@ ${tr('welcome.tip')}
   let content = $state('');
   let showSidebar = $state(false);
   let showSettings = $state(false);
-  let settingsInitialTab = $state<'general' | 'ai'>('general');
+  let settingsInitialTab = $state<'general' | 'ai' | 'voice'>('general');
   let showAIPanel = $state(false);
   let showImageDialog = $state(false);
   let showSearch = $state(false);
@@ -1525,6 +1525,7 @@ ${tr('welcome.tip')}
           onInsert={handleAIInsert}
           onReplace={handleAIReplace}
           onOpenSettings={() => { settingsInitialTab = 'ai'; showSettings = true; }}
+          onOpenVoiceSettings={() => { settingsInitialTab = 'voice'; showSettings = true; }}
         />
       {/await}
     {/if}

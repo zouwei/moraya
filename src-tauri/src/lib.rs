@@ -245,6 +245,7 @@ pub fn run() {
         )
         .manage(commands::mcp::MCPProcessManager::new())
         .manage(commands::ai_proxy::AIProxyState::new())
+        .manage(commands::speech_proxy::SpeechProxyState::new())
         .manage(OpenedFiles(Mutex::new(initial_files)))
         .manage(PendingFiles(Mutex::new(HashMap::new())))
         .manage(MainWindowReady(AtomicBool::new(false)))
@@ -254,6 +255,7 @@ pub fn run() {
             commands::file::write_file,
             commands::file::write_file_binary,
             commands::file::read_dir_recursive,
+            commands::file::migrate_voice_profiles_dir,
             commands::file::create_markdown_file,
             commands::file::rename_file,
             commands::file::delete_file,
@@ -273,6 +275,9 @@ pub fn run() {
             commands::update::exit_app,
             commands::update::download_update,
             commands::object_storage::upload_to_object_storage,
+            commands::speech_proxy::speech_proxy_start,
+            commands::speech_proxy::speech_proxy_send_audio,
+            commands::speech_proxy::speech_proxy_stop,
             set_editor_mode_menu,
             update_menu_labels,
             set_menu_check,

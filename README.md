@@ -297,6 +297,8 @@ cd src-tauri && cargo check
 
 - [x] **v0.14.0** — AI Model & Image Hosting Enhancement: 5 new chat providers (Grok/Mistral/GLM/MiniMax/Doubao), refreshed model lists for all providers, smart model datalist for image generation, 3 new image generation providers (Gemini Imagen/Qwen/Doubao), 5 object storage image hosts (Qiniu Kodo/Aliyun OSS/Tencent COS/AWS S3/Google GCS) with HMAC signing in Rust backend, region datalist with per-provider presets, settings performance fix (subscription cleanup), instant tab switching (CSS keep-alive), macOS external drive support. → [Detailed Requirements](docs/iterations/v0.14.0-ai-model-imagehost-enhancement.md)
 
+- [x] **v0.15.0** — AI Voice Transcription: Real-time microphone → STT (Deepgram/Gladia/AssemblyAI/Azure Speech) → speaker diarization with auto-naming (pitch-based gender detection), voiceprint archive for cross-session recognition, transcription panel in AI sidebar with one-click meeting summary generation and Markdown export, voice settings tab with multi-provider config and keychain security. → [Detailed Requirements](docs/iterations/v0.15.0-voice-transcription.md)
+
 ## License
 
 [Apache License 2.0](LICENSE)

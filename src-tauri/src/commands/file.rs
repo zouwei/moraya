@@ -432,3 +432,40 @@ fn read_dir_inner(
 
     Ok(result)
 }
+
+/// Recursively copy directory contents from `src` into `dst`, skipping symlinks.
+fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
+    fs::create_dir_all(dst).map_err(sanitize_io_error)?;
+    let entries = fs::read_dir(src).map_err(sanitize_io_error)?;
+    for entry in entries {
+        let entry = entry.map_err(sanitize_io_error)?;
+        let meta = entry.metadata().map_err(sanitize_io_error)?;
+        if meta.is_symlink() {
+            continue; // skip symlinks per security policy
+        }
+        let dst_path = dst.join(entry.file_name());
+        if meta.is_dir() {
+            copy_dir_recursive(&entry.path(), &dst_path)?;
+        } else {
+            fs::copy(entry.path(), &dst_path).map_err(sanitize_io_error)?;
+        }
+    }
+    Ok(())
+}
+
+/// Migrate voice profile sample files from one directory to another.
+/// Called when the user changes the Voice Profile Sync Directory in settings.
+/// Both directories must reside within an allowed path (home dir or external mount).
+#[tauri::command]
+pub fn migrate_voice_profiles_dir(old_dir: String, new_dir: String) -> Result<(), String> {
+    let old_path = validate_path(&old_dir)?;
+    let new_path = validate_path(&new_dir)?;
+
+    if !old_path.exists() {
+        // Nothing to migrate; just ensure the new directory exists.
+        fs::create_dir_all(&new_path).map_err(sanitize_io_error)?;
+        return Ok(());
+    }
+
+    copy_dir_recursive(&old_path, &new_path)
+}

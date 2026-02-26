@@ -4,11 +4,15 @@ import { invoke } from '@tauri-apps/api/core';
 import { setLocale, detectSystemLocale, type SupportedLocale, type LocaleSelection } from '$lib/i18n';
 import { getThemeById } from '$lib/styles/themes';
 import { type ImageHostConfig, type ImageHostTarget, DEFAULT_IMAGE_HOST_CONFIG, generateImageHostTargetId } from '$lib/services/image-hosting';
-import type { ImageProviderConfig } from '$lib/services/ai/types';
+import type { ImageProviderConfig, SpeechProviderConfig } from '$lib/services/ai/types';
 import type { PublishTarget } from '$lib/services/publish/types';
+import type { VoiceProfile } from '$lib/services/voice/types';
 
 const SETTINGS_STORE_FILE = 'settings.json';
 const KEYCHAIN_IMAGE_PREFIX = 'image-key:';
+const KEYCHAIN_SPEECH_PREFIX = 'speech-key:';
+const KEYCHAIN_SPEECH_AWS_AK_PREFIX = 'speech-aws-ak:';
+const KEYCHAIN_SPEECH_AWS_SK_PREFIX = 'speech-aws-sk:';
 
 export type Theme = 'light' | 'dark' | 'system';
 
@@ -39,6 +43,11 @@ interface Settings {
   lastOpenedFolder: string | null;
   mcpAutoApprove: boolean;
   aiMaxTokens: number;
+  speechProviderConfigs: SpeechProviderConfig[];
+  activeSpeechConfigId: string | null;
+  voiceProfiles: VoiceProfile[];
+  recordingBackupDir: string | null;   // null = disabled
+  voiceSyncDir: string | null;         // null = use AppData default
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -68,6 +77,11 @@ const DEFAULT_SETTINGS: Settings = {
   lastOpenedFolder: null,
   mcpAutoApprove: false,
   aiMaxTokens: 16384,
+  speechProviderConfigs: [],
+  activeSpeechConfigId: null,
+  voiceProfiles: [],
+  recordingBackupDir: null,
+  voiceSyncDir: null,
 };
 
 function resolveLocale(selection: LocaleSelection): SupportedLocale {
@@ -141,6 +155,33 @@ function schedulePersist(state: Settings) {
           } else {
             diskState.imageProviderConfigs.push({ ...c });
           }
+        }
+      }
+
+      // Sanitize speech provider API keys for disk storage
+      if (state.speechProviderConfigs?.length > 0) {
+        diskState.speechProviderConfigs = [];
+        for (const c of state.speechProviderConfigs) {
+          const sanitized = { ...c };
+          if (c.apiKey && c.apiKey !== '***') {
+            try {
+              await invoke('keychain_set', { key: `${KEYCHAIN_SPEECH_PREFIX}${c.id}`, value: c.apiKey });
+              sanitized.apiKey = '***';
+            } catch { /* fallback: keep plaintext */ }
+          }
+          if (c.awsAccessKey && c.awsAccessKey !== '***') {
+            try {
+              await invoke('keychain_set', { key: `${KEYCHAIN_SPEECH_AWS_AK_PREFIX}${c.id}`, value: c.awsAccessKey });
+              sanitized.awsAccessKey = '***';
+            } catch { /* fallback */ }
+          }
+          if (c.awsSecretKey && c.awsSecretKey !== '***') {
+            try {
+              await invoke('keychain_set', { key: `${KEYCHAIN_SPEECH_AWS_SK_PREFIX}${c.id}`, value: c.awsSecretKey });
+              sanitized.awsSecretKey = '***';
+            } catch { /* fallback */ }
+          }
+          diskState.speechProviderConfigs.push(sanitized);
         }
       }
 
@@ -323,6 +364,32 @@ export async function initSettingsStore() {
           }
         }
         settingsStore.update({ imageProviderConfigs: restoredImageConfigs });
+      }
+
+      // Restore speech provider API keys from keychain
+      const speechState = settingsStore.getState();
+      if (speechState.speechProviderConfigs?.length > 0) {
+        const restoredSpeechConfigs = [];
+        for (const c of speechState.speechProviderConfigs) {
+          const restored = { ...c };
+          if (c.apiKey === '***') {
+            try {
+              restored.apiKey = await invoke<string | null>('keychain_get', { key: `${KEYCHAIN_SPEECH_PREFIX}${c.id}` }) ?? '';
+            } catch { restored.apiKey = ''; }
+          }
+          if (c.awsAccessKey === '***') {
+            try {
+              restored.awsAccessKey = await invoke<string | null>('keychain_get', { key: `${KEYCHAIN_SPEECH_AWS_AK_PREFIX}${c.id}` }) ?? '';
+            } catch { restored.awsAccessKey = ''; }
+          }
+          if (c.awsSecretKey === '***') {
+            try {
+              restored.awsSecretKey = await invoke<string | null>('keychain_get', { key: `${KEYCHAIN_SPEECH_AWS_SK_PREFIX}${c.id}` }) ?? '';
+            } catch { restored.awsSecretKey = ''; }
+          }
+          restoredSpeechConfigs.push(restored);
+        }
+        settingsStore.update({ speechProviderConfigs: restoredSpeechConfigs });
       }
 
       const state = settingsStore.getState();

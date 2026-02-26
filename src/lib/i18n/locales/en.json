@@ -11,6 +11,11 @@
     "replace": "Replace",
     "copy": "Copy",
     "edit": "Edit",
+    "delete": "Delete",
+    "browse": "Change",
+    "clear": "Reset",
+    "play": "Play",
+    "stop": "Stop",
     "untitled": "Untitled"
   },
   "settings": {
@@ -23,7 +28,8 @@
       "mcp": "MCP",
       "image": "Image",
       "publish": "Publish",
-      "permissions": "Permissions"
+      "permissions": "Permissions",
+      "voice": "Voice"
     },
     "language": {
       "label": "Language",
@@ -62,6 +68,48 @@
       "aiTitle": "AI Settings",
       "aiMaxTokens": "Max Output Tokens",
       "aiMaxTokensHint": "Maximum number of tokens the AI can generate per response. Higher values allow longer responses and tool calls, but cost more."
+    },
+    "voice": {
+      "providers": "Speech Providers",
+      "addProvider": "Add Provider",
+      "editProvider": "Edit Provider",
+      "noProviders": "No speech providers configured.",
+      "provider": "Provider",
+      "apiKey": "API Key",
+      "apiKeyOptional": "Optional for AWS (use Access Key instead)",
+      "awsAccessKey": "AWS Access Key ID",
+      "awsSecretKey": "AWS Secret Access Key",
+      "region": "Region",
+      "model": "Model",
+      "modelPlaceholder": "Enter model name",
+      "language": "Language",
+      "langAuto": "Auto Detect",
+      "langMulti": "Multi-language",
+      "baseUrl": "Custom WebSocket URL",
+      "testConnection": "Test Connection",
+      "testing": "Testing...",
+      "testOk": "Connected",
+      "testFailed": "Connection failed",
+      "setActive": "Set default",
+      "active": "Default",
+      "custom": "Custom",
+      "storage": "Storage",
+      "recordingBackupDir": "Recording Backup",
+      "recordingBackupHint": "Save full recordings as WAV files after each session.",
+      "voiceSyncDir": "Voice Profile Sync Directory",
+      "voiceSyncHint": "Sync voice profiles via cloud storage (e.g. iCloud, Dropbox). Use the Change button to pick a folder — existing profiles will be migrated automatically.",
+      "syncDefault": "App Data (default)",
+      "disabled": "Disabled",
+      "migratingProfiles": "Migrating...",
+      "migrationFailed": "Migration failed",
+      "profiles": "Voice Profiles",
+      "noProfiles": "No voice profiles yet. They are created automatically after transcription sessions.",
+      "naming": {
+        "male": "Male {n}",
+        "female": "Female {n}",
+        "bystander": "Passerby{n}",
+        "speaker": "Speaker {n}"
+      }
     }
   },
   "titlebar": {
@@ -159,6 +207,8 @@
     "attachImageMax": "Maximum {max} images",
     "removeImage": "Remove image",
     "closePreview": "Close preview",
+    "moreActions": "More actions",
+    "voiceTranscription": "AI Voice Transcription",
     "config": {
       "title": "AI Configuration",
       "provider": "Provider",
@@ -1171,5 +1221,26 @@
         "hard": "Hard"
       }
     }
+  },
+  "transcription": {
+    "title": "Transcription",
+    "recording": "Recording",
+    "connecting": "Connecting...",
+    "paused": "Paused",
+    "stopping": "Stopping...",
+    "idle": "Ready",
+    "start": "Start",
+    "stop": "Stop",
+    "pause": "Pause",
+    "resume": "Resume",
+    "back": "Back to chat",
+    "emptyIdle": "Click Start to begin recording and transcribing.",
+    "emptyWaiting": "Waiting for speech...",
+    "summarizeWithAI": "Summarize with AI",
+    "saveAsDoc": "Save as Document",
+    "summarizePrompt": "Please generate a meeting summary from the following transcript. Identify key discussion points, decisions made, and action items. Format as Markdown.",
+    "noSpeechConfig": "No speech provider configured. Please add one in Settings → Voice.",
+    "noSpeechConfigHint": "Go to Settings → Voice to add a speech provider (e.g. Deepgram).",
+    "goToVoiceSettings": "Open Voice Settings"
   }
 }

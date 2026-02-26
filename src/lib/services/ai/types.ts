@@ -282,3 +282,52 @@ export const AI_COMMANDS: AICommandOption[] = [
     systemPrompt: 'Explain the following text in simple terms. If it contains technical concepts, provide clear explanations. Output in Markdown.',
   },
 ];
+
+// --- Speech STT Types ---
+
+export type SpeechProvider =
+  | 'deepgram'
+  | 'gladia'
+  | 'assemblyai'
+  | 'azure-speech'
+  | 'aws-transcribe'
+  | 'custom';
+
+export interface SpeechProviderConfig {
+  id: string;
+  provider: SpeechProvider;
+  apiKey: string;        // keychain: 'speech-key:{id}', disk: '***'
+  baseUrl?: string;      // custom WebSocket endpoint
+  model: string;
+  language: string;      // 'zh', 'en', 'auto', 'multi'
+  region?: string;       // Azure/AWS region
+  awsAccessKey?: string; // keychain: 'speech-aws-ak:{id}', disk: '***'
+  awsSecretKey?: string; // keychain: 'speech-aws-sk:{id}', disk: '***'
+}
+
+export const SPEECH_PROVIDER_MODELS: Record<SpeechProvider, string[]> = {
+  deepgram:         ['nova-3', 'nova-2', 'nova', 'enhanced', 'base'],
+  gladia:           ['solaria-1', 'fast', 'accurate'],
+  assemblyai:       ['universal-streaming'],
+  'azure-speech':   ['latest'],
+  'aws-transcribe': ['general', 'medical', 'call-center'],
+  custom:           [],
+};
+
+export const SPEECH_PROVIDER_BASE_URLS: Record<SpeechProvider, string> = {
+  deepgram:         'wss://api.deepgram.com',
+  gladia:           'wss://api.gladia.io',
+  assemblyai:       'wss://streaming.assemblyai.com',
+  'azure-speech':   'wss://{region}.stt.speech.microsoft.com',
+  'aws-transcribe': 'wss://transcribestreaming.{region}.amazonaws.com:8443',
+  custom:           '',
+};
+
+export const SPEECH_PROVIDER_NAMES: Record<SpeechProvider, string> = {
+  deepgram:         'Deepgram',
+  gladia:           'Gladia',
+  assemblyai:       'AssemblyAI',
+  'azure-speech':   'Azure Speech',
+  'aws-transcribe': 'AWS Transcribe',
+  custom:           'Custom',
+};

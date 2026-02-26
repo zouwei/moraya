@@ -11,6 +11,11 @@
     "replace": "替换",
     "copy": "复制",
     "edit": "编辑",
+    "delete": "删除",
+    "browse": "更换",
+    "clear": "恢复默认",
+    "play": "试听",
+    "stop": "停止",
     "untitled": "未命名"
   },
   "settings": {
@@ -23,7 +28,8 @@
       "mcp": "MCP",
       "image": "图片",
       "publish": "发布",
-      "permissions": "权限"
+      "permissions": "权限",
+      "voice": "语音"
     },
     "language": {
       "label": "语言",
@@ -62,6 +68,48 @@
       "aiTitle": "AI 设置",
       "aiMaxTokens": "最大输出 Token 数",
       "aiMaxTokensHint": "AI 单次响应可生成的最大 Token 数量。较大的值允许更长的回复和工具调用，但会消耗更多额度。"
+    },
+    "voice": {
+      "providers": "语音识别服务",
+      "addProvider": "添加服务",
+      "editProvider": "编辑服务",
+      "noProviders": "尚未配置语音识别服务。",
+      "provider": "服务商",
+      "apiKey": "API Key",
+      "apiKeyOptional": "AWS 可选（使用访问密钥代替）",
+      "awsAccessKey": "AWS Access Key ID",
+      "awsSecretKey": "AWS Secret Access Key",
+      "region": "区域",
+      "model": "模型",
+      "modelPlaceholder": "输入模型名称",
+      "language": "语言",
+      "langAuto": "自动识别",
+      "langMulti": "多语言",
+      "baseUrl": "自定义 WebSocket 地址",
+      "testConnection": "测试连接",
+      "testing": "测试中...",
+      "testOk": "连接成功",
+      "testFailed": "连接失败",
+      "setActive": "设为默认",
+      "active": "默认",
+      "custom": "自定义",
+      "storage": "存储",
+      "recordingBackupDir": "录音备份",
+      "recordingBackupHint": "会话结束后自动保存完整录音 WAV 文件。",
+      "voiceSyncDir": "声纹同步目录",
+      "voiceSyncHint": "通过云盘同步声纹档案（如 iCloud、Dropbox）。点击「更换」选择文件夹，已有声纹文件将自动迁移至新目录。",
+      "syncDefault": "AppData（默认）",
+      "disabled": "已禁用",
+      "migratingProfiles": "迁移中...",
+      "migrationFailed": "迁移失败",
+      "profiles": "声纹档案",
+      "noProfiles": "暂无声纹档案，转录会话结束后会自动提取。",
+      "naming": {
+        "male": "男{n}号",
+        "female": "女{n}号",
+        "bystander": "路人{n}",
+        "speaker": "说话人{n}"
+      }
     }
   },
   "titlebar": {
@@ -159,6 +207,8 @@
     "attachImageMax": "最多 {max} 张图片",
     "removeImage": "移除图片",
     "closePreview": "关闭预览",
+    "moreActions": "更多功能",
+    "voiceTranscription": "AI 录音实时转录",
     "config": {
       "title": "AI 配置",
       "provider": "服务商",
@@ -1171,5 +1221,26 @@
         "hard": "困难"
       }
     }
+  },
+  "transcription": {
+    "title": "转录记录",
+    "recording": "录音中",
+    "connecting": "连接中...",
+    "paused": "已暂停",
+    "stopping": "停止中...",
+    "idle": "准备就绪",
+    "start": "开始录音",
+    "stop": "停止",
+    "pause": "暂停",
+    "resume": "继续",
+    "back": "返回对话",
+    "emptyIdle": "点击「开始录音」，开始实时转录。",
+    "emptyWaiting": "等待语音输入...",
+    "summarizeWithAI": "生成会议摘要",
+    "saveAsDoc": "保存为文档",
+    "summarizePrompt": "请根据以下转录内容生成会议摘要，标注关键讨论点、决策和行动项，以 Markdown 格式输出。",
+    "noSpeechConfig": "未配置语音识别服务，请前往 设置 → 语音 添加。",
+    "noSpeechConfigHint": "请前往 设置 → 语音 Tab 添加语音识别服务（如 Deepgram）。",
+    "goToVoiceSettings": "打开语音设置"
   }
 }

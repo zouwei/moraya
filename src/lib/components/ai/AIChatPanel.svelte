@@ -22,6 +22,7 @@
   import { compressImage, blobToBase64 } from '$lib/services/ai/image-utils';
   import TemplateGallery from './TemplateGallery.svelte';
   import TemplateParamPanel from './TemplateParamPanel.svelte';
+  import TranscriptionPanel from '../TranscriptionPanel.svelte';
 
   let {
     documentContent = '',
@@ -29,12 +30,14 @@
     onInsert,
     onReplace,
     onOpenSettings,
+    onOpenVoiceSettings,
   }: {
     documentContent?: string;
     selectedText?: string;
     onInsert?: (text: string) => void;
     onReplace?: (text: string) => void;
     onOpenSettings?: () => void;
+    onOpenVoiceSettings?: () => void;
   } = $props();
 
   let chatMessages = $state<ChatMessage[]>([]);
@@ -63,6 +66,10 @@
   const MAX_IMAGES = 5;
   let pendingImages = $state<ImageAttachment[]>([]);
   let lightboxSrc = $state<string | null>(null);
+
+  // Transcription panel
+  let showActionDrawer = $state(false);
+  let showTranscription = $state(false);
 
   // MORAYA.md indicator
   let morayaMdActive = $state(false);
@@ -462,6 +469,15 @@
     onReplace?.(content);
   }
 
+  /** Send a finished transcript to the LLM as a user message. */
+  async function handleTranscriptionToAI(transcript: string) {
+    showTranscription = false;
+    if (transcript.trim()) {
+      inputText = transcript;
+      await handleSend();
+    }
+  }
+
   function clearChat() {
     // Revoke pending image blob URLs
     for (const img of pendingImages) {
@@ -559,6 +575,14 @@
       {/if}
     </div>
   {:else}
+    {#if showTranscription}
+      <TranscriptionPanel
+        onSendToAI={handleTranscriptionToAI}
+        onBack={() => showTranscription = false}
+        {onInsert}
+        onOpenSettings={onOpenVoiceSettings}
+      />
+    {:else}
     <div class="ai-messages" bind:this={messagesEl} onscroll={handleMessagesScroll}>
       {#if chatMessages.length === 0 && !isLoading}
         <TemplateGallery onSelectTemplate={handleTemplateSelect} />
@@ -672,6 +696,21 @@
     </div>
 
     <div class="ai-input-area">
+      {#if showActionDrawer}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <div class="action-drawer" onclick={() => showActionDrawer = false}>
+          <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <button
+            class="drawer-item"
+            onclick={(e) => { e.stopPropagation(); showTranscription = true; showActionDrawer = false; }}
+          >
+            🎤 {$t('ai.voiceTranscription')}
+          </button>
+        </div>
+      {/if}
+
       {#if showCommands}
         <div class="commands-dropdown">
           <TemplateGallery onSelectTemplate={handleTemplateSelect} />
@@ -718,6 +757,15 @@
       {/if}
 
       <div class="input-row">
+        <button
+          class="plus-btn"
+          onclick={() => showActionDrawer = !showActionDrawer}
+          title={$t('ai.moreActions')}
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+            <path d="M6 0v12M0 6h12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>
+          </svg>
+        </button>
         <div class="input-wrapper">
           <button
             class="attach-btn"
@@ -766,6 +814,7 @@
         {/if}
       </div>
     </div>
+    {/if}
   {/if}
 
   {#if lightboxSrc}
@@ -1318,6 +1367,61 @@
     padding: 0.5rem;
   }
 
+  /* Action drawer (appears above input area) */
+  .action-drawer {
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    right: 0;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    margin: 0 0.5rem 0.25rem;
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.1);
+    z-index: 10;
+    overflow: hidden;
+  }
+
+  .drawer-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.6rem 0.75rem;
+    border: none;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    text-align: left;
+    transition: background var(--transition-fast);
+  }
+
+  .drawer-item:hover {
+    background: var(--bg-hover);
+  }
+
+  /* "+" action button (leftmost in input row) */
+  .plus-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    flex-shrink: 0;
+    border: 1px solid var(--border-color);
+    border-radius: 50%;
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background var(--transition-fast), color var(--transition-fast);
+  }
+
+  .plus-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
   .commands-dropdown {
     position: absolute;
     bottom: 100%;
@@ -1374,7 +1478,7 @@
 
   .input-row {
     display: flex;
-    align-items: flex-end;
+    align-items: center;
     gap: 0.35rem;
   }
 

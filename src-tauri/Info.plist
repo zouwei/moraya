@@ -2,62 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleDocumentTypes</key>
-  <array>
-    <dict>
-      <key>CFBundleTypeName</key>
-      <string>Markdown Document</string>
-      <key>CFBundleTypeRole</key>
-      <string>Editor</string>
-      <key>LSHandlerRank</key>
-      <string>Default</string>
-      <key>LSItemContentTypes</key>
-      <array>
-        <string>net.daringfireball.markdown</string>
-        <string>public.plain-text</string>
-      </array>
-      <key>CFBundleTypeExtensions</key>
-      <array>
-        <string>md</string>
-        <string>markdown</string>
-        <string>mdown</string>
-        <string>mkd</string>
-        <string>mkdn</string>
-        <string>mdwn</string>
-        <string>mdx</string>
-        <string>txt</string>
-      </array>
-    </dict>
-  </array>
-  <key>UTImportedTypeDeclarations</key>
-  <array>
-    <dict>
-      <key>UTTypeIdentifier</key>
-      <string>net.daringfireball.markdown</string>
-      <key>UTTypeConformsTo</key>
-      <array>
-        <string>public.plain-text</string>
-      </array>
-      <key>UTTypeDescription</key>
-      <string>Markdown Document</string>
-      <key>UTTypeTagSpecification</key>
-      <dict>
-        <key>public.filename-extension</key>
-        <array>
-          <string>md</string>
-          <string>markdown</string>
-          <string>mdown</string>
-          <string>mkd</string>
-          <string>mkdn</string>
-          <string>mdwn</string>
-          <string>mdx</string>
-        </array>
-        <key>public.mime-type</key>
-        <array>
-          <string>text/markdown</string>
-        </array>
-      </dict>
-    </dict>
-  </array>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Moraya uses the microphone for real-time voice transcription.</string>
 </dict>
 </plist>

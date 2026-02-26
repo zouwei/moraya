@@ -8,8 +8,9 @@
   import MCPPanel from './ai/MCPPanel.svelte';
   import ImageHostingSettings from './ImageHostingSettings.svelte';
   import PublishSettings from './PublishSettings.svelte';
+  import VoiceSettings from './VoiceSettings.svelte';
 
-  type Tab = 'general' | 'editor' | 'appearance' | 'ai' | 'mcp' | 'image' | 'publish' | 'permissions';
+  type Tab = 'general' | 'editor' | 'appearance' | 'ai' | 'mcp' | 'image' | 'publish' | 'permissions' | 'voice';
 
   let {
     onClose,
@@ -133,6 +134,7 @@
     { key: 'image', icon: '▣', labelKey: 'settings.tabs.image' },
     { key: 'publish', icon: '📤', labelKey: 'settings.tabs.publish' },
     { key: 'permissions', icon: '🔒', labelKey: 'settings.tabs.permissions' },
+    { key: 'voice', icon: '🎤', labelKey: 'settings.tabs.voice' },
   ];
 </script>
 
@@ -191,6 +193,7 @@
         <div class="tab-pane" class:active={activeTab === 'mcp'}><MCPPanel /></div>
         <div class="tab-pane" class:active={activeTab === 'image'}><ImageHostingSettings /></div>
         <div class="tab-pane" class:active={activeTab === 'publish'}><PublishSettings /></div>
+        <div class="tab-pane" class:active={activeTab === 'voice'}><VoiceSettings /></div>
 
         {#if activeTab === 'general'}
           <div class="setting-group">
