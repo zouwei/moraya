@@ -277,21 +277,47 @@ cd src-tauri && cargo check
 
 ## AI Configuration
 
-1. Open Settings (`Cmd+,` / `Ctrl+,`)
-2. Select the **AI** tab
-3. Choose a provider and fill in the required fields:
+Open Settings (`Cmd+,` / `Ctrl+,`) and select the **AI** and **Voice** tab. Configuration is split into three independent sections.
 
-| Provider         | API Key Required | Notes                                  |
-| ---------------- | ---------------- | -------------------------------------- |
-| Anthropic Claude | Yes              | claude-opus-4.5, claude-sonnet-4, etc. |
-| OpenAI           | Yes              | gpt-4o, gpt-4o-mini, o1, etc.          |
-| Google Gemini    | Yes              | gemini-2.0-flash, gemini-1.5-pro       |
-| DeepSeek         | Yes              | deepseek-chat, deepseek-reasoner       |
-| Ollama (Local)   | No               | Requires Ollama running locally        |
-| Custom API       | Optional         | Any OpenAI-compatible endpoint         |
+### Chat Providers
 
-1. Click **Test Connection** to verify
-2. Adjust Max Tokens and Temperature as needed
+| Provider | API Key | Default Models |
+| -------- | ------- | -------------- |
+| Anthropic Claude | Yes | claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5-20251001 |
+| OpenAI | Yes | gpt-5.2, gpt-5.2-pro, gpt-5, gpt-5-mini, o4-mini, gpt-4o, gpt-4o-mini, o3, o3-mini |
+| Google Gemini | Yes | gemini-3.1-pro-preview, gemini-3-flash-preview, gemini-2.5-flash, gemini-2.5-flash-lite |
+| DeepSeek | Yes | deepseek-chat, deepseek-reasoner |
+| Grok (xAI) | Yes | grok-4, grok-4-1-fast-reasoning, grok-4-1-fast-non-reasoning, grok-code-fast-1, grok-3 |
+| Mistral AI | Yes | mistral-large-latest, mistral-small-latest, magistral-medium-latest, codestral-latest, devstral-latest |
+| GLM (Zhipu AI) | Yes | glm-5, glm-4-plus, glm-4-air, glm-4-flash, glm-z1-flash, glm-z1-air |
+| MiniMax | Yes | MiniMax-M2.5, MiniMax-M2.5-highspeed, MiniMax-Text-01 |
+| Doubao (ByteDance) | Yes | doubao-seed-2-0-pro, doubao-seed-2-0-lite, doubao-seed-2-0-mini, doubao-seed-2-0-code |
+| Ollama (Local) | No | llama3.3, llama3.2, qwen2.5, qwen2.5-coder, phi4, gemma3, deepseek-r1, mistral, codellama |
+| Custom API | Optional | Any OpenAI-compatible endpoint |
+
+### Image Generation Providers
+
+| Provider | API Key | Models |
+| -------- | ------- | ------ |
+| OpenAI | Yes | dall-e-3, dall-e-2, gpt-image-1 |
+| Grok (xAI) | Yes | aurora |
+| Google Gemini | Yes | imagen-3.0-generate-002, imagen-3.0-fast-generate-001 |
+| Qwen (Alibaba) | Yes | wanx2.1-t2i-turbo, wanx2.1-t2i-plus, wanx-v1 |
+| Doubao (ByteDance) | Yes | doubao-seedream-5-0-260128, doubao-seedream-3-0-t2i-250415 |
+| Custom API | Optional | Any OpenAI-compatible image endpoint |
+
+### Voice (Speech-to-Text) Providers
+
+| Provider | API Key | Models |
+| -------- | ------- | ------ |
+| Deepgram | Yes | nova-3, nova-2, nova, enhanced, base |
+| Gladia | Yes | solaria-1, fast, accurate |
+| AssemblyAI | Yes | universal-streaming |
+| Azure Speech | Yes | latest (region required) |
+| AWS Transcribe | Yes (AWS credentials) | general, medical, call-center (region required) |
+| Custom | Optional | Custom WebSocket endpoint |
+
+All API keys are stored exclusively in your OS Keychain — never in plaintext. Click **Test Connection** in each section to verify before use.
 
 ## Development Roadmap
 
