@@ -49,19 +49,35 @@
 
 - **Image Tools** — Floating toolbar for resizing, right-click context menu, drag-and-drop.
 
+- **Sidebar File Explorer** — Directory memory across sessions, real-time file refresh, list/tree dual views, right-click context menu (new, rename, delete), and full-text file search across the open folder.
+
 - **Find & Replace** — Full-text search and replace within documents.
 
 ### AI-Powered Writing
 
-- **Multi-Provider Support** — Claude, OpenAI, Gemini, DeepSeek, Ollama, and any OpenAI-compatible endpoint. Multi-model configuration with active/inactive switching.
+- **Multi-Provider Support** — Claude, OpenAI, Gemini, DeepSeek, Grok, Mistral, GLM, MiniMax, Doubao, Ollama, and any OpenAI-compatible endpoint. Multi-model configuration with active/inactive switching.
 
 - **71+ AI Templates** — 10 categories (Writing, Translation, Student, Kids, Marketing, Professional, Personal, Chinese Games, English Games, Quiz) with 5 flow types (auto, input, selection, parameterized, interactive).
 
 - **Streaming Chat Panel** — Real-time AI responses with insert/replace/copy actions.
 
+- **Vision / Multimodal Input** — Paste, drag-and-drop, or pick images to include in AI conversations. Auto-compression for oversized images; thumbnail preview with lightbox viewer. Compatible with Claude, OpenAI, Gemini, and Ollama vision models.
+
 - **AI + MCP Tool Integration** — LLM can call MCP tools with auto-retry loop, enabling autonomous AI workflows.
 
-- **AI Image Generation** — 5 modes (article, design, storyboard, product, moodboard) × 10 styles each, with 7 aspect ratios and 3 resolution levels. Supports OpenAI DALL-E, Grok, and custom providers.
+- **AI Image Generation** — 5 modes (article, design, storyboard, product, moodboard) × 10 styles each, with 7 aspect ratios and 3 resolution levels. Supports OpenAI DALL-E, Grok, Gemini Imagen, Qwen, Doubao, and custom providers.
+
+### AI Voice Transcription
+
+- **Real-Time Speech-to-Text** — Stream microphone audio to Deepgram, Gladia, AssemblyAI, or Azure Speech Services with sub-second transcription latency.
+
+- **Speaker Diarization** — Automatically distinguish and label multiple speakers per session using pitch-based gender detection, with support for custom naming.
+
+- **Voiceprint Archive** — Cross-session speaker recognition via stored voice profiles; sample audio is captured automatically during recording and capped at 30 seconds per profile.
+
+- **Transcription Panel** — Color-coded per-speaker segments, one-click AI meeting summary generation, and Markdown export directly into the editor.
+
+- **Voice Settings** — Per-provider key management via OS Keychain, test-connection verification, and voice profile CRUD with playback preview.
 
 ### MCP Ecosystem
 
@@ -75,7 +91,7 @@
 
 - **Claude Desktop JSON Import** — Paste `mcpServers` JSON config to auto-add servers.
 
-- **Knowledge Base Sync** — Sync content with MCP servers for context-aware AI.
+- **Knowledge Base** — Multi-knowledge-base management with quick-switch dropdown and per-KB AI behavior rules via `MORAYA.md` (automatically injected into AI context). Sync KB content with MCP servers for context-aware AI.
 
 ### Publishing Workflow
 
@@ -83,9 +99,19 @@
 
 - **SEO Assistant** — AI-generated titles, excerpts, tags, slug, and meta descriptions.
 
-- **Image Hosting** — Auto-upload to SM.MS, Imgur, GitHub, or custom providers.
+- **Image Hosting** — Auto-upload to SM.MS, Imgur, GitHub, Qiniu Kodo, Aliyun OSS, Tencent COS, AWS S3, Google GCS, or custom providers. HMAC request signing for object storage handled in Rust backend.
 
 - **RSS Feed** — Auto-update RSS 2.0 feed on publish (zero-dependency XML generation).
+
+### Plugin System
+
+- **Decentralized Registry** — GitHub-based open registry; no central server required. Community plugins hosted and distributed as standard GitHub repositories.
+
+- **Plugin API v1** — Hook into editor commands, AI chat, AI image generation, and voice transcription workflows via a versioned JavaScript API.
+
+- **Marketplace** — Browse, install, and update plugins with one-click install, real-time GitHub release data, and zero-configuration setup.
+
+- **Supply Chain Security** — SHA256 version pinning and per-plugin permission model; plugins declare required capabilities upfront.
 
 ### Security
 
@@ -111,7 +137,7 @@
 
 ### Platform & UI
 
-- **Cross-Platform** — macOS, Windows, Linux via Tauri v2.
+- **Cross-Platform** — macOS, Windows, Linux, and iPadOS via Tauri v2. iPad builds distributed via TestFlight with Tab bar multi-file editing, floating touch toolbar, and Magic Keyboard shortcut support.
 
 - **Frameless Window** — Custom title bar with native macOS traffic lights.
 
@@ -283,6 +309,8 @@ cd src-tauri && cargo check
 
 - [x] **v0.6.0** — Security Hardening: API Key Keychain storage, AI proxy in Rust backend, CSP tightening, MCP security hardening, path traversal protection, HTML export sanitization, error sanitization, unsafe FFI hardening → [Detailed Requirements](docs/iterations/v0.6.0-security-hardening.md)
 
+- [x] **v0.7.0** — iPadOS Adaptation: Tauri iOS target (iPad-only IPA), Tab bar for multi-file editing, floating touch toolbar for virtual keyboard, touch interaction adaptation (hover→active, 44pt targets), virtual keyboard viewport handling, MCP stdio disabled on iOS, TestFlight CI/CD via GitHub Actions → [Detailed Requirements](docs/iterations/v0.7.0-ipados-adaptation.md)
+
 - [x] **v0.8.0** — AI Template System: 10 categories, 71+ templates, 5 flow types, configuration-driven AI interactions → [Detailed Requirements](docs/iterations/v0.8.0-ai-templates.md)
 
 - [x] **v0.9.0** — Code Block Enhancement: Language label, language selector, copy button, CodeBlock NodeView toolbar → [Detailed Requirements](docs/iterations/v0.9.0-code-block-enhancement.md)
@@ -304,7 +332,3 @@ cd src-tauri && cargo check
 ## License
 
 [Apache License 2.0](LICENSE)
-
-![](blob:http://localhost:1420/975ec2ad-3a62-471a-8d5d-3f713225ebc3)
-
-![](blob:http://localhost:1420/7e53f9b4-bbdc-411b-a326-f256ce66508a)
