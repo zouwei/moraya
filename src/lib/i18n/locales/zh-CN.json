@@ -29,7 +29,8 @@
       "image": "图片",
       "publish": "发布",
       "permissions": "权限",
-      "voice": "语音"
+      "voice": "语音",
+      "plugins": "插件"
     },
     "language": {
       "label": "语言",
@@ -1220,6 +1221,56 @@
         "medium": "中等",
         "hard": "困难"
       }
+    }
+  },
+  "plugins": {
+    "tabs": {
+      "installed": "已安装",
+      "market": "插件市场"
+    },
+    "installed": {
+      "empty": "尚未安装任何插件。"
+    },
+    "sandbox": {
+      "label": "沙箱级别",
+      "sandbox": "沙箱（JS）",
+      "local": "本地（无网络）",
+      "system": "系统（可访问网络）"
+    },
+    "permissions": {
+      "label": "权限"
+    },
+    "market": {
+      "search": "搜索插件...",
+      "refresh": "刷新",
+      "catAll": "全部",
+      "cached": "显示缓存结果",
+      "loading": "正在加载插件市场...",
+      "empty": "未找到插件",
+      "install": "安装",
+      "installed": "已安装",
+      "installing": "安装中..."
+    },
+    "install": {
+      "fromFile": "从 .zip 安装",
+      "urlPlaceholder": "GitHub 仓库 URL（https://github.com/…）",
+      "validate": "导入",
+      "confirmUrl": "从 URL 安装插件？",
+      "author": "作者",
+      "permissions": "权限",
+      "noPermissions": "无权限"
+    },
+    "verified": "已认证",
+    "enable": "启用",
+    "disable": "禁用",
+    "uninstall": "卸载",
+    "changelog": "更新日志",
+    "viewSource": "源码",
+    "blacklisted": "已列入黑名单",
+    "blacklistWarning": "此插件因安全问题已被列入黑名单，请立即卸载。",
+    "processError": "插件进程已崩溃，请切换开关重启。",
+    "error": {
+      "platformNotSupported": "当前平台暂无可用安装包。"
     }
   },
   "transcription": {

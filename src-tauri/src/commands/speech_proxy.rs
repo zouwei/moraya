@@ -87,6 +87,7 @@ pub enum SpeechEvent {
         session_id: String,
         error: String,
     },
+    #[allow(dead_code)]
     Disconnected {
         #[serde(rename = "sessionId")]
         session_id: String,
@@ -98,9 +99,9 @@ pub enum SpeechEvent {
 #[derive(Deserialize, Debug)]
 struct DgWord {
     speaker: Option<u32>,
-    start: Option<f64>,
-    end: Option<f64>,
-    confidence: Option<f64>,
+    _start: Option<f64>,
+    _end: Option<f64>,
+    _confidence: Option<f64>,
 }
 
 #[derive(Deserialize, Debug)]

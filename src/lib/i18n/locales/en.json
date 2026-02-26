@@ -29,7 +29,8 @@
       "image": "Image",
       "publish": "Publish",
       "permissions": "Permissions",
-      "voice": "Voice"
+      "voice": "Voice",
+      "plugins": "Plugins"
     },
     "language": {
       "label": "Language",
@@ -1220,6 +1221,56 @@
         "medium": "Medium",
         "hard": "Hard"
       }
+    }
+  },
+  "plugins": {
+    "tabs": {
+      "installed": "Installed",
+      "market": "Marketplace"
+    },
+    "installed": {
+      "empty": "No plugins installed yet."
+    },
+    "sandbox": {
+      "label": "Sandbox Level",
+      "sandbox": "Sandboxed (JS)",
+      "local": "Local (no network)",
+      "system": "System (network access)"
+    },
+    "permissions": {
+      "label": "Permissions"
+    },
+    "market": {
+      "search": "Search plugins...",
+      "refresh": "Refresh",
+      "catAll": "All",
+      "cached": "Showing cached results",
+      "loading": "Loading marketplace...",
+      "empty": "No plugins found",
+      "install": "Install",
+      "installed": "Installed",
+      "installing": "Installing..."
+    },
+    "install": {
+      "fromFile": "Install from .zip",
+      "urlPlaceholder": "GitHub repo URL (https://github.com/…)",
+      "validate": "Import",
+      "confirmUrl": "Install plugin from URL?",
+      "author": "Author",
+      "permissions": "Permissions",
+      "noPermissions": "No permissions"
+    },
+    "verified": "Verified",
+    "enable": "Enable",
+    "disable": "Disable",
+    "uninstall": "Uninstall",
+    "changelog": "Changelog",
+    "viewSource": "Source",
+    "blacklisted": "Blacklisted",
+    "blacklistWarning": "This plugin has been blacklisted due to a security issue. Please uninstall it.",
+    "processError": "Plugin process crashed. Toggle to restart.",
+    "error": {
+      "platformNotSupported": "No download available for your platform."
     }
   },
   "transcription": {

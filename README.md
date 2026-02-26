@@ -299,6 +299,8 @@ cd src-tauri && cargo check
 
 - [x] **v0.15.0** — AI Voice Transcription: Real-time microphone → STT (Deepgram/Gladia/AssemblyAI/Azure Speech) → speaker diarization with auto-naming (pitch-based gender detection), voiceprint archive for cross-session recognition, transcription panel in AI sidebar with one-click meeting summary generation and Markdown export, voice settings tab with multi-provider config and keychain security. → [Detailed Requirements](docs/iterations/v0.15.0-voice-transcription.md)
 
+- [x] **v0.16.0** — Plugin System: Open plugin ecosystem with GitHub-based decentralized registry, Plugin API v1 (editor + AI chat/image/voice bridge), marketplace with one-click install and real-time GitHub data, SHA256 version pinning + permission model for supply chain security, official `moraya-hello` template plugin. → [Detailed Requirements](docs/iterations/v0.16.0-plugin-system.md)
+
 ## License
 
 [Apache License 2.0](LICENSE)

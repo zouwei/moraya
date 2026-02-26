@@ -9,8 +9,9 @@
   import ImageHostingSettings from './ImageHostingSettings.svelte';
   import PublishSettings from './PublishSettings.svelte';
   import VoiceSettings from './VoiceSettings.svelte';
+  import PluginsPanel from './PluginsPanel.svelte';
 
-  type Tab = 'general' | 'editor' | 'appearance' | 'ai' | 'mcp' | 'image' | 'publish' | 'permissions' | 'voice';
+  type Tab = 'general' | 'editor' | 'appearance' | 'ai' | 'mcp' | 'image' | 'publish' | 'permissions' | 'voice' | 'plugins';
 
   let {
     onClose,
@@ -20,7 +21,7 @@
     initialTab?: Tab;
   } = $props();
 
-  // eslint-disable-next-line svelte/state-referenced-locally -- intentional initial capture
+  // svelte-ignore state_referenced_locally
   let activeTab = $state<Tab>(initialTab);
 
   let theme = $state<Theme>('system');
@@ -135,6 +136,7 @@
     { key: 'publish', icon: '📤', labelKey: 'settings.tabs.publish' },
     { key: 'permissions', icon: '🔒', labelKey: 'settings.tabs.permissions' },
     { key: 'voice', icon: '🎤', labelKey: 'settings.tabs.voice' },
+    { key: 'plugins', icon: '⊞', labelKey: 'settings.tabs.plugins' },
   ];
 </script>
 
@@ -194,6 +196,7 @@
         <div class="tab-pane" class:active={activeTab === 'image'}><ImageHostingSettings /></div>
         <div class="tab-pane" class:active={activeTab === 'publish'}><PublishSettings /></div>
         <div class="tab-pane" class:active={activeTab === 'voice'}><VoiceSettings /></div>
+        <div class="tab-pane" class:active={activeTab === 'plugins'}><PluginsPanel /></div>
 
         {#if activeTab === 'general'}
           <div class="setting-group">
@@ -700,24 +703,4 @@
     color: var(--accent-color);
   }
 
-  .empty-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 2rem;
-    color: var(--text-muted);
-    text-align: center;
-    gap: 0.5rem;
-  }
-
-  .empty-state p {
-    margin: 0;
-    font-size: var(--font-size-sm);
-  }
-
-  .empty-state .hint {
-    font-size: var(--font-size-xs);
-    color: var(--text-muted);
-  }
 </style>

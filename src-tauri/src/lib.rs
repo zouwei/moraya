@@ -246,6 +246,7 @@ pub fn run() {
         .manage(commands::mcp::MCPProcessManager::new())
         .manage(commands::ai_proxy::AIProxyState::new())
         .manage(commands::speech_proxy::SpeechProxyState::new())
+        .manage(commands::plugin_manager::PluginProcessManager::new())
         .manage(OpenedFiles(Mutex::new(initial_files)))
         .manage(PendingFiles(Mutex::new(HashMap::new())))
         .manage(MainWindowReady(AtomicBool::new(false)))
@@ -278,6 +279,16 @@ pub fn run() {
             commands::speech_proxy::speech_proxy_start,
             commands::speech_proxy::speech_proxy_send_audio,
             commands::speech_proxy::speech_proxy_stop,
+            commands::plugin_manager::plugin_validate_manifest,
+            commands::plugin_manager::plugin_install_local,
+            commands::plugin_manager::plugin_install_from_url,
+            commands::plugin_manager::plugin_enable,
+            commands::plugin_manager::plugin_disable,
+            commands::plugin_manager::plugin_uninstall,
+            commands::plugin_manager::plugin_list_running,
+            commands::plugin_manager::plugin_invoke,
+            commands::plugin_manager::plugin_registry_fetch,
+            commands::plugin_manager::plugin_fetch_blacklist,
             set_editor_mode_menu,
             update_menu_labels,
             set_menu_check,
