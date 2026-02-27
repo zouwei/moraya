@@ -93,3 +93,4 @@ coverage/
 *.tgz
 *.bak
 *.tmp
+docs/homebrew-moraya
