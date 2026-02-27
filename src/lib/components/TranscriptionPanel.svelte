@@ -1,7 +1,7 @@
 <script lang="ts">
   import { settingsStore } from '$lib/stores/settings-store';
   import { startTranscription, stopTranscription } from '$lib/services/voice/speech-service';
-  import { t } from '$lib/i18n';
+  import { t, resolveAllLocales } from '$lib/i18n';
   import type { TranscriptSegment, NewProfileProposal, VoiceProfile } from '$lib/services/voice/types';
   import type { SpeechProviderConfig } from '$lib/services/ai/types';
 
@@ -203,13 +203,14 @@
     });
 
     // Add brand-new profiles for speakers not yet in the list.
-    // Gendered names (男N号/女N号) are stable across sessions → dedup by autoName.
-    // Fallback names (说话人N) can't be matched across sessions → always create new.
+    // Gendered names are stable across sessions → dedup by autoName.
+    // Fallback names (Speaker N / 说话人N) can't be matched across sessions → always create new.
+    const speakerPrefixes = resolveAllLocales('settings.voice.naming.speaker', { n: '' }).map(s => s.trim());
     const existingNames = new Set(updated.map((p: VoiceProfile) => p.autoName));
     const newProfiles: VoiceProfile[] = [];
     let colorIdx = updated.length;
     for (const proposal of proposals) {
-      const isFallback = proposal.autoName.startsWith('说话人');
+      const isFallback = speakerPrefixes.some(prefix => proposal.autoName.startsWith(prefix));
       if (!isFallback && existingNames.has(proposal.autoName)) continue;
       const color = PROFILE_COLORS[colorIdx % PROFILE_COLORS.length];
       colorIdx++;

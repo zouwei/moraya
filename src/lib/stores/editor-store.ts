@@ -72,6 +72,12 @@ function createEditorStore() {
       update(state => ({ ...state, content }));
       scheduleWordCount(content);
     },
+    /** Batch setDirty + setContent in a single store update to avoid
+     *  triggering all subscribers twice (one synchronous cascade per update). */
+    setDirtyContent(isDirty: boolean, content: string) {
+      update(state => ({ ...state, isDirty, content }));
+      scheduleWordCount(content);
+    },
     setDirty(isDirty: boolean) {
       update(state => ({ ...state, isDirty }));
     },

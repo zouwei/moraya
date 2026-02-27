@@ -3,7 +3,7 @@
   import type { Editor as MilkdownEditor } from '@milkdown/core';
   import { editorViewCtx } from '@milkdown/core';
   import { TextSelection } from '@milkdown/prose/state';
-  import { callCommand, insert } from '@milkdown/utils';
+  import { callCommand } from '@milkdown/utils';
   import {
     wrapInHeadingCommand,
     wrapInBlockquoteCommand,
@@ -417,21 +417,30 @@ ${tr('welcome.tip')}
     showSidebar = state.showSidebar;
   });
 
+  // Track previous values to skip redundant work in hot subscriber path.
+  // This subscriber fires on every store update (setContent, setDirty, setFocused, etc.)
+  // so we must avoid doing unnecessary work or writing $state on each call.
+  let prevFilePath: string | null = null;
+  let prevEditorMode: EditorMode | null = null;
+
   editorStore.subscribe(state => {
-    if (state.currentFilePath) {
-      currentFileName = getFileNameFromPath(state.currentFilePath);
-    } else {
-      currentFileName = $t('common.untitled');
+    // Only recompute file name when path actually changes
+    if (state.currentFilePath !== prevFilePath) {
+      prevFilePath = state.currentFilePath;
+      currentFileName = state.currentFilePath
+        ? getFileNameFromPath(state.currentFilePath)
+        : $t('common.untitled');
     }
     // Guard: only write $state when mode actually changes to avoid re-entrancy
     // during Svelte's render flush (e.g., when Editor.onDestroy calls setContent,
     // which triggers this subscriber while the component tree is being updated).
-    if (editorMode !== state.editorMode) {
+    if (state.editorMode !== prevEditorMode) {
+      prevEditorMode = state.editorMode;
       editorMode = state.editorMode;
-    }
-    // Clear editor reference when switching to source-only mode
-    if (state.editorMode === 'source') {
-      milkdownEditor = null;
+      // Clear editor reference when switching to source-only mode
+      if (state.editorMode === 'source') {
+        milkdownEditor = null;
+      }
     }
     // Sync dirty state to tabs store on iPad
     if (isIPadOS) {
@@ -804,40 +813,38 @@ ${tr('welcome.tip')}
   }
 
   function handleAIInsert(text: string) {
-    if (milkdownEditor && editorStore.getState().editorMode !== 'source') {
-      try {
-        // Insert AI text at current cursor position (not replaceAll which resets scroll)
-        milkdownEditor.action(insert('\n\n' + text));
-      } catch {
-        // Fallback: append to content string
-        content = content.trimEnd() + '\n\n' + text + '\n';
-      }
-    } else {
-      // Source mode: directly update content string
-      content = content.trimEnd() + '\n\n' + text + '\n';
+    // Append to content string (works for all modes) and re-sync visual editor.
+    // NOTE: Do NOT use Milkdown's `insert()` — it inserts raw text without
+    // markdown parsing, so fenced code blocks (e.g. ```image-prompts) render
+    // as plain text instead of actual code blocks.
+    content = content.trimEnd() + '\n\n' + text + '\n';
+    const mode = editorStore.getState().editorMode;
+    if (mode !== 'source') {
+      // Save scroll position before replaceAll (which resets it)
+      const wrapper = document.querySelector('.editor-wrapper') as HTMLElement | null;
+      const savedScroll = wrapper?.scrollTop ?? 0;
+      syncVisualEditor(content);
+      // Restore scroll after sync, scrolling to bottom if we were near the end
+      requestAnimationFrame(() => {
+        if (wrapper) {
+          const maxScroll = wrapper.scrollHeight - wrapper.clientHeight;
+          // If we were in the bottom 200px, scroll to the very bottom to show new content
+          if (savedScroll >= maxScroll - 200) {
+            wrapper.scrollTop = wrapper.scrollHeight;
+          } else {
+            wrapper.scrollTop = savedScroll;
+          }
+        }
+      });
     }
   }
 
   function handleAIReplace(text: string) {
-    // If there's selected text in the editor, replace it; otherwise append
-    if (selectedText && milkdownEditor && editorStore.getState().editorMode !== 'source') {
-      try {
-        milkdownEditor.action((ctx) => {
-          const view = ctx.get(editorViewCtx);
-          const { from, to } = view.state.selection;
-          if (from !== to) {
-            const tr = view.state.tr.insertText(text, from, to);
-            view.dispatch(tr);
-          }
-        });
-      } catch {
-        // Fallback to append
-        content = content.trimEnd() + '\n\n' + text + '\n';
-      }
-    } else {
-      content = content.trimEnd() + '\n\n' + text + '\n';
-      syncVisualEditor(content);
-    }
+    // Always update content string and re-sync visual editor for proper markdown parsing.
+    // NOTE: Do NOT use ProseMirror's insertText() — it inserts raw text without
+    // markdown parsing, so fenced code blocks render as plain text.
+    content = content.trimEnd() + '\n\n' + text + '\n';
+    syncVisualEditor(content);
   }
 
   function isLocalPath(src: string): boolean {
@@ -885,7 +892,7 @@ ${tr('welcome.tip')}
   async function handleWorkflowMCPTool(tool: MCPTool, server: MCPServerConfig) {
     showWorkflow = false;
     showAIPanel = true;
-    const message = `请使用 ${tool.name} 工具（来自 ${server.name}）`;
+    const message = $t('ai.prompts.mcpToolPrompt', { toolName: tool.name, serverName: server.name });
     try {
       await sendChatMessage(message, content);
     } catch { /* handled by store */ }

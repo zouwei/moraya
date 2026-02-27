@@ -301,6 +301,20 @@
       "outlineDesc": "生成文章大纲",
       "explain": "解释",
       "explainDesc": "解释选中的文本"
+    },
+    "prompts": {
+      "emptyResponse": "你返回了空响应。请继续完成任务：直接调用所需的工具，或者总结已完成的工作并列出剩余步骤。不要返回空消息。",
+      "emptyResponseContinue": "\n\n你上次说的是：「{lastMessage}」\n请从这里继续。",
+      "truncationContinue": "你的回复因输出长度限制被截断了。上面的文本已保存。请继续完成任务，直接进行工具调用。不要重复已输出的内容。",
+      "continuationPrompt": "请继续执行，直接调用所需的工具完成任务。不要重复已说过的内容，不要再次描述计划，直接进行工具调用。",
+      "mcpToolPrompt": "请使用 {toolName} 工具（来自 {serverName}）"
+    },
+    "detection": {
+      "intentPrefixes": "让我|我来|我先|我需要|我将|我要|我会",
+      "actionVerbs": "查看|获取|检查|读取|提取|分析|上传|下载|调用|执行|处理|打开|搜索|创建|生成|写入|修改|编辑|删除|替换|保存|发布|命名|使用|转换",
+      "continuationPhrases": "接下来|下面|现在|然后|让我|继续|处理|开始|上传|发送|调用|查看|获取|提取",
+      "remainingPhrases": "还有|剩余|接下来|下一|第\\d+[张个步]",
+      "unfinishedPhrases": "还需要|还没有|尚未|待处理"
     }
   },
   "mcp": {
@@ -346,6 +360,12 @@
       "envPlaceholder": "环境变量 KEY=VALUE（每行一个）",
       "presets": "Remote MCP",
       "presetsHint": "一键添加常用 MCP 服务器",
+      "presetDesc": {
+        "filesystem": "读取、搜索和管理本地文件",
+        "fetch": "抓取网页并转换为 Markdown",
+        "git": "读取和搜索 Git 仓库",
+        "memory": "AI 持久化知识图谱记忆"
+      },
       "formMode": "表单",
       "jsonMode": "JSON 导入",
       "jsonPlaceholder": "粘贴 JSON 配置，例如：\n{\n  \"mcpServers\": {\n    \"名称\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"@.../server-xxx\"]\n    }\n  }\n}",

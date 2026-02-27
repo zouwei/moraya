@@ -56,6 +56,9 @@
     onNotify?: (text: string, type: 'success' | 'error') => void;
   } = $props();
 
+  let editorLineWidth = $state(settingsStore.getState().editorLineWidth);
+  const unsubSettings = settingsStore.subscribe(s => { editorLineWidth = s.editorLineWidth; });
+
   let isReady = $state(false);
   let isMounted = false; // tracks whether component is still alive (guards async gaps)
   let internalChange = false; // flag to avoid replaceAll loop on Milkdown's own onChange
@@ -64,6 +67,17 @@
   let lastSyncWasExternal = false; // true when last content came from source editor (split mode)
   let externalSyncTimer: ReturnType<typeof setTimeout> | undefined; // debounce for external content sync
   let tableToolbarRaf: number | undefined; // RAF throttle for table toolbar updates
+
+  // References for event listener cleanup in onDestroy
+  let mountedEditorEl: HTMLDivElement | null = null;
+  let mountedProseMirrorEl: HTMLElement | null = null;
+  let mountedHandlers: {
+    handleEditorKeydown: (e: KeyboardEvent) => void;
+    handleEditorContextmenu: (e: Event) => void;
+    handleDragover: (e: Event) => void;
+    handleDrop: (e: Event) => void;
+    handleProseMirrorClick: (e: MouseEvent) => void;
+  } | null = null;
 
   /**
    * Convert single newlines to hard breaks (trailing two spaces + newline)
@@ -562,21 +576,35 @@
     return mimeMap[mimeType] || 'png';
   }
 
-  /** Show pointer cursor when hovering over task list checkbox area. */
+  /** Show pointer cursor when hovering over task list checkbox area.
+   *  Throttled via rAF to avoid running .closest() + getBoundingClientRect()
+   *  hundreds of times per second during mouse movement. */
+  let hoverRaf: number | undefined;
+  let hoverCursorIsPointer = false;
+
   function handleCheckboxHover(event: MouseEvent) {
+    if (hoverRaf) return; // already scheduled
+    const clientX = event.clientX;
     const target = event.target as HTMLElement;
-    const li = target.closest('li[data-checked]') as HTMLElement | null;
-    const pmEl = (event.currentTarget as HTMLElement);
-    if (li) {
-      const liRect = li.getBoundingClientRect();
-      if (event.clientX <= liRect.left + 4) {
-        pmEl.style.cursor = 'pointer';
-        return;
+    const pmEl = event.currentTarget as HTMLElement;
+    hoverRaf = requestAnimationFrame(() => {
+      hoverRaf = undefined;
+      const li = target.closest('li[data-checked]') as HTMLElement | null;
+      if (li) {
+        const liRect = li.getBoundingClientRect();
+        if (clientX <= liRect.left + 4) {
+          if (!hoverCursorIsPointer) {
+            pmEl.style.cursor = 'pointer';
+            hoverCursorIsPointer = true;
+          }
+          return;
+        }
       }
-    }
-    if (pmEl.style.cursor === 'pointer') {
-      pmEl.style.cursor = '';
-    }
+      if (hoverCursorIsPointer) {
+        pmEl.style.cursor = '';
+        hoverCursorIsPointer = false;
+      }
+    });
   }
 
   /** Toggle task list checkbox when clicking on the checkbox area (::before pseudo-element). */
@@ -727,8 +755,9 @@
         const full = storedFrontmatter + markdown;
         content = full;
         onContentChange?.(full);
-        editorStore.setDirty(true);
-        editorStore.setContent(full);
+        // Single batched store update instead of setDirty + setContent separately
+        // (each update triggers all subscribers synchronously; batching halves the cascade)
+        editorStore.setDirtyContent(true, full);
       },
       onFocus: () => {
         if (isMounted) editorStore.setFocused(true);
@@ -796,7 +825,7 @@
     // slow AllSelection deletion path by replacing the entire document content
     // with a single empty paragraph in one fast transaction.
     // The visual caret for the empty paragraph is handled by CSS (editor.css).
-    editorEl.addEventListener('keydown', (e) => {
+    const handleEditorKeydown = (e: KeyboardEvent) => {
       if ((e.key === 'Backspace' || e.key === 'Delete') && editor) {
         try {
           editor.action((ctx) => {
@@ -821,19 +850,25 @@
           // Ignore errors
         }
       }
-    }, true);
+    };
+    const handleEditorContextmenu = (e: Event) => { e.preventDefault(); };
+    const handleDragover = (e: Event) => { e.preventDefault(); };
+    const handleDrop = (e: Event) => { e.preventDefault(); };
 
+    editorEl.addEventListener('keydown', handleEditorKeydown, true);
     // Suppress native WKWebView context menu (Reload / Inspect Element) for editor area.
-    // Must use capture phase to intercept before the native handler.
-    editorEl.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-    }, true);
+    editorEl.addEventListener('contextmenu', handleEditorContextmenu, true);
 
-    // Listen for selection changes to show/hide table toolbar
+    // Single combined click handler to avoid 3 separate DOM traversals per click.
+    // Previously: updateTableToolbar + handleImageClick + handleCheckboxClick as 3 listeners.
+    const handleProseMirrorClick = (e: MouseEvent) => {
+      handleCheckboxClick(e);
+      handleImageClick(e);
+      updateTableToolbar();
+    };
+
     if (proseMirrorEl) {
-      proseMirrorEl.addEventListener('click', updateTableToolbar);
-      proseMirrorEl.addEventListener('click', handleImageClick as EventListener);
-      proseMirrorEl.addEventListener('click', handleCheckboxClick as EventListener);
+      proseMirrorEl.addEventListener('click', handleProseMirrorClick as EventListener);
       proseMirrorEl.addEventListener('mousemove', handleCheckboxHover as EventListener);
       proseMirrorEl.addEventListener('keyup', updateTableToolbar);
       proseMirrorEl.addEventListener('paste', handlePaste as EventListener);
@@ -841,8 +876,13 @@
     }
 
     // Prevent default browser drop behavior on editor
-    editorEl.addEventListener('dragover', (e) => e.preventDefault());
-    editorEl.addEventListener('drop', (e) => e.preventDefault());
+    editorEl.addEventListener('dragover', handleDragover);
+    editorEl.addEventListener('drop', handleDrop);
+
+    // Store references for cleanup in onDestroy
+    mountedEditorEl = editorEl;
+    mountedProseMirrorEl = proseMirrorEl;
+    mountedHandlers = { handleEditorKeydown, handleEditorContextmenu, handleDragover, handleDrop, handleProseMirrorClick };
 
     // Listen for Tauri drag-drop events (provides file paths + drop position)
     if (!isTauri) return;
@@ -1099,6 +1139,27 @@
     if (syncResetTimer) clearTimeout(syncResetTimer);
     if (externalSyncTimer) clearTimeout(externalSyncTimer);
     if (tableToolbarRaf) cancelAnimationFrame(tableToolbarRaf);
+    if (hoverRaf) cancelAnimationFrame(hoverRaf);
+
+    // Remove all event listeners added in onMount to prevent listener accumulation
+    // across editor mode switches (visual ↔ source ↔ split).
+    if (mountedEditorEl && mountedHandlers) {
+      mountedEditorEl.removeEventListener('keydown', mountedHandlers.handleEditorKeydown as EventListener, true);
+      mountedEditorEl.removeEventListener('contextmenu', mountedHandlers.handleEditorContextmenu, true);
+      mountedEditorEl.removeEventListener('dragover', mountedHandlers.handleDragover);
+      mountedEditorEl.removeEventListener('drop', mountedHandlers.handleDrop);
+    }
+    if (mountedProseMirrorEl && mountedHandlers) {
+      mountedProseMirrorEl.removeEventListener('click', mountedHandlers.handleProseMirrorClick as EventListener);
+      mountedProseMirrorEl.removeEventListener('mousemove', handleCheckboxHover as EventListener);
+      mountedProseMirrorEl.removeEventListener('keyup', updateTableToolbar);
+      mountedProseMirrorEl.removeEventListener('paste', handlePaste as EventListener);
+      mountedProseMirrorEl.removeEventListener('contextmenu', handleContextMenu as EventListener);
+    }
+    mountedEditorEl = null;
+    mountedProseMirrorEl = null;
+    mountedHandlers = null;
+
     if (editor) {
       // Flush content: sync ProseMirror doc to parent before destruction.
       // The lazy change plugin debounces onChange by 100ms, so if the user
@@ -1144,6 +1205,7 @@
       editor.destroy();
     }
     dragDropUnlisten?.();
+    unsubSettings();
   });
 </script>
 
@@ -1156,7 +1218,7 @@
     if (pm) pm.focus();
   }
 }}>
-  <div bind:this={editorEl} class="editor-root"></div>
+  <div bind:this={editorEl} class="editor-root" style="max-width: min({editorLineWidth}px, 100%)"></div>
 </div>
 
 {#if showTableToolbar}
@@ -1230,7 +1292,7 @@
   }
 
   .editor-root {
-    max-width: min(800px, 100%);
+    width: 100%;
     margin: 0 auto;
     word-wrap: break-word;
     overflow-wrap: break-word;

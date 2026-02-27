@@ -135,8 +135,15 @@ function getDecorations(doc: any): DecorationSet {
     try {
       if (language && hljs.getLanguage(language)) {
         result = hljs.highlight(code, { language, ignoreIllegals: true });
+      } else if (!language) {
+        // No language label: skip auto-detection entirely. highlightAuto tests
+        // ALL registered languages (~23) which is very expensive and runs on
+        // every re-decoration. Users should label their code blocks.
+        return;
       } else {
-        result = hljs.highlightAuto(code);
+        // Unrecognized language label (e.g. "image-prompts", "mermaid"):
+        // skip highlighting — these are domain-specific, not source code.
+        return;
       }
     } catch {
       return; // Skip if highlighting fails
@@ -172,8 +179,21 @@ function getDecorations(doc: any): DecorationSet {
 
 /**
  * Milkdown plugin that adds syntax highlighting to code blocks.
+ *
+ * Highlight.js is expensive (especially `highlightAuto` which tests all
+ * registered languages). Instead of re-highlighting on every ProseMirror
+ * transaction (which fires on every keystroke), we:
+ *  1. On doc change: cheaply map existing decorations through the transaction
+ *     (adjusts positions for insertions/deletions — no hljs calls).
+ *  2. After 300ms idle: run a full re-highlight and dispatch a metadata-only
+ *     transaction to flush the new decorations into the view.
  */
 export const highlightPlugin = $prose(() => {
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let needsRefresh = false;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let currentView: any = null;
+
   return new Plugin({
     key: highlightPluginKey,
     state: {
@@ -181,16 +201,52 @@ export const highlightPlugin = $prose(() => {
         return getDecorations(state.doc);
       },
       apply(tr, decorationSet, _oldState, newState) {
-        if (tr.docChanged) {
-          return getDecorations(newState.doc);
+        if (!tr.docChanged) {
+          // Non-doc transaction: if a debounced refresh completed, apply it now.
+          if (needsRefresh) {
+            needsRefresh = false;
+            return getDecorations(newState.doc);
+          }
+          return decorationSet;
         }
-        return decorationSet;
+
+        // Map existing decorations cheaply through the transaction
+        // (adjusts positions for insertions/deletions — no hljs calls).
+        const mapped = decorationSet.map(tr.mapping, newState.doc);
+
+        // Schedule a full re-highlight after typing pause
+        if (debounceTimer !== null) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          debounceTimer = null;
+          needsRefresh = true;
+          // Dispatch a metadata-only transaction to trigger apply() which
+          // will detect needsRefresh and rebuild decorations from scratch.
+          try {
+            if (currentView && !currentView.isDestroyed) {
+              currentView.dispatch(currentView.state.tr.setMeta('highlight-refresh', true));
+            }
+          } catch { /* view may be destroyed */ }
+        }, 300);
+
+        return mapped;
       },
     },
     props: {
       decorations(state) {
         return this.getState(state);
       },
+    },
+    view(editorView) {
+      currentView = editorView;
+      return {
+        destroy() {
+          currentView = null;
+          if (debounceTimer !== null) {
+            clearTimeout(debounceTimer);
+            debounceTimer = null;
+          }
+        },
+      };
     },
   });
 });

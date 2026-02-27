@@ -14,7 +14,8 @@ import type {
   ToolDefinition,
 } from './types';
 import { AI_COMMANDS as COMMANDS } from './types';
-import { t } from '$lib/i18n';
+import { t, resolveForLocale, resolveAllLocales } from '$lib/i18n';
+import type { SupportedLocale } from '$lib/i18n';
 import { getAllTools, callTool } from '$lib/services/mcp';
 import { mcpToolsToToolDefs } from './tool-bridge';
 import { INTERNAL_TOOLS, isInternalTool, executeInternalTool } from './internal-tools';
@@ -28,6 +29,29 @@ import { invoke } from '@tauri-apps/api/core';
 
 const AI_STORE_FILE = 'ai-config.json';
 const KEYCHAIN_AI_PREFIX = 'ai-key:';
+
+// ── Locale-driven detection patterns for incomplete AI responses ──
+// Built once from all locale files so detection works regardless of AI language.
+function buildDetectionPatterns() {
+  const allPrefixes = resolveAllLocales('ai.detection.intentPrefixes').filter(Boolean).join('|');
+  const allVerbs = resolveAllLocales('ai.detection.actionVerbs').filter(Boolean).join('|');
+  const allContinuation = resolveAllLocales('ai.detection.continuationPhrases').filter(Boolean).join('|');
+  const allRemaining = resolveAllLocales('ai.detection.remainingPhrases').filter(Boolean).join('|');
+  const allUnfinished = resolveAllLocales('ai.detection.unfinishedPhrases').filter(Boolean).join('|');
+
+  return {
+    intentPattern: new RegExp(`(${allPrefixes})(.*?)(${allVerbs})`, 'ui'),
+    continuationPattern: new RegExp(`[，。]?\\s*(${allContinuation})\\S{0,30}[.。:：]?\\s*$`, 'u'),
+    remainingPattern: new RegExp(`(${allRemaining})\\S{0,20}$`, 'u'),
+    unfinishedPattern: new RegExp(`(${allUnfinished})`, 'u'),
+  };
+}
+const DETECTION = buildDetectionPatterns();
+
+/** Detect conversation language and return the matching locale code. */
+function detectResponseLocale(text: string): SupportedLocale {
+  return /[\u4e00-\u9fff]/.test(text) ? 'zh-CN' : 'en';
+}
 
 async function saveKeyToKeychain(configId: string, apiKey: string): Promise<boolean> {
   try {
@@ -728,19 +752,16 @@ export async function sendChatMessage(message: string, documentContext?: string,
             }
           }
 
-          // Detect language from the conversation (check recent messages for Chinese)
+          // Detect language from the conversation to match the AI's language
           const recentText = messages.slice(-6).map(m => m.content || '').join('');
-          const isChinese = /[\u4e00-\u9fff]/.test(recentText);
+          const promptLocale = detectResponseLocale(recentText);
 
           const recoveryMsg: ChatMessage = {
             role: 'user',
-            content: isChinese
-              ? '你返回了空响应。请继续完成任务：直接调用所需的工具，或者总结已完成的工作并列出剩余步骤。不要返回空消息。'
-                + (lastAssistantContent ? `\n\n你上次说的是：「${lastAssistantContent}」\n请从这里继续。` : '')
-              : 'You returned an empty response. Please continue the task: '
-                + 'either make the necessary tool call(s), or summarize what has been completed '
-                + 'and list any remaining items. Do not return an empty message.'
-                + (lastAssistantContent ? `\n\nYour last message was: "${lastAssistantContent}"\nPlease continue from there.` : ''),
+            content: resolveForLocale('ai.prompts.emptyResponse', promptLocale)
+              + (lastAssistantContent
+                ? resolveForLocale('ai.prompts.emptyResponseContinue', promptLocale, { lastMessage: lastAssistantContent })
+                : ''),
             timestamp: Date.now(),
           };
           messages.push(recoveryMsg);
@@ -780,12 +801,10 @@ export async function sendChatMessage(message: string, documentContext?: string,
         }
 
         // Ask AI to continue — match the language of the truncated response
-        const isChinese = response.content ? /[\u4e00-\u9fff]/.test(response.content) : false;
+        const truncLocale = detectResponseLocale(response.content || '');
         const continueMsg: ChatMessage = {
           role: 'user',
-          content: isChinese
-            ? '你的回复因输出长度限制被截断了。上面的文本已保存。请继续完成任务，直接进行工具调用。不要重复已输出的内容。'
-            : 'Your previous response was cut off due to output length limits. The text above has been saved. Now please complete the task by making the necessary tool call(s). Do not repeat the content — use it directly in the tool arguments.',
+          content: resolveForLocale('ai.prompts.truncationContinue', truncLocale),
           timestamp: Date.now(),
         };
         messages.push(continueMsg);
@@ -819,28 +838,26 @@ export async function sendChatMessage(message: string, documentContext?: string,
 
         // Detect incomplete responses: model returned text suggesting it wants to
         // continue with tool calls but stopped without making the call.
-        // Common with some Chinese AI models during multi-step tasks.
+        // Detection patterns are built from all locale files (see DETECTION above).
         if (toolDefs.length > 0 && continuationRetries < MAX_CONTINUATION_RETRIES && response.content) {
           const trimmed = response.content.trim();
           const tail = trimmed.slice(-80);
 
-          // Check if the last sentence expresses intent to take action (common when
-          // models describe what they're going to do but fail to emit the tool call)
-          const lastSentence = trimmed.split(/[。！？\n]/).filter(s => s.trim()).pop() || '';
-          const hasActionIntent = /(让我|我来|我先|我需要|我将|我要)(.*?)(查看|获取|检查|读取|提取|分析|上传|下载|调用|执行|处理|打开|搜索)/u.test(lastSentence);
+          // Check if ANY sentence expresses intent to take action (common when
+          // models describe what they're going to do but fail to emit the tool call).
+          const sentences = trimmed.split(/[.。！？!?\n]/).filter(s => s.trim());
+          const hasActionIntent = sentences.some(s => DETECTION.intentPattern.test(s));
 
           const looksIncomplete =
             // Ends with colon (about to do something)
             /[:：]\s*$/.test(tail) ||
-            // Ends with continuation phrase (increased from \S{0,10} to \S{0,30}
-            // to handle longer Chinese phrases like "让我先查看当前文档内容，提取图片URL。")
-            /[，。]?\s*(接下来|下面|现在|然后|让我|继续|处理|开始|上传|发送|调用|查看|获取|提取)\S{0,30}[.。:：]?\s*$/u.test(tail) ||
-            // Mentions remaining/next items to process (e.g., "还有2张图片需要处理")
-            /(还有|剩余|接下来|下一|第\d+[张个步]|remaining|next)\S{0,20}$/u.test(tail) ||
+            // Ends with continuation phrase
+            DETECTION.continuationPattern.test(tail) ||
+            // Mentions remaining/next items to process
+            DETECTION.remainingPattern.test(tail) ||
             // Previously made tool calls in this session and response mentions more work
-            (round > 2 && /(还需要|还没有|尚未|待处理|to do|TODO|next step)/u.test(tail)) ||
+            (round > 2 && DETECTION.unfinishedPattern.test(tail)) ||
             // AI states intent to take action but didn't make any tool calls
-            // (e.g. "让我先查看当前文档内容，提取图片URL。")
             hasActionIntent;
 
           if (looksIncomplete) {
@@ -854,13 +871,10 @@ export async function sendChatMessage(message: string, documentContext?: string,
             aiStore.addMessage(partialMsg);
             messages.push(partialMsg);
             // Use the same language the model was using to avoid language switching.
-            // Detect language from the assistant's response.
-            const isChineseResponse = /[\u4e00-\u9fff]/.test(response.content);
+            const contLocale = detectResponseLocale(response.content);
             const continueMsg: ChatMessage = {
               role: 'user',
-              content: isChineseResponse
-                ? '请继续执行，直接调用所需的工具完成任务。不要重复已说过的内容，不要再次描述计划，直接进行工具调用。'
-                : 'Please continue and make the necessary tool call(s) to complete the task. Do not repeat what has already been said — proceed directly with the tool calls.',
+              content: resolveForLocale('ai.prompts.continuationPrompt', contLocale),
               timestamp: Date.now(),
             };
             messages.push(continueMsg);

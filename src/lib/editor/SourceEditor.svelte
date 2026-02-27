@@ -19,7 +19,7 @@
   let textareaEl: HTMLTextAreaElement | undefined = $state();
   let ghostEl: HTMLDivElement | undefined = $state();
 
-  settingsStore.subscribe(state => {
+  const unsubSettings = settingsStore.subscribe(state => {
     showLineNumbers = state.showLineNumbers;
     tabSize = state.editorTabSize;
     editorLineWidth = state.editorLineWidth;
@@ -65,11 +65,11 @@
   function handleInput() {
     // content is already updated by Svelte's bind:value — no manual assignment needed.
     onContentChange?.(content);
-    editorStore.setDirty(true);
-    // Debounce the heavy store update (triggers all subscribers synchronously)
+    // Debounce the store update (triggers all subscribers synchronously).
+    // Uses batched setDirtyContent to avoid two separate subscriber cascades.
     if (storeTimer !== null) clearTimeout(storeTimer);
     storeTimer = setTimeout(() => {
-      editorStore.setContent(content);
+      editorStore.setDirtyContent(true, content);
       storeTimer = null;
     }, 50);
   }
@@ -136,6 +136,7 @@
     if (ghostRaf !== null) {
       cancelAnimationFrame(ghostRaf);
     }
+    unsubSettings();
   });
 
   // ── Search / Replace ──────────────────────────────────
@@ -229,7 +230,7 @@
 </script>
 
 <div class="source-editor-outer" class:hide-scrollbar={hideScrollbar}>
-  <div class="source-editor-inner" style="max-width: min({editorLineWidth}px, 100%)">
+  <div class="source-editor-inner">
     {#if showLineNumbers}
       <div class="line-numbers">
         {#each Array(lineCount) as _, i}
@@ -274,6 +275,7 @@
   }
 
   .source-editor-inner {
+    width: 100%;
     margin: 0 auto;
     min-height: 100%;
     display: flex;
@@ -307,7 +309,12 @@
   .textarea-grow {
     flex: 1;
     display: grid;
+    /* Force grid column to respect container width instead of expanding to fit content.
+       Without this, long lines (URLs etc.) push the column wider than the container,
+       causing overflow instead of wrapping. */
+    grid-template-columns: minmax(0, 1fr);
     min-width: 0;
+    overflow: hidden;
   }
 
   .textarea-ghost,
@@ -330,6 +337,7 @@
   }
 
   .source-textarea {
+    width: 100%;
     resize: none;
     outline: none;
     background: transparent;

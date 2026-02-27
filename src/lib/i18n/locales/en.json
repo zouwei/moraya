@@ -301,6 +301,20 @@
       "outlineDesc": "Generate an article outline",
       "explain": "Explain",
       "explainDesc": "Explain the selected text"
+    },
+    "prompts": {
+      "emptyResponse": "You returned an empty response. Please continue the task: either make the necessary tool call(s), or summarize what has been completed and list any remaining items. Do not return an empty message.",
+      "emptyResponseContinue": "\n\nYour last message was: \"{lastMessage}\"\nPlease continue from there.",
+      "truncationContinue": "Your previous response was cut off due to output length limits. The text above has been saved. Now please complete the task by making the necessary tool call(s). Do not repeat the content — use it directly in the tool arguments.",
+      "continuationPrompt": "Please continue and make the necessary tool call(s) to complete the task. Do not repeat what has already been said — proceed directly with the tool calls.",
+      "mcpToolPrompt": "Use the {toolName} tool (from {serverName})"
+    },
+    "detection": {
+      "intentPrefixes": "I will|I'll|I need to|I should|I want to|Let me|Let's|I'm going to|I'm about to|First,? I|Now I|Next,? I",
+      "actionVerbs": "create|write|read|update|upload|generate|fetch|call|check|verify|test|examine|use|apply|run|execute|publish|send|post|submit|look|see|find|search|get|retrieve|download|open|access|connect|set|configure|modify|edit|change|delete|remove|save|store|export|analyze|process|convert|list|show|display|help",
+      "continuationPhrases": "First|Next|Then|Now let",
+      "remainingPhrases": "remaining|next|step \\d+",
+      "unfinishedPhrases": "to do|TODO|next step|still need|not yet|pending"
     }
   },
   "mcp": {
@@ -346,6 +360,12 @@
       "envPlaceholder": "ENV_KEY=value (one per line)",
       "presets": "Remote MCP",
       "presetsHint": "One-click add popular MCP servers",
+      "presetDesc": {
+        "filesystem": "Read, search, and manage local files",
+        "fetch": "Fetch web pages and convert to markdown",
+        "git": "Read and search Git repositories",
+        "memory": "Persistent knowledge graph for AI memory"
+      },
       "formMode": "Form",
       "jsonMode": "JSON",
       "jsonPlaceholder": "Paste JSON config, e.g.:\n{\n  \"mcpServers\": {\n    \"name\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"@.../server-xxx\"]\n    }\n  }\n}",

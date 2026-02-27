@@ -56,3 +56,39 @@ export const t = derived(locale, ($locale) => {
     return value;
   };
 });
+
+/**
+ * Resolve a translation key for a specific locale (not the current UI locale).
+ * Useful for AI-directed prompts that must match the AI's conversation language.
+ */
+export function resolveForLocale(
+  key: string,
+  loc: SupportedLocale,
+  params?: Record<string, string>,
+): string {
+  let value = resolve(translations[loc], key)
+    ?? resolve(translations['en'], key)
+    ?? key;
+  if (params) {
+    value = value.replace(/\{(\w+)\}/g, (_, k) => params[k] ?? _);
+  }
+  return value;
+}
+
+/**
+ * Resolve a translation key across ALL supported locales.
+ * Returns an array of translated strings (one per locale).
+ * Useful for matching user-generated data that may have been created in any locale.
+ */
+export function resolveAllLocales(
+  key: string,
+  params?: Record<string, string>,
+): string[] {
+  return (Object.keys(translations) as SupportedLocale[]).map(loc => {
+    let value = resolve(translations[loc], key) ?? key;
+    if (params) {
+      value = value.replace(/\{(\w+)\}/g, (_, k) => params[k] ?? _);
+    }
+    return value;
+  });
+}

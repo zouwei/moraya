@@ -574,7 +574,7 @@
                 <button class="preset-item" onclick={() => addFromPreset(preset)}>
                   <div class="preset-info">
                     <span class="preset-name">{preset.name}</span>
-                    <span class="preset-desc">{preset.descriptionZh}</span>
+                    <span class="preset-desc">{$t(preset.descriptionKey)}</span>
                   </div>
                   <span class="preset-add">+</span>
                 </button>

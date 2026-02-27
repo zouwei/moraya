@@ -7,8 +7,8 @@ import type { MCPServerConfig } from './types';
 export interface MCPPreset {
   id: string;
   name: string;
-  description: string;
-  descriptionZh: string;
+  /** i18n key for the preset description, resolved via $t() at display time */
+  descriptionKey: string;
   createConfig: () => Omit<MCPServerConfig, 'id'>;
 }
 
@@ -16,8 +16,7 @@ export const MCP_PRESETS: MCPPreset[] = [
   {
     id: 'filesystem',
     name: 'Filesystem',
-    description: 'Read, search, and manage local files',
-    descriptionZh: '读取、搜索和管理本地文件',
+    descriptionKey: 'mcp.servers.presetDesc.filesystem',
     createConfig: () => ({
       name: 'Filesystem',
       transport: {
@@ -31,8 +30,7 @@ export const MCP_PRESETS: MCPPreset[] = [
   {
     id: 'fetch',
     name: 'Fetch',
-    description: 'Fetch web pages and convert to markdown',
-    descriptionZh: '抓取网页并转换为 Markdown',
+    descriptionKey: 'mcp.servers.presetDesc.fetch',
     createConfig: () => ({
       name: 'Fetch',
       transport: {
@@ -46,8 +44,7 @@ export const MCP_PRESETS: MCPPreset[] = [
   {
     id: 'git',
     name: 'Git',
-    description: 'Read and search Git repositories',
-    descriptionZh: '读取和搜索 Git 仓库',
+    descriptionKey: 'mcp.servers.presetDesc.git',
     createConfig: () => ({
       name: 'Git',
       transport: {
@@ -61,8 +58,7 @@ export const MCP_PRESETS: MCPPreset[] = [
   {
     id: 'memory',
     name: 'Memory',
-    description: 'Persistent knowledge graph for AI memory',
-    descriptionZh: 'AI 持久化知识图谱记忆',
+    descriptionKey: 'mcp.servers.presetDesc.memory',
     createConfig: () => ({
       name: 'Memory',
       transport: {
