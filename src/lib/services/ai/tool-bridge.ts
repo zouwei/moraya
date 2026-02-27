@@ -41,6 +41,11 @@ export function formatToolsForProvider(
 
     case 'openai':
     case 'deepseek':
+    case 'grok':
+    case 'mistral':
+    case 'glm':
+    case 'minimax':
+    case 'doubao':
     case 'custom':
     case 'ollama':
       // OpenAI-compatible: { tools: [{ type: "function", function: { name, description, parameters } }] }

@@ -68,7 +68,11 @@
       "mcpTitle": "MCP Permissions",
       "aiTitle": "AI Settings",
       "aiMaxTokens": "Max Output Tokens",
-      "aiMaxTokensHint": "Maximum number of tokens the AI can generate per response. Higher values allow longer responses and tool calls, but cost more."
+      "aiMaxTokensHint": "Maximum number of tokens the AI can generate per response. Higher values allow longer responses and tool calls, but cost more.",
+      "aiRulesMaxChars": "Rules File Max Chars",
+      "aiRulesMaxCharsHint": "Maximum characters read from MORAYA.md rules file. Increase for large rules files. More chars = more tokens per request.",
+      "aiToolResultMaxChars": "Tool Result Max Chars",
+      "aiToolResultMaxCharsHint": "Maximum characters kept from each MCP tool result. Larger values preserve more detail but consume more context."
     },
     "voice": {
       "providers": "Speech Providers",

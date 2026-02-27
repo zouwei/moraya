@@ -457,7 +457,7 @@ async fn do_stream(
             let line = buffer[..pos].to_string();
             buffer = buffer[pos + 1..].to_string();
 
-            if let Some(text) = extract_sse_text(provider, &line) {
+            if let Some(text) = extract_sse_event(provider, &line) {
                 let _ = on_event.send(text);
             }
         }
@@ -465,7 +465,7 @@ async fn do_stream(
 
     // Flush remaining buffer
     if !buffer.is_empty() {
-        if let Some(text) = extract_sse_text(provider, &buffer) {
+        if let Some(text) = extract_sse_event(provider, &buffer) {
             let _ = on_event.send(text);
         }
     }
@@ -473,8 +473,11 @@ async fn do_stream(
     Ok(())
 }
 
-/// Extract text content from an SSE data line.
-fn extract_sse_text(provider: &str, line: &str) -> Option<String> {
+/// Extract content from an SSE data line.
+///
+/// Returns plain text for text-content events, or `\x02` + raw JSON for
+/// tool-call / metadata events so the JS side can distinguish them.
+fn extract_sse_event(provider: &str, line: &str) -> Option<String> {
     let data = line.trim().strip_prefix("data: ")?;
     if data == "[DONE]" {
         return None;
@@ -484,20 +487,49 @@ fn extract_sse_text(provider: &str, line: &str) -> Option<String> {
 
     match provider {
         "claude" => {
-            if v.get("type")?.as_str()? == "content_block_delta" {
-                v.get("delta")?.get("text")?.as_str().map(String::from)
-            } else {
-                None
+            let event_type = v.get("type")?.as_str()?;
+            match event_type {
+                "content_block_delta" => {
+                    let delta = v.get("delta")?;
+                    match delta.get("type")?.as_str()? {
+                        "text_delta" => delta.get("text")?.as_str().map(String::from),
+                        // Tool call argument fragments
+                        "input_json_delta" => Some(format!("\x02{}", data)),
+                        _ => None,
+                    }
+                }
+                // Tool block start (id + name), block stop, message-level metadata
+                "content_block_start" | "content_block_stop" | "message_delta" => {
+                    Some(format!("\x02{}", data))
+                }
+                _ => None,
             }
         }
         _ => {
             // OpenAI-compatible SSE format
-            v.get("choices")?
-                .get(0)?
-                .get("delta")?
-                .get("content")?
-                .as_str()
-                .map(String::from)
+            let choices = v.get("choices")?.get(0)?;
+            let delta = choices.get("delta")?;
+
+            // Priority: tool_calls (non-empty array) > text content > finish_reason
+            // Many OpenAI-compatible providers (e.g. Doubao/VolcEngine) include
+            // "tool_calls": null in every SSE delta. We must only match when it's
+            // a non-empty array containing actual tool call data.
+            if delta
+                .get("tool_calls")
+                .and_then(|v| v.as_array())
+                .map_or(false, |a| !a.is_empty())
+            {
+                return Some(format!("\x02{}", data));
+            }
+            if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
+                if !content.is_empty() {
+                    return Some(content.to_string());
+                }
+            }
+            if choices.get("finish_reason").and_then(|f| f.as_str()).is_some() {
+                return Some(format!("\x02{}", data));
+            }
+            None
         }
     }
 }

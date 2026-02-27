@@ -68,7 +68,11 @@
       "mcpTitle": "MCP 权限",
       "aiTitle": "AI 设置",
       "aiMaxTokens": "最大输出 Token 数",
-      "aiMaxTokensHint": "AI 单次响应可生成的最大 Token 数量。较大的值允许更长的回复和工具调用，但会消耗更多额度。"
+      "aiMaxTokensHint": "AI 单次响应可生成的最大 Token 数量。较大的值允许更长的回复和工具调用，但会消耗更多额度。",
+      "aiRulesMaxChars": "规则文件最大字符数",
+      "aiRulesMaxCharsHint": "从 MORAYA.md 规则文件读取的最大字符数。规则文件较大时请调高此值。字符越多，每次请求消耗的 Token 越多。",
+      "aiToolResultMaxChars": "工具结果最大字符数",
+      "aiToolResultMaxCharsHint": "MCP 工具返回结果保留的最大字符数。较大的值保留更多细节，但会占用更多上下文。"
     },
     "voice": {
       "providers": "语音识别服务",

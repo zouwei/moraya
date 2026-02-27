@@ -130,11 +130,11 @@
     { key: 'general', icon: '⚙', labelKey: 'settings.tabs.general' },
     { key: 'editor', icon: '✎', labelKey: 'settings.tabs.editor' },
     { key: 'appearance', icon: '◐', labelKey: 'settings.tabs.appearance' },
+    { key: 'permissions', icon: '🔒', labelKey: 'settings.tabs.permissions' },
     { key: 'ai', icon: '✦', labelKey: 'settings.tabs.ai' },
     { key: 'mcp', icon: '⇌', labelKey: 'settings.tabs.mcp' },
     { key: 'image', icon: '▣', labelKey: 'settings.tabs.image' },
     { key: 'publish', icon: '📤', labelKey: 'settings.tabs.publish' },
-    { key: 'permissions', icon: '🔒', labelKey: 'settings.tabs.permissions' },
     { key: 'voice', icon: '🎤', labelKey: 'settings.tabs.voice' },
     { key: 'plugins', icon: '⊞', labelKey: 'settings.tabs.plugins' },
   ];
@@ -396,6 +396,40 @@
                 }}
               />
               <p class="perm-hint">{$t('settings.permissions.aiMaxTokensHint')}</p>
+            </div>
+            <div class="setting-group">
+              <label class="setting-label" for="settings-ai-rules-max-chars">{$t('settings.permissions.aiRulesMaxChars')}</label>
+              <input
+                id="settings-ai-rules-max-chars"
+                type="number"
+                class="setting-input"
+                value={$settingsStore.aiRulesMaxChars}
+                min={2000}
+                max={64000}
+                step={2000}
+                onchange={(e) => {
+                  const v = parseInt((e.target as HTMLInputElement).value);
+                  if (v >= 2000 && v <= 64000) settingsStore.update({ aiRulesMaxChars: v });
+                }}
+              />
+              <p class="perm-hint">{$t('settings.permissions.aiRulesMaxCharsHint')}</p>
+            </div>
+            <div class="setting-group">
+              <label class="setting-label" for="settings-ai-tool-result-max-chars">{$t('settings.permissions.aiToolResultMaxChars')}</label>
+              <input
+                id="settings-ai-tool-result-max-chars"
+                type="number"
+                class="setting-input"
+                value={$settingsStore.aiToolResultMaxChars}
+                min={2000}
+                max={64000}
+                step={2000}
+                onchange={(e) => {
+                  const v = parseInt((e.target as HTMLInputElement).value);
+                  if (v >= 2000 && v <= 64000) settingsStore.update({ aiToolResultMaxChars: v });
+                }}
+              />
+              <p class="perm-hint">{$t('settings.permissions.aiToolResultMaxCharsHint')}</p>
             </div>
           </div>
 
@@ -673,7 +707,6 @@
     font-size: var(--font-size-xs);
     color: var(--text-muted);
     margin: 0;
-    padding-left: 1.5rem;
     line-height: 1.4;
   }
 

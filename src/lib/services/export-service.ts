@@ -100,7 +100,7 @@ export function markdownToHtmlBody(md: string): string {
 
   // 1. Code blocks (``` ... ```) — protect from further processing
   // Mermaid blocks get a wrapper div for async SVG rendering during export
-  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_m, lang, code) => {
+  html = html.replace(/```([\w-]*)\n([\s\S]*?)```/g, (_m, lang, code) => {
     if (lang === 'mermaid') {
       return ph(`<div class="mermaid-export"><pre><code class="language-mermaid">${escapeHtml(code.trimEnd())}</code></pre></div>`);
     }

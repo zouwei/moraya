@@ -4,7 +4,7 @@
  * API keys out of WebView memory and network requests.
  */
 
-import type { AIProviderConfig, AIRequest, AIResponse, ChatMessage, ToolCallRequest } from './types';
+import type { AIProviderConfig, AIRequest, AIResponse, ChatMessage, StreamToolResult, ToolCallRequest } from './types';
 import {
   formatToolsForProvider,
   parseClaudeToolCalls,
@@ -249,6 +249,10 @@ async function* streamClaude(config: AIProviderConfig, request: AIRequest, signa
     body.system = systemMessages.map(m => m.content).join('\n');
   }
 
+  if (request.tools && request.tools.length > 0) {
+    Object.assign(body, formatToolsForProvider('claude', request.tools));
+  }
+
   yield* streamViaProxy(config, 'claude', `${baseUrl}/v1/messages`, body, {
     'anthropic-version': '2023-06-01',
   }, signal);
@@ -323,13 +327,17 @@ function buildOpenAIMessages(messages: ChatMessage[]): Array<Record<string, unkn
 async function* streamOpenAICompatible(config: AIProviderConfig, request: AIRequest, signal?: AbortSignal): AsyncGenerator<string> {
   const baseUrl = config.baseUrl || 'https://api.openai.com';
 
-  const body = {
+  const body: Record<string, unknown> = {
     model: config.model,
     max_tokens: config.maxTokens || 8192,
     temperature: config.temperature ?? 0.7,
     stream: true,
     messages: buildOpenAIMessages(request.messages),
   };
+
+  if (request.tools && request.tools.length > 0) {
+    Object.assign(body, formatToolsForProvider(config.provider, request.tools));
+  }
 
   const provider = config.provider === 'deepseek' ? 'deepseek' : 'openai';
   yield* streamViaProxy(config, provider, openaiEndpoint(baseUrl, '/chat/completions'), body, undefined, signal);
@@ -485,6 +493,154 @@ async function callOllama(config: AIProviderConfig, request: AIRequest, signal?:
   };
 }
 
+// ── Streaming tool call event parsers ──
+
+/** Sentinel prefix used by Rust SSE parser to distinguish tool events from text. */
+const TOOL_EVENT_PREFIX = '\x02';
+
+/**
+ * Parse accumulated SSE tool events into ToolCallRequest[].
+ * Handles both Claude and OpenAI-compatible streaming formats.
+ */
+function parseStreamToolEvents(
+  provider: string,
+  events: string[],
+): { toolCalls: ToolCallRequest[]; stopReason: string } {
+  if (provider === 'claude') {
+    return parseClaudeStreamEvents(events);
+  }
+  return parseOpenAIStreamEvents(events);
+}
+
+/** Parse Claude streaming tool call events. */
+function parseClaudeStreamEvents(events: string[]): { toolCalls: ToolCallRequest[]; stopReason: string } {
+  const toolCalls: ToolCallRequest[] = [];
+  let stopReason = 'end_turn';
+  // Accumulate partial JSON per content block index
+  const partials = new Map<number, { id: string; name: string; json: string }>();
+
+  for (const raw of events) {
+    let v: Record<string, unknown>;
+    try { v = JSON.parse(raw); } catch { continue; }
+
+    const eventType = v.type as string;
+    switch (eventType) {
+      case 'content_block_start': {
+        const block = v.content_block as Record<string, unknown> | undefined;
+        if (block?.type === 'tool_use') {
+          const index = v.index as number;
+          partials.set(index, {
+            id: block.id as string,
+            name: block.name as string,
+            json: '',
+          });
+        }
+        break;
+      }
+      case 'content_block_delta': {
+        const delta = v.delta as Record<string, unknown> | undefined;
+        if (delta?.type === 'input_json_delta') {
+          const index = v.index as number;
+          const partial = partials.get(index);
+          if (partial) {
+            partial.json += (delta.partial_json as string) || '';
+          }
+        }
+        break;
+      }
+      case 'content_block_stop': {
+        const index = v.index as number;
+        const partial = partials.get(index);
+        if (partial) {
+          let args: Record<string, unknown> = {};
+          try {
+            args = JSON.parse(partial.json || '{}');
+            toolCalls.push({ id: partial.id, name: partial.name, arguments: args });
+          } catch {
+            console.warn(`[AI] Skipping tool call ${partial.name}: failed to parse arguments (truncated?): ${partial.json.slice(0, 200)}`);
+          }
+          partials.delete(index);
+        }
+        break;
+      }
+      case 'message_delta': {
+        const delta = v.delta as Record<string, unknown> | undefined;
+        if (delta?.stop_reason) {
+          stopReason = delta.stop_reason === 'tool_use' ? 'tool_use' : (delta.stop_reason as string);
+        }
+        break;
+      }
+    }
+  }
+
+  // Remaining partials without content_block_stop = truncated tool calls; skip them
+  if (partials.size > 0) {
+    for (const [, partial] of partials) {
+      console.warn(`[AI] Skipping incomplete Claude tool call ${partial.name}: no content_block_stop received (truncated?)`);
+    }
+  }
+
+  return { toolCalls, stopReason };
+}
+
+/** Parse OpenAI-compatible streaming tool call events. */
+function parseOpenAIStreamEvents(events: string[]): { toolCalls: ToolCallRequest[]; stopReason: string } {
+  const toolMap = new Map<number, { id: string; name: string; args: string }>();
+  let stopReason = 'end_turn';
+
+  for (const raw of events) {
+    let v: Record<string, unknown>;
+    try { v = JSON.parse(raw); } catch { continue; }
+
+    const choices = v.choices as Array<Record<string, unknown>> | undefined;
+    if (!choices || choices.length === 0) continue;
+    const choice = choices[0];
+
+    // Check finish_reason — normalize to unified stop reasons
+    const fr = choice.finish_reason as string | null;
+    if (fr) {
+      if (fr === 'tool_calls') stopReason = 'tool_use';
+      else if (fr === 'length') stopReason = 'max_tokens';  // OpenAI 'length' = Claude 'max_tokens'
+      else stopReason = fr;
+    }
+
+    // Accumulate tool calls by index
+    const delta = choice.delta as Record<string, unknown> | undefined;
+    const rawToolCalls = delta?.tool_calls as Array<Record<string, unknown>> | undefined;
+    if (rawToolCalls) {
+      for (const tc of rawToolCalls) {
+        const idx = (tc.index as number) ?? 0;
+        const fn = tc.function as Record<string, unknown> | undefined;
+        let entry = toolMap.get(idx);
+        if (!entry) {
+          entry = { id: (tc.id as string) || '', name: '', args: '' };
+          toolMap.set(idx, entry);
+        }
+        if (tc.id) entry.id = tc.id as string;
+        if (fn?.name) entry.name = fn.name as string;
+        if (fn?.arguments) entry.args += fn.arguments as string;
+      }
+    }
+  }
+
+  const toolCalls: ToolCallRequest[] = [];
+  for (const [, entry] of [...toolMap.entries()].sort((a, b) => a[0] - b[0])) {
+    let args: Record<string, unknown> = {};
+    try {
+      args = JSON.parse(entry.args || '{}');
+    } catch {
+      // Truncated or malformed arguments — skip this tool call entirely.
+      // This typically happens when the response was cut off (max_tokens/length)
+      // and the arguments JSON is incomplete.
+      console.warn(`[AI] Skipping tool call ${entry.name}: failed to parse arguments (truncated?): ${entry.args.slice(0, 200)}`);
+      continue;
+    }
+    toolCalls.push({ id: entry.id, name: entry.name, arguments: args });
+  }
+
+  return { toolCalls, stopReason };
+}
+
 // ── Public API ──
 
 export async function sendAIRequest(config: AIProviderConfig, request: AIRequest, signal?: AbortSignal): Promise<AIResponse> {
@@ -529,4 +685,62 @@ export async function* streamAIRequest(config: AIProviderConfig, request: AIRequ
       const response = await sendAIRequest(config, request);
       yield response.content;
   }
+}
+
+/**
+ * Streaming with tool call support.
+ * Streams text in real-time via `onTextChunk`, while also accumulating
+ * tool call events (prefixed with \x02 from Rust SSE parser).
+ * Returns the complete result including any tool calls.
+ *
+ * For providers without streaming tool support (Gemini, Ollama),
+ * falls back to non-streaming sendAIRequest.
+ */
+export async function streamAIRequestWithTools(
+  config: AIProviderConfig,
+  request: AIRequest,
+  signal?: AbortSignal,
+  onTextChunk?: (chunk: string) => void,
+): Promise<StreamToolResult> {
+  // Gemini and Ollama: no SSE tool streaming — use non-streaming with full response
+  if (config.provider === 'gemini' || config.provider === 'ollama') {
+    const response = await sendAIRequest(config, request, signal);
+    if (response.content) {
+      onTextChunk?.(response.content);
+    }
+    return {
+      content: response.content,
+      toolCalls: response.toolCalls,
+      stopReason: response.stopReason,
+    };
+  }
+
+  // Claude + OpenAI-compatible: streaming with tool event parsing
+  const stream = streamAIRequest(config, request, signal);
+  let textContent = '';
+  const toolEvents: string[] = [];
+
+  for await (const chunk of stream) {
+    if (chunk.startsWith(TOOL_EVENT_PREFIX)) {
+      // Tool/metadata event from Rust — accumulate for later parsing
+      toolEvents.push(chunk.slice(1));
+    } else {
+      // Plain text chunk — display in real-time
+      textContent += chunk;
+      onTextChunk?.(chunk);
+    }
+  }
+
+  // Parse tool calls from collected events
+  if (toolEvents.length > 0) {
+    const providerKey = config.provider === 'claude' ? 'claude' : 'openai';
+    const parsed = parseStreamToolEvents(providerKey, toolEvents);
+    return {
+      content: textContent,
+      toolCalls: parsed.toolCalls.length > 0 ? parsed.toolCalls : undefined,
+      stopReason: parsed.stopReason,
+    };
+  }
+
+  return { content: textContent, stopReason: 'end_turn' };
 }

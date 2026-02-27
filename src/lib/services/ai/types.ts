@@ -90,6 +90,13 @@ export interface AIResponse {
   stopReason?: 'end_turn' | 'tool_use' | 'max_tokens' | 'stop';
 }
 
+/** Result from streaming with tool call support. */
+export interface StreamToolResult {
+  content: string;
+  toolCalls?: ToolCallRequest[];
+  stopReason?: string;
+}
+
 export type AICommand =
   | 'write'       // Write content based on prompt
   | 'continue'    // Continue writing from current position

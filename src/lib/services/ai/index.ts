@@ -1,5 +1,5 @@
 export { aiStore, executeAICommand, sendChatMessage, abortAIRequest, testAIConnection, testAIConnectionWithResolve, initAIStore } from './ai-service';
-export { sendAIRequest, streamAIRequest } from './providers';
+export { sendAIRequest, streamAIRequest, streamAIRequestWithTools } from './providers';
 export type {
   AIProvider,
   AIProviderConfig,
@@ -8,6 +8,7 @@ export type {
   AICommand,
   AICommandOption,
   AIResponse,
+  StreamToolResult,
   ToolCallRequest,
   ToolDefinition,
   ImageProvider,

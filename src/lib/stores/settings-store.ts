@@ -43,6 +43,8 @@ interface Settings {
   lastOpenedFolder: string | null;
   mcpAutoApprove: boolean;
   aiMaxTokens: number;
+  aiRulesMaxChars: number;
+  aiToolResultMaxChars: number;
   speechProviderConfigs: SpeechProviderConfig[];
   activeSpeechConfigId: string | null;
   voiceProfiles: VoiceProfile[];
@@ -77,6 +79,8 @@ const DEFAULT_SETTINGS: Settings = {
   lastOpenedFolder: null,
   mcpAutoApprove: false,
   aiMaxTokens: 16384,
+  aiRulesMaxChars: 16000,
+  aiToolResultMaxChars: 10000,
   speechProviderConfigs: [],
   activeSpeechConfigId: null,
   voiceProfiles: [],

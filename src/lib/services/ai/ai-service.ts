@@ -4,13 +4,12 @@
 
 import { writable, get } from 'svelte/store';
 import { load } from '@tauri-apps/plugin-store';
-import { sendAIRequest, streamAIRequest } from './providers';
+import { sendAIRequest, streamAIRequest, streamAIRequestWithTools } from './providers';
 import type {
   AIProviderConfig,
   AICommand,
   ChatMessage,
   ImageAttachment,
-  AIResponse,
   AI_COMMANDS,
   ToolDefinition,
 } from './types';
@@ -387,19 +386,17 @@ export async function executeAICommand(
   }
 }
 
-const MORAYA_MD_MAX_CHARS = 2000;
-const MAX_TOOL_RESULT_CHARS = 10000;
-
 /** Read MORAYA.md rules file from knowledge base root. Returns null if not found. */
 async function readMorayaMd(folderPath: string | null): Promise<{ content: string; truncated: boolean } | null> {
   if (!folderPath) return null;
+  const maxChars = settingsStore.getState().aiRulesMaxChars || 16000;
   try {
     const content = await invoke<string>('read_file', {
       path: `${folderPath}/MORAYA.md`,
     });
     if (!content?.trim()) return null;
-    const truncated = content.length > MORAYA_MD_MAX_CHARS;
-    return { content: content.slice(0, MORAYA_MD_MAX_CHARS), truncated };
+    const truncated = content.length > maxChars;
+    return { content: content.slice(0, maxChars), truncated };
   } catch {
     return null;
   }
@@ -419,12 +416,20 @@ function buildSystemPrompt(
 
   const morayaMdContent = morayaMdResult?.content;
   if (morayaMdContent) {
-    prompt += '\n\n--- Knowledge Base Rules (from MORAYA.md) ---\n' +
-      'The following rules were defined by the user for this knowledge base. ' +
-      'Follow these rules when generating content:\n\n' +
+    prompt += '\n\n=== MANDATORY — Knowledge Base Rules (MORAYA.md) ===\n' +
+      'The user has defined the following rules for ALL content in this knowledge base.\n' +
+      'You MUST follow EVERY rule below precisely when generating content, including:\n' +
+      '- File naming format (if specified)\n' +
+      '- Content structure and template format (if specified)\n' +
+      '- Image prompt format and code block syntax (e.g. ```image-prompts blocks, if specified)\n' +
+      '- Character/style/tone requirements (if specified)\n' +
+      'Do NOT call content-generation tools until you have read and incorporated ALL rules below.\n' +
+      (morayaMdResult.truncated
+        ? 'WARNING: Rules were truncated due to length. You MUST call `read_text_file` or `read_file` on the MORAYA.md file to read the FULL rules before generating any content.\n\n'
+        : '\n') +
       morayaMdContent +
-      (morayaMdResult.truncated ? '\n\n[Rules truncated — use read_text_file or read_file to see the full MORAYA.md if you need to modify it]' : '') +
-      '\n--- End Knowledge Base Rules ---';
+      (morayaMdResult.truncated ? '\n\n[TRUNCATED — call read_text_file("' + sidebarDir + '/MORAYA.md") to read the remaining rules before generating content]' : '') +
+      '\n=== END MANDATORY RULES ===';
   }
 
   // MORAYA.md convention instructions (always present when sidebar is open)
@@ -475,12 +480,23 @@ function buildSystemPrompt(
       '\n  Use the first available directory from the list above. Name files descriptively with .md extension.' +
       '\n' +
       '\nNever use `write_file` for single-document content that should go into the editor — always prefer `update_editor_content`.' +
-      (currentFilePath
-        ? `\n\n**CRITICAL**: The file currently open in the editor is: ${currentFilePath}\n` +
-          'To modify this file, you MUST use `update_editor_content` (NOT `write_file` or `edit_file`). ' +
-          'Using `write_file` on the open file will cause a conflict error. ' +
-          'Read the current content from the document context above, make your changes, then pass the full updated content to `update_editor_content`.'
-        : '');
+      (currentFilePath && currentFilePath.endsWith('/MORAYA.md')
+        ? `\n\n**CRITICAL — MORAYA.md PROTECTION**: The file currently open in the editor is the knowledge base rules file: ${currentFilePath}\n` +
+          'This file contains AI rules/conventions and must NOT be overwritten with generated content.\n' +
+          '- Only use `update_editor_content` on this file when the user EXPLICITLY asks to modify, update, or edit the rules/conventions themselves.\n' +
+          '- For ALL content creation requests (articles, posts, essays, etc.), use `write_file` to create a NEW file instead. Never overwrite MORAYA.md with content.\n' +
+          '- If unsure whether the user wants to edit rules vs. create content, default to creating a new file with `write_file`.'
+        : currentFilePath
+          ? `\n\n**CRITICAL**: The file currently open in the editor is: ${currentFilePath}\n` +
+            'To modify this file, you MUST use `update_editor_content` (NOT `write_file` or `edit_file`). ' +
+            'Using `write_file` on the open file will cause a conflict error. ' +
+            'Read the current content from the document context above, make your changes, then pass the full updated content to `update_editor_content`.'
+          : '');
+
+    // Remind about MORAYA.md rules if they exist
+    if (morayaMdContent) {
+      prompt += '\n\nREMINDER: Before using any tools, ensure you follow the Knowledge Base Rules (MORAYA.md) defined above.';
+    }
   }
 
   // Dynamic service creation capability
@@ -654,12 +670,13 @@ export async function sendChatMessage(message: string, documentContext?: string,
       const bodySize = JSON.stringify(messages).length;
       console.log(`[AI] Tool round ${round}/${MAX_TOOL_ROUNDS}, messages: ${messages.length}, tools: ${toolDefs.length}, maxTokens: ${effectiveConfig.maxTokens}, bodySize: ${bodySize}`);
 
-      // Use non-streaming for tool call rounds, streaming for final response
-      console.log('[AI] Calling sendAIRequest...', { provider: effectiveConfig.provider, model: effectiveConfig.model });
-      const response = await sendAIRequest(effectiveConfig, {
+      // Streaming-first: stream text in real-time while also capturing tool events.
+      // This gives immediate feedback for ALL models (no more blank screen for slow models).
+      console.log('[AI] Calling streamAIRequestWithTools...', { provider: effectiveConfig.provider, model: effectiveConfig.model });
+      const response = await streamAIRequestWithTools(effectiveConfig, {
         messages,
         tools: toolDefs.length > 0 ? toolDefs : undefined,
-      }, signal);
+      }, signal, (chunk) => aiStore.appendStreamContent(chunk));
 
       console.log(`[AI] Response received: stopReason=${response.stopReason}, toolCalls=${response.toolCalls?.length || 0}, content=${response.content?.length || 0} chars`);
 
@@ -669,10 +686,8 @@ export async function sendChatMessage(message: string, documentContext?: string,
       if (response.stopReason === 'max_tokens' && response.toolCalls && response.toolCalls.length > 0) {
         if (truncationRetries >= MAX_TRUNCATION_RETRIES) {
           console.warn('[AI] Response still truncated after retries — giving up');
-          const truncatedNote = response.content
-            ? response.content + '\n\n[Response truncated due to output length limit. Tool calls were skipped.]'
-            : '[Response truncated due to output length limit. Please try a shorter request or break it into steps.]';
-          finalContent = truncatedNote;
+          const truncatedNote = '\n\n[Response truncated due to output length limit. Tool calls were skipped.]';
+          finalContent = response.content + truncatedNote;
           aiStore.appendStreamContent(truncatedNote);
           break;
         }
@@ -680,7 +695,7 @@ export async function sendChatMessage(message: string, documentContext?: string,
         truncationRetries++;
         console.warn(`[AI] Response truncated with tool calls — continuation attempt ${truncationRetries}/${MAX_TRUNCATION_RETRIES}`);
 
-        // Save partial text content (discard broken tool calls)
+        // Save partial text content (already streamed to UI; discard broken tool calls)
         if (response.content) {
           const partialMsg: ChatMessage = {
             role: 'assistant',
@@ -689,7 +704,6 @@ export async function sendChatMessage(message: string, documentContext?: string,
           };
           aiStore.addMessage(partialMsg);
           messages.push(partialMsg);
-          aiStore.appendStreamContent(response.content);
         }
 
         // Ask AI to continue with just the tool call
@@ -702,23 +716,31 @@ export async function sendChatMessage(message: string, documentContext?: string,
         continue;
       }
 
-      // No tool calls: this is the final response
+      // No tool calls: this is the final response (text already streamed to UI)
       if (!response.toolCalls || response.toolCalls.length === 0) {
-        // If this is the first round (no tool calls at all), try streaming
-        if (round === 1 && toolDefs.length === 0) {
-          // Re-do as streaming for better UX when no tools
-          aiStore.resetStream();
-          let streamContent = '';
-          const stream = streamAIRequest(activeConfig, { messages, stream: true }, signal);
-          for await (const chunk of stream) {
-            streamContent += chunk;
-            aiStore.appendStreamContent(chunk);
+        // If truncated with tools defined, the model may have been trying to call tools
+        // but the arguments were cut off and couldn't be parsed — retry
+        if (response.stopReason === 'max_tokens' && toolDefs.length > 0 && truncationRetries < MAX_TRUNCATION_RETRIES) {
+          truncationRetries++;
+          console.warn(`[AI] Response truncated with no parseable tool calls — retry ${truncationRetries}/${MAX_TRUNCATION_RETRIES}`);
+          if (response.content) {
+            const partialMsg: ChatMessage = {
+              role: 'assistant',
+              content: response.content,
+              timestamp: Date.now(),
+            };
+            aiStore.addMessage(partialMsg);
+            messages.push(partialMsg);
           }
-          finalContent = streamContent;
-        } else {
-          finalContent = response.content;
-          aiStore.appendStreamContent(response.content);
+          const continueMsg: ChatMessage = {
+            role: 'user',
+            content: 'Your previous response was cut off due to output length limits. The text above has been saved. Now please complete the task by making the necessary tool call(s). Do not repeat the content — use it directly in the tool arguments.',
+            timestamp: Date.now(),
+          };
+          messages.push(continueMsg);
+          continue;
         }
+        finalContent = response.content;
         break;
       }
 
@@ -847,10 +869,11 @@ export async function sendChatMessage(message: string, documentContext?: string,
         }
 
         // Truncate excessively large tool results to prevent exceeding AI context limits
-        if (resultText.length > MAX_TOOL_RESULT_CHARS) {
-          console.warn(`[AI] Tool result truncated: ${resultText.length} → ${MAX_TOOL_RESULT_CHARS} chars`);
-          resultText = resultText.slice(0, MAX_TOOL_RESULT_CHARS) +
-            `\n\n[Content truncated: showing first ${MAX_TOOL_RESULT_CHARS} of ${resultText.length} chars]`;
+        const toolResultMax = settingsStore.getState().aiToolResultMaxChars || 10000;
+        if (resultText.length > toolResultMax) {
+          console.warn(`[AI] Tool result truncated: ${resultText.length} → ${toolResultMax} chars`);
+          resultText = resultText.slice(0, toolResultMax) +
+            `\n\n[Content truncated: showing first ${toolResultMax} of ${resultText.length} chars]`;
         }
 
         const toolMsg: ChatMessage = {
