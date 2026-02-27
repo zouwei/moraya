@@ -46,6 +46,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { getCurrentWebview } from '@tauri-apps/api/webview';
   import { openUrl } from '@tauri-apps/plugin-opener';
+  import { ask } from '@tauri-apps/plugin-dialog';
   import { t } from '$lib/i18n';
   import { getPlatformClass, isIPadOS, isMacOS, isTauri, isVirtualKeyboardVisible } from '$lib/utils/platform';
   import TabBar from '$lib/components/TabBar.svelte';
@@ -287,7 +288,7 @@ ${tr('welcome.tip')}
   }
 
   /** Save with tab sync on iPad */
-  async function handleSave(asNew = false) {
+  async function handleSave(asNew = false): Promise<boolean> {
     const saved = asNew ? await saveFileAs(content) : await saveFile(content);
     if (saved && isIPadOS) {
       const state = editorStore.getState();
@@ -295,6 +296,7 @@ ${tr('welcome.tip')}
         tabsStore.updateActiveFile(state.currentFilePath, getFileNameFromPath(state.currentFilePath));
       }
     }
+    return saved;
   }
 
   function runEditorCommand(cmd: any, payload?: any) {
@@ -712,7 +714,45 @@ ${tr('welcome.tip')}
     }
   }
 
+  /**
+   * Check for unsaved changes before switching files.
+   * Returns true if it's safe to proceed, false to abort the switch.
+   */
+  async function guardUnsavedChanges(): Promise<boolean> {
+    if (isIPadOS) return true; // iPad uses multi-tab with per-tab dirty state
+
+    const { isDirty, currentFilePath, content: editorContent } = editorStore.getState();
+    if (!isDirty) return true;
+    if (!editorContent?.trim()) return true; // Empty content — nothing to lose
+
+    if (currentFilePath) {
+      // Existing file with unsaved changes — silent save (consistent with autoSave)
+      await handleSave();
+      return true;
+    }
+
+    // New unsaved document with content — ask user via native dialog
+    const shouldSave = await ask(
+      $t('editor.unsavedNewDocMsg'),
+      {
+        title: $t('editor.unsavedTitle'),
+        kind: 'warning',
+        okLabel: $t('editor.saveFirst'),
+        cancelLabel: $t('editor.discardChanges'),
+      }
+    );
+
+    if (shouldSave) {
+      // User chose "Save" → open SaveAs dialog
+      const saved = await handleSave(true);
+      return saved; // If user cancelled SaveAs → abort the switch
+    }
+    // User chose "Don't Save" → discard and proceed
+    return true;
+  }
+
   async function handleOpenFile() {
+    if (!(await guardUnsavedChanges())) return;
     const fileContent = await openFile();
     if (fileContent !== null) {
       if (isIPadOS) {
@@ -728,6 +768,7 @@ ${tr('welcome.tip')}
   }
 
   async function handleNewFile() {
+    if (!(await guardUnsavedChanges())) return;
     if (isIPadOS) {
       tabsStore.addTab();
       content = '';
@@ -742,6 +783,7 @@ ${tr('welcome.tip')}
   }
 
   async function handleFileSelect(path: string) {
+    if (!(await guardUnsavedChanges())) return;
     const fileContent = await loadFile(path);
     if (isIPadOS) {
       const fileName = getFileNameFromPath(path);

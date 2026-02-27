@@ -684,7 +684,13 @@
 
       {#if error}
         <div class="message error">
-          <span>{error}</span>
+          <span class="error-text">{error}</span>
+          <span class="message-time error-time">{formatTime(Date.now())}</span>
+          <div class="message-actions">
+            <button class="action-btn error-action" onclick={() => navigator.clipboard.writeText(error || '')} title={$t('common.copy')}>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M4 0h8v8h-2V2H4V0zM0 4h8v8H0V4zm2 2v4h4V6H2z"/></svg>
+            </button>
+          </div>
         </div>
       {/if}
 
@@ -1043,6 +1049,22 @@
     border: 1px solid #fcc;
     color: #c33;
     font-size: var(--font-size-xs);
+    position: relative;
+    -webkit-user-select: text;
+    user-select: text;
+    cursor: text;
+  }
+  .error-text {
+    word-break: break-word;
+  }
+  .error-time {
+    color: rgba(204, 51, 51, 0.5);
+  }
+  .error-action {
+    color: #c33;
+  }
+  .error-action:hover {
+    background: rgba(204, 51, 51, 0.1);
   }
 
   .message.streaming {

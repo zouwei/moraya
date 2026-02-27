@@ -80,6 +80,13 @@ jobs:
 
             ### macOS
 
+            **Homebrew (recommended)**:
+            ```
+            brew tap zouwei/moraya
+            brew install --cask moraya
+            ```
+
+            **Manual**: Download the `.dmg` file below.
             > If you see **"Moraya is damaged"**, open Terminal and run:
             > ```
             > xattr -cr /Applications/Moraya.app
@@ -233,9 +240,24 @@ jobs:
   #         rm -f $RUNNER_TEMP/certificate.p12 $RUNNER_TEMP/profile.mobileprovision
 
 
-  # Wait for all builds (desktop + iPad) before triggering deploy
-  trigger-deploy:
+  # Update Homebrew Cask after release assets are uploaded
+  update-homebrew:
     needs: [release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Homebrew tap update
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh workflow run bump-cask.yml \
+            -R zouwei/homebrew-moraya \
+            -f version="$VERSION" \
+            -f tag="${GITHUB_REF_NAME}"
+
+  # Wait for all builds before triggering deploy
+  trigger-deploy:
+    needs: [release, update-homebrew]
     runs-on: ubuntu-latest
     steps:
       - name: Trigger Cloudflare Pages Deploy

@@ -47,7 +47,7 @@ const MIN_PROFILE_THRESHOLD_MS = 1_000;
 const MAX_SAMPLE_DURATION_MS = 30_000;
 
 /**
- * Max PCM buffer size for WAV recording (90 seconds × 16 kHz × 2 bytes = ~2.8 MB).
+ * Max PCM buffer size for WAV recording (90 seconds × 16 kHz × 2 bytes = ~10 MB).
  * Chunks beyond this limit are dropped to prevent unbounded memory growth.
  */
 const MAX_PCM_BUFFER_BYTES = 90 * 16_000 * 2;

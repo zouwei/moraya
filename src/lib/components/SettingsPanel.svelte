@@ -431,6 +431,23 @@
               />
               <p class="perm-hint">{$t('settings.permissions.aiToolResultMaxCharsHint')}</p>
             </div>
+            <div class="setting-group">
+              <label class="setting-label" for="settings-ai-max-tool-rounds">{$t('settings.permissions.aiMaxToolRounds')}</label>
+              <input
+                id="settings-ai-max-tool-rounds"
+                type="number"
+                class="setting-input"
+                value={$settingsStore.aiMaxToolRounds}
+                min={1}
+                max={100}
+                step={1}
+                onchange={(e) => {
+                  const v = parseInt((e.target as HTMLInputElement).value);
+                  if (v >= 1 && v <= 100) settingsStore.update({ aiMaxToolRounds: v });
+                }}
+              />
+              <p class="perm-hint">{$t('settings.permissions.aiMaxToolRoundsHint')}</p>
+            </div>
           </div>
 
           <div class="setting-section">

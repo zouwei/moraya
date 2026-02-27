@@ -109,6 +109,13 @@ export function markdownToHtmlBody(md: string): string {
     return ph(`<pre><code${langAttr}>${escaped}</code></pre>`);
   });
 
+  // 1b. Unclosed code blocks — common in truncated/streaming responses where closing ``` never arrived
+  html = html.replace(/```([\w-]*)\n([\s\S]+)$/, (_m, lang, code) => {
+    const escaped = escapeHtml(code.trimEnd());
+    const langAttr = lang ? ` class="language-${lang}"` : '';
+    return ph(`<pre><code${langAttr}>${escaped}</code></pre>`);
+  });
+
   // 2. Math blocks ($$...$$) — render with KaTeX
   html = html.replace(/\$\$([\s\S]*?)\$\$/g, (_m, tex) => {
     try {

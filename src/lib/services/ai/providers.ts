@@ -5,6 +5,7 @@
  */
 
 import type { AIProviderConfig, AIRequest, AIResponse, ChatMessage, StreamToolResult, ToolCallRequest } from './types';
+import { PROVIDER_BASE_URLS } from './types';
 import {
   formatToolsForProvider,
   parseClaudeToolCalls,
@@ -89,6 +90,11 @@ async function* streamViaProxy(
   let streamError: Error | null = null;
   let waitResolve: (() => void) | null = null;
 
+  // If no chunk arrives within this window, assume the stream has stalled.
+  // This prevents the generator from waiting indefinitely when the provider
+  // drops the SSE connection without sending [DONE] or closing properly.
+  const CHUNK_TIMEOUT_MS = 30_000;
+
   const channel = new Channel<string>();
   channel.onmessage = (text: string) => {
     chunks.push(text);
@@ -125,14 +131,38 @@ async function* streamViaProxy(
   });
 
   // Yield chunks as they arrive
+  let yieldCount = 0;
   while (!streamDone || chunks.length > 0) {
     if (signal?.aborted) {
       throw new DOMException('Aborted', 'AbortError');
     }
     if (chunks.length > 0) {
       yield chunks.shift()!;
+      // Periodically yield to the event loop so the browser can process user
+      // interactions (stop button, ESC, menus).  Without this, rapid IPC
+      // callbacks form a tight microtask chain that starves the event loop,
+      // making the entire UI unresponsive.
+      if (++yieldCount % 15 === 0) {
+        await new Promise<void>(r => setTimeout(r, 0));
+      }
     } else if (!streamDone) {
-      await new Promise<void>(r => { waitResolve = r; });
+      // Wait for the next chunk with a timeout to prevent infinite hangs.
+      // When a chunk arrives (or stream completes), waitResolve is called
+      // which clears the timer and resolves the promise.
+      // If no data arrives within CHUNK_TIMEOUT_MS, the timer fires,
+      // sets the error state, and resolves the promise to exit the loop.
+      await new Promise<void>((resolve) => {
+        let timer: ReturnType<typeof setTimeout>;
+        waitResolve = () => { clearTimeout(timer); resolve(); };
+        timer = setTimeout(() => {
+          console.error(`[AI] Stream stalled: no chunk received for ${CHUNK_TIMEOUT_MS / 1000}s, aborting`);
+          streamDone = true;
+          streamError = new Error(`Stream stalled: no data received for ${CHUNK_TIMEOUT_MS / 1000}s. The AI provider may have dropped the connection.`);
+          // Also abort the Rust-side request to clean up resources
+          invoke('ai_proxy_abort', { requestId }).catch(() => {});
+          resolve();
+        }, CHUNK_TIMEOUT_MS);
+      });
     }
   }
 
@@ -143,14 +173,14 @@ async function* streamViaProxy(
 // ── Provider-specific request builders ──
 
 async function callClaude(config: AIProviderConfig, request: AIRequest, signal?: AbortSignal): Promise<AIResponse> {
-  const baseUrl = config.baseUrl || 'https://api.anthropic.com';
+  const baseUrl = config.baseUrl || PROVIDER_BASE_URLS[config.provider] || 'https://api.anthropic.com';
 
   const systemMessages = request.messages.filter(m => m.role === 'system');
   const chatMessages = request.messages.filter(m => m.role !== 'system');
 
   const body: Record<string, unknown> = {
     model: config.model,
-    max_tokens: config.maxTokens || 8192,
+    max_tokens: config.maxTokens || 81920,
     messages: buildClaudeMessages(chatMessages),
   };
 
@@ -233,14 +263,14 @@ function buildClaudeMessages(messages: ChatMessage[]): Array<Record<string, unkn
 }
 
 async function* streamClaude(config: AIProviderConfig, request: AIRequest, signal?: AbortSignal): AsyncGenerator<string> {
-  const baseUrl = config.baseUrl || 'https://api.anthropic.com';
+  const baseUrl = config.baseUrl || PROVIDER_BASE_URLS[config.provider] || 'https://api.anthropic.com';
 
   const systemMessages = request.messages.filter(m => m.role === 'system');
   const chatMessages = request.messages.filter(m => m.role !== 'system');
 
   const body: Record<string, unknown> = {
     model: config.model,
-    max_tokens: config.maxTokens || 8192,
+    max_tokens: config.maxTokens || 81920,
     stream: true,
     messages: buildClaudeMessages(chatMessages),
   };
@@ -259,11 +289,11 @@ async function* streamClaude(config: AIProviderConfig, request: AIRequest, signa
 }
 
 async function callOpenAICompatible(config: AIProviderConfig, request: AIRequest, signal?: AbortSignal): Promise<AIResponse> {
-  const baseUrl = config.baseUrl || 'https://api.openai.com';
+  const baseUrl = config.baseUrl || PROVIDER_BASE_URLS[config.provider] || 'https://api.openai.com';
 
   const body: Record<string, unknown> = {
     model: config.model,
-    max_tokens: config.maxTokens || 8192,
+    max_tokens: config.maxTokens || 81920,
     temperature: config.temperature ?? 0.7,
     messages: buildOpenAIMessages(request.messages),
   };
@@ -325,11 +355,11 @@ function buildOpenAIMessages(messages: ChatMessage[]): Array<Record<string, unkn
 }
 
 async function* streamOpenAICompatible(config: AIProviderConfig, request: AIRequest, signal?: AbortSignal): AsyncGenerator<string> {
-  const baseUrl = config.baseUrl || 'https://api.openai.com';
+  const baseUrl = config.baseUrl || PROVIDER_BASE_URLS[config.provider] || 'https://api.openai.com';
 
   const body: Record<string, unknown> = {
     model: config.model,
-    max_tokens: config.maxTokens || 8192,
+    max_tokens: config.maxTokens || 81920,
     temperature: config.temperature ?? 0.7,
     stream: true,
     messages: buildOpenAIMessages(request.messages),
@@ -344,7 +374,7 @@ async function* streamOpenAICompatible(config: AIProviderConfig, request: AIRequ
 }
 
 async function callGemini(config: AIProviderConfig, request: AIRequest, signal?: AbortSignal): Promise<AIResponse> {
-  const baseUrl = config.baseUrl || 'https://generativelanguage.googleapis.com';
+  const baseUrl = config.baseUrl || PROVIDER_BASE_URLS[config.provider] || 'https://generativelanguage.googleapis.com';
 
   const systemMessages = request.messages.filter(m => m.role === 'system');
   const chatMessages = request.messages.filter(m => m.role !== 'system');
@@ -354,7 +384,7 @@ async function callGemini(config: AIProviderConfig, request: AIRequest, signal?:
   const body: Record<string, unknown> = {
     contents,
     generationConfig: {
-      maxOutputTokens: config.maxTokens || 8192,
+      maxOutputTokens: config.maxTokens || 81920,
       temperature: config.temperature ?? 0.7,
     },
   };
@@ -449,7 +479,7 @@ function buildOllamaMessages(messages: ChatMessage[]): Array<Record<string, unkn
 }
 
 async function callOllama(config: AIProviderConfig, request: AIRequest, signal?: AbortSignal): Promise<AIResponse> {
-  const baseUrl = config.baseUrl || 'http://localhost:11434';
+  const baseUrl = config.baseUrl || PROVIDER_BASE_URLS[config.provider] || 'http://localhost:11434';
 
   const body: Record<string, unknown> = {
     model: config.model,
@@ -457,7 +487,7 @@ async function callOllama(config: AIProviderConfig, request: AIRequest, signal?:
     stream: false,
     options: {
       temperature: config.temperature ?? 0.7,
-      num_predict: config.maxTokens || 8192,
+      num_predict: config.maxTokens || 81920,
     },
   };
 

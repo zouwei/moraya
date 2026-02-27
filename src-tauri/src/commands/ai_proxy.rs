@@ -344,7 +344,7 @@ async fn do_fetch(req: reqwest::RequestBuilder) -> Result<String, String> {
     if !response.status().is_success() {
         let status = response.status().as_u16();
         let err_body = response.text().await.unwrap_or_default();
-        return Err(format!("API error ({}): {}", status, err_body));
+        return Err(truncate_api_error(status, &err_body));
     }
 
     response
@@ -419,16 +419,23 @@ async fn do_stream(
     if !response.status().is_success() {
         let status = response.status().as_u16();
         let err_body = response.text().await.unwrap_or_default();
-        return Err(format!("API error ({}): {}", status, err_body));
+        return Err(truncate_api_error(status, &err_body));
     }
 
     use futures_util::StreamExt;
     let mut stream = response.bytes_stream();
     let mut buffer = String::new();
+    let mut events_sent: u32 = 0;
+    let mut last_sse_error: Option<String> = None;
+
+    // Per-chunk read timeout: if no data arrives within this window, treat the
+    // stream as stalled and exit.  This prevents indefinite hangs when the AI
+    // provider drops the SSE connection without sending [DONE] or closing.
+    const CHUNK_READ_TIMEOUT_SECS: u64 = 30;
 
     loop {
-        // Race the next chunk against the abort flag so abort takes effect
-        // immediately, even if the stream is waiting for data.
+        // Race the next chunk against the abort flag AND a read timeout so we
+        // never block longer than CHUNK_READ_TIMEOUT_SECS without data.
         let chunk_opt = {
             let abort_wait = async {
                 loop {
@@ -438,15 +445,22 @@ async fn do_stream(
                     }
                 }
             };
+            let read_timeout = tokio::time::sleep(
+                std::time::Duration::from_secs(CHUNK_READ_TIMEOUT_SECS),
+            );
             tokio::select! {
                 c = stream.next() => c,
                 _ = abort_wait => None,
+                _ = read_timeout => {
+                    eprintln!("[ai_proxy] Stream read timeout: no data for {}s", CHUNK_READ_TIMEOUT_SECS);
+                    None
+                },
             }
         };
 
         let chunk = match chunk_opt {
             Some(c) => c,
-            None => break, // stream ended or aborted
+            None => break, // stream ended, aborted, or timed out
         };
 
         let bytes = chunk.map_err(|_| "Stream read error".to_string())?;
@@ -458,7 +472,12 @@ async fn do_stream(
             buffer = buffer[pos + 1..].to_string();
 
             if let Some(text) = extract_sse_event(provider, &line) {
+                events_sent += 1;
                 let _ = on_event.send(text);
+            } else if let Some(err) = extract_sse_error(&line) {
+                last_sse_error = Some(err);
+            } else if line.contains("data") {
+                eprintln!("[ai_proxy] SSE line not parsed: {}", &line[..line.len().min(200)]);
             }
         }
     }
@@ -466,11 +485,45 @@ async fn do_stream(
     // Flush remaining buffer
     if !buffer.is_empty() {
         if let Some(text) = extract_sse_event(provider, &buffer) {
+            events_sent += 1;
             let _ = on_event.send(text);
+        } else if let Some(err) = extract_sse_error(&buffer) {
+            last_sse_error = Some(err);
+        } else if buffer.contains("data") {
+            eprintln!("[ai_proxy] SSE buffer not parsed: {}", &buffer[..buffer.len().min(200)]);
+        }
+    }
+
+    // If no valid events were sent but an error was found in the SSE stream, report it
+    if events_sent == 0 {
+        if let Some(err) = last_sse_error {
+            return Err(err);
         }
     }
 
     Ok(())
+}
+
+/// Truncate API error body to keep error messages readable.
+/// Extracts the "message" field from JSON errors when possible.
+fn truncate_api_error(status: u16, body: &str) -> String {
+    // Try to extract a concise error message from JSON
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(body) {
+        // Common patterns: { "error": { "message": "..." } } or { "message": "..." }
+        let msg = v.get("error").and_then(|e| e.get("message")).and_then(|m| m.as_str())
+            .or_else(|| v.get("message").and_then(|m| m.as_str()));
+        if let Some(m) = msg {
+            let truncated = if m.len() > 300 { format!("{}...", &m[..300]) } else { m.to_string() };
+            return format!("API error ({}): {}", status, truncated);
+        }
+    }
+    // Fallback: truncate raw body
+    let max = 500;
+    if body.len() > max {
+        format!("API error ({}): {}...", status, &body[..max])
+    } else {
+        format!("API error ({}): {}", status, body)
+    }
 }
 
 /// Extract content from an SSE data line.
@@ -478,7 +531,10 @@ async fn do_stream(
 /// Returns plain text for text-content events, or `\x02` + raw JSON for
 /// tool-call / metadata events so the JS side can distinguish them.
 fn extract_sse_event(provider: &str, line: &str) -> Option<String> {
-    let data = line.trim().strip_prefix("data: ")?;
+    let trimmed = line.trim();
+    // SSE spec: space after colon is optional ("data: value" and "data:value" are both valid)
+    let data = trimmed.strip_prefix("data: ")
+        .or_else(|| trimmed.strip_prefix("data:"))?;
     if data == "[DONE]" {
         return None;
     }
@@ -508,28 +564,56 @@ fn extract_sse_event(provider: &str, line: &str) -> Option<String> {
         _ => {
             // OpenAI-compatible SSE format
             let choices = v.get("choices")?.get(0)?;
-            let delta = choices.get("delta")?;
 
-            // Priority: tool_calls (non-empty array) > text content > finish_reason
-            // Many OpenAI-compatible providers (e.g. Doubao/VolcEngine) include
-            // "tool_calls": null in every SSE delta. We must only match when it's
-            // a non-empty array containing actual tool call data.
-            if delta
-                .get("tool_calls")
-                .and_then(|v| v.as_array())
-                .map_or(false, |a| !a.is_empty())
-            {
-                return Some(format!("\x02{}", data));
-            }
-            if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
-                if !content.is_empty() {
-                    return Some(content.to_string());
+            // Extract delta (may be absent in the final event from some providers)
+            if let Some(delta) = choices.get("delta") {
+                // Priority: tool_calls (non-empty array) > text content
+                // Many OpenAI-compatible providers (e.g. Doubao/VolcEngine) include
+                // "tool_calls": null in every SSE delta. We must only match when it's
+                // a non-empty array containing actual tool call data.
+                if delta
+                    .get("tool_calls")
+                    .and_then(|v| v.as_array())
+                    .map_or(false, |a| !a.is_empty())
+                {
+                    return Some(format!("\x02{}", data));
+                }
+                if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
+                    if !content.is_empty() {
+                        return Some(content.to_string());
+                    }
                 }
             }
+
+            // finish_reason is on choices level, NOT inside delta.
+            // Some providers omit delta entirely in the final event, so this
+            // check must be outside the delta block to avoid being skipped.
             if choices.get("finish_reason").and_then(|f| f.as_str()).is_some() {
                 return Some(format!("\x02{}", data));
             }
             None
         }
+    }
+}
+
+/// Detect error objects inside SSE data lines.
+/// Some providers return 200 OK but embed errors in the SSE stream body,
+/// e.g. `data: {"error":{"message":"model not found","code":"404"}}`.
+fn extract_sse_error(line: &str) -> Option<String> {
+    let trimmed = line.trim();
+    let data = trimmed.strip_prefix("data: ")
+        .or_else(|| trimmed.strip_prefix("data:"))?;
+    let v: serde_json::Value = serde_json::from_str(data).ok()?;
+    // Check for { "error": { "message": "..." } } or { "error": "..." }
+    let error = v.get("error")?;
+    let msg = error.get("message").and_then(|m| m.as_str())
+        .or_else(|| error.as_str());
+    let code_str = error.get("code").and_then(|c| c.as_str()).map(String::from);
+    let code_num = error.get("code").and_then(|c| c.as_u64()).map(|n| n.to_string());
+    let code = code_str.as_deref().or(code_num.as_deref());
+    match (msg, code) {
+        (Some(m), Some(c)) => Some(format!("API error ({}): {}", c, m)),
+        (Some(m), None) => Some(format!("API error: {}", m)),
+        _ => Some(format!("API error: {}", error)),
     }
 }

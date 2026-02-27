@@ -31,7 +31,7 @@
   let formApiKey = $state('');
   let formBaseUrl = $state('');
   let formModel = $state('');
-  let formMaxTokens = $state(8192);
+  let formMaxTokens = $state(81920);
   let formTemperature = $state(0.7);
   let formTestStatus = $state<'idle' | 'testing' | 'success' | 'failed'>('idle');
   let formTestError = $state('');
@@ -61,6 +61,24 @@
 
   let imgFormResolvedSize = $derived(resolveImageSize(imgFormRatio, imgFormSizeLevel));
 
+  // Base URL presets for providers with regional endpoints
+  const BASE_URL_PRESETS: Partial<Record<AIProvider, { value: string; label: string }[]>> = {
+    doubao: [
+      { value: 'https://ark.cn-beijing.volces.com/api/v3', label: 'cn-beijing — 华北（北京）' },
+    ],
+    custom: [
+      { value: 'https://dashscope.aliyuncs.com/compatible-mode/v1', label: 'DashScope — 中国（北京）' },
+      { value: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1', label: 'DashScope — Singapore' },
+      { value: 'https://dashscope-us.aliyuncs.com/compatible-mode/v1', label: 'DashScope — US (Virginia)' },
+      { value: 'https://api.deepseek.com', label: 'DeepSeek' },
+      { value: 'http://localhost:11434', label: 'Ollama (localhost)' },
+    ],
+  };
+
+  function getBaseUrlPresets(provider: AIProvider): { value: string; label: string }[] {
+    return BASE_URL_PRESETS[provider] ?? [];
+  }
+
   // ── Subscribe to stores ──
   $effect(() => {
     const unsub1 = aiStore.subscribe(state => {
@@ -84,6 +102,11 @@
     return DEFAULT_MODELS[formProvider] || [];
   }
 
+  function getChatModelPlaceholder(): string {
+    if (formProvider === 'doubao') return $t('ai.config.endpointIdPlaceholder');
+    return $t('ai.config.modelPlaceholder');
+  }
+
   function getImageModels(): string[] {
     return DEFAULT_IMAGE_MODELS[imgFormProvider] || [];
   }
@@ -95,7 +118,7 @@
     formApiKey = config.apiKey;
     formBaseUrl = config.baseUrl || '';
     formModel = config.model;
-    formMaxTokens = config.maxTokens || 8192;
+    formMaxTokens = config.maxTokens || 81920;
     formTemperature = config.temperature || 0.7;
     formTestStatus = 'idle';
   }
@@ -107,7 +130,7 @@
     formApiKey = '';
     formBaseUrl = '';
     formModel = DEFAULT_MODELS.claude[0] || '';
-    formMaxTokens = 8192;
+    formMaxTokens = 81920;
     formTemperature = 0.7;
     formTestStatus = 'idle';
   }
@@ -305,12 +328,19 @@
             placeholder={formProvider === 'ollama' ? $t('ai.config.apiKeyNotRequired') : $t('ai.config.apiKeyPlaceholder', { provider: formProvider })} />
         </div>
 
-        {#if formProvider === 'custom' || formProvider === 'ollama'}
-          <div class="setting-group">
-            <label class="setting-label">{$t('ai.config.baseUrl')}</label>
-            <input type="text" class="setting-input" bind:value={formBaseUrl} placeholder={PROVIDER_BASE_URLS[formProvider]} />
-          </div>
-        {/if}
+        <div class="setting-group">
+          <label class="setting-label">{$t('ai.config.baseUrl')}</label>
+          <input type="text" class="setting-input" bind:value={formBaseUrl}
+            list="chat-baseurl-datalist-edit"
+            placeholder={PROVIDER_BASE_URLS[formProvider]} />
+          {#if getBaseUrlPresets(formProvider).length > 0}
+            <datalist id="chat-baseurl-datalist-edit">
+              {#each getBaseUrlPresets(formProvider) as opt (opt.value)}
+                <option value={opt.value}>{opt.label}</option>
+              {/each}
+            </datalist>
+          {/if}
+        </div>
 
         <div class="model-tokens-row">
           <div class="setting-group" style="flex:1;min-width:0">
@@ -319,7 +349,7 @@
               <input type="text" class="setting-input" bind:value={formModel}
                 onfocus={() => { if (getChatModels().length > 0) showModelDropdown = true; }}
                 onblur={() => { setTimeout(() => { showModelDropdown = false; }, 150); }}
-                placeholder={$t('ai.config.modelPlaceholder')} />
+                placeholder={getChatModelPlaceholder()} />
               {#if showModelDropdown && getChatModels().length > 0}
                 <div class="model-dropdown">
                   {#each getChatModels() as m}
@@ -372,7 +402,7 @@
         <div class="config-info">
           <span class="config-provider">{$t(`ai.providers.${config.provider}`)}</span>
           <span class="config-model">{config.model}</span>
-          <span class="config-tokens">{config.maxTokens || 8192}</span>
+          <span class="config-tokens">{config.maxTokens || 81920}</span>
           {#if config.id === activeChatConfigId}
             <span class="default-badge">{$t('ai.multiModel.default')}</span>
           {/if}
@@ -415,12 +445,19 @@
           placeholder={formProvider === 'ollama' ? $t('ai.config.apiKeyNotRequired') : $t('ai.config.apiKeyPlaceholder', { provider: formProvider })} />
       </div>
 
-      {#if formProvider === 'custom' || formProvider === 'ollama'}
-        <div class="setting-group">
-          <label class="setting-label">{$t('ai.config.baseUrl')}</label>
-          <input type="text" class="setting-input" bind:value={formBaseUrl} placeholder={PROVIDER_BASE_URLS[formProvider]} />
-        </div>
-      {/if}
+      <div class="setting-group">
+        <label class="setting-label">{$t('ai.config.baseUrl')}</label>
+        <input type="text" class="setting-input" bind:value={formBaseUrl}
+          list="chat-baseurl-datalist-add"
+          placeholder={PROVIDER_BASE_URLS[formProvider]} />
+        {#if getBaseUrlPresets(formProvider).length > 0}
+          <datalist id="chat-baseurl-datalist-add">
+            {#each getBaseUrlPresets(formProvider) as opt (opt.value)}
+              <option value={opt.value}>{opt.label}</option>
+            {/each}
+          </datalist>
+        {/if}
+      </div>
 
       <div class="model-tokens-row">
         <div class="setting-group" style="flex:1;min-width:0">
@@ -429,7 +466,7 @@
             <input type="text" class="setting-input" bind:value={formModel}
               onfocus={() => { if (getChatModels().length > 0) showModelDropdown = true; }}
               onblur={() => { setTimeout(() => { showModelDropdown = false; }, 150); }}
-              placeholder={$t('ai.config.modelPlaceholder')} />
+              placeholder={getChatModelPlaceholder()} />
             {#if showModelDropdown && getChatModels().length > 0}
               <div class="model-dropdown">
                 {#each getChatModels() as m}

@@ -72,7 +72,9 @@
       "aiRulesMaxChars": "规则文件最大字符数",
       "aiRulesMaxCharsHint": "从 MORAYA.md 规则文件读取的最大字符数。规则文件较大时请调高此值。字符越多，每次请求消耗的 Token 越多。",
       "aiToolResultMaxChars": "工具结果最大字符数",
-      "aiToolResultMaxCharsHint": "MCP 工具返回结果保留的最大字符数。较大的值保留更多细节，但会占用更多上下文。"
+      "aiToolResultMaxCharsHint": "MCP 工具返回结果保留的最大字符数。较大的值保留更多细节，但会占用更多上下文。",
+      "aiMaxToolRounds": "最大工具调用轮次",
+      "aiMaxToolRoundsHint": "AI 单次对话中可执行工具调用的最大轮次。复杂的多步骤任务（如批量上传）需要调大此值。"
     },
     "voice": {
       "providers": "语音识别服务",
@@ -87,6 +89,7 @@
       "region": "区域",
       "model": "模型",
       "modelPlaceholder": "输入模型名称",
+      "endpointIdPlaceholder": "输入推理接入点 ID",
       "language": "语言",
       "langAuto": "自动识别",
       "langMulti": "多语言",
@@ -160,7 +163,11 @@
   "editor": {
     "sourceMode": "源码模式",
     "visualMode": "可视化模式",
-    "splitMode": "对比模式"
+    "splitMode": "对比模式",
+    "unsavedTitle": "未保存的更改",
+    "unsavedNewDocMsg": "当前文档有未保存的内容，切换后将丢失。是否先保存？",
+    "saveFirst": "保存",
+    "discardChanges": "不保存"
   },
   "table": {
     "insertRowAbove": "在上方插入行",

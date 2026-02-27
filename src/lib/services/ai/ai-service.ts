@@ -229,6 +229,7 @@ let currentAbortController: AbortController | null = null;
 
 /** Abort the currently running AI request (streaming or non-streaming). */
 export function abortAIRequest(): void {
+  console.log('[AI] abortAIRequest called, controller:', !!currentAbortController);
   if (currentAbortController) {
     currentAbortController.abort();
     currentAbortController = null;
@@ -241,6 +242,17 @@ export function abortAIRequest(): void {
       aiStore.addMessage({ role: 'assistant', content: partial, timestamp: Date.now() });
     }
     aiStore.setInterrupted();
+  } else {
+    // Safety net: if currentAbortController is already null but the store
+    // still shows loading, force-reset the UI to prevent a stuck state.
+    if (aiStore.getState().isLoading) {
+      console.warn('[AI] abortAIRequest: controller is null but still loading — force-resetting UI');
+      const partial = aiStore.getState().streamingContent;
+      if (partial) {
+        aiStore.addMessage({ role: 'assistant', content: partial, timestamp: Date.now() });
+      }
+      aiStore.setInterrupted();
+    }
   }
 }
 
@@ -452,15 +464,23 @@ function buildSystemPrompt(
   if (toolCount > 0) {
     prompt += ' You have access to tools. Use them when they can help answer the user\'s question. You can use add_mcp_server to help users install and configure new MCP servers.';
 
-    // Image URL handling — graceful fallback for expired/temporary URLs
+    // Image URL handling — always localize first, then upload; NEVER regenerate
     prompt +=
-      '\n\nIMPORTANT — Image URL handling (use this tiered strategy):' +
+      '\n\nIMPORTANT — Image URL handling strategy:' +
       '\nWhen the user asks to upload or process images that appear in the document as URLs:' +
-      '\n1. **Try the URL directly** — pass it to the MCP tool first. If the URL is valid, this is fastest.' +
-      '\n2. **If the MCP call fails or times out** (URL may be expired or temporary):' +
-      '\n   - Call `fetch_image_to_local(url)` — this uses the browser cache, so it can retrieve images even if the URL has expired.' +
-      '\n   - On success it returns a local file path; retry the MCP tool with that local path.' +
-      '\n3. **If `fetch_image_to_local` also fails** — the image is not accessible. Report the error to the user and continue with the remaining images.' +
+      '\n1. **ALWAYS call `fetch_image_to_local(url)` FIRST** for every image URL from the document.' +
+      '\n   - This tool retrieves the image via browser cache — it works even for expired/temporary URLs as long as the image is still displayed in the editor.' +
+      '\n   - It returns a local file path (e.g. `/path/to/image-cache/xxx.png`).' +
+      '\n2. **Use the local file path** (not the original URL) when calling MCP upload tools.' +
+      '\n   - MCP tools cannot access expired URLs, but they can always read local files.' +
+      '\n3. **If `fetch_image_to_local` fails** — the image is truly not accessible. Report the error to the user and continue with the remaining images.' +
+      '\n4. **Do NOT skip `fetch_image_to_local`** and pass URLs directly to MCP tools — URLs in documents are often temporary and may have expired.' +
+      '\n' +
+      '\n**NEVER regenerate images.** This is a strict rule:' +
+      '\n- When the task is to upload/migrate existing document images, you must use the ORIGINAL images, not generate new ones.' +
+      '\n- Regenerating images will produce wrong results — you lack the original prompt, style, seed, and parameters that created the image. The result will be off-topic and incorrect.' +
+      '\n- If `fetch_image_to_local` fails for an image, skip it and report the failure. Do NOT call any image generation tool as a replacement.' +
+      '\n- Image generation tools (DALL-E, Flux, etc.) should ONLY be used when the user explicitly asks to CREATE NEW images, never as a fallback for retrieving existing ones.' +
       '\nNever abandon the whole batch because one image failed — process each image independently.';
 
     // File writing rules
@@ -652,10 +672,14 @@ export async function sendChatMessage(message: string, documentContext?: string,
     aiStore.addMessage(userMsg);
 
     // Tool execution loop
-    const MAX_TOOL_ROUNDS = 10;
+    const MAX_TOOL_ROUNDS = settingsStore.getState().aiMaxToolRounds || 20;
     const MAX_TRUNCATION_RETRIES = 2;
+    const MAX_EMPTY_RETRIES = 3;
+    const MAX_CONTINUATION_RETRIES = 3;
     let round = 0;
     let truncationRetries = 0;
+    let emptyRetries = 0;
+    let continuationRetries = 0;
     let finalContent = '';
 
     while (round < MAX_TOOL_ROUNDS) {
@@ -664,11 +688,14 @@ export async function sendChatMessage(message: string, documentContext?: string,
 
       // Use increased max_tokens after truncation to give more room for tool calls
       const effectiveConfig = truncationRetries > 0
-        ? { ...activeConfig, maxTokens: Math.max((activeConfig.maxTokens || 8192) * 2, 16384) }
+        ? { ...activeConfig, maxTokens: Math.max((activeConfig.maxTokens || 81920) * 2, 163840) }
         : activeConfig;
 
-      const bodySize = JSON.stringify(messages).length;
-      console.log(`[AI] Tool round ${round}/${MAX_TOOL_ROUNDS}, messages: ${messages.length}, tools: ${toolDefs.length}, maxTokens: ${effectiveConfig.maxTokens}, bodySize: ${bodySize}`);
+      // Yield to event loop before each API call so user interactions (stop, ESC,
+      // menus) can be processed even during rapid multi-round tool loops.
+      await new Promise<void>(r => setTimeout(r, 0));
+
+      console.log(`[AI] Tool round ${round}/${MAX_TOOL_ROUNDS}, messages: ${messages.length}, tools: ${toolDefs.length}, maxTokens: ${effectiveConfig.maxTokens}`);
 
       // Streaming-first: stream text in real-time while also capturing tool events.
       // This gives immediate feedback for ALL models (no more blank screen for slow models).
@@ -678,7 +705,53 @@ export async function sendChatMessage(message: string, documentContext?: string,
         tools: toolDefs.length > 0 ? toolDefs : undefined,
       }, signal, (chunk) => aiStore.appendStreamContent(chunk));
 
+      // Re-check abort immediately after every major await to avoid stale processing
+      if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+
       console.log(`[AI] Response received: stopReason=${response.stopReason}, toolCalls=${response.toolCalls?.length || 0}, content=${response.content?.length || 0} chars`);
+
+      // Empty response detection — try recovery in multi-round conversations
+      if (!response.content && (!response.toolCalls || response.toolCalls.length === 0)) {
+        // In a multi-round tool loop, the model may return empty when confused
+        // by tool errors, continuation prompts, or context overflow.
+        // Give it a chance to recover before giving up.
+        if (round > 1 && emptyRetries < MAX_EMPTY_RETRIES) {
+          emptyRetries++;
+          console.warn(`[AI] Empty response in round ${round} — recovery attempt ${emptyRetries}/${MAX_EMPTY_RETRIES}`);
+
+          // Find the last non-empty assistant message for context
+          let lastAssistantContent = '';
+          for (let i = messages.length - 1; i >= 0; i--) {
+            if (messages[i].role === 'assistant' && messages[i].content) {
+              lastAssistantContent = messages[i].content!.slice(-200);
+              break;
+            }
+          }
+
+          // Detect language from the conversation (check recent messages for Chinese)
+          const recentText = messages.slice(-6).map(m => m.content || '').join('');
+          const isChinese = /[\u4e00-\u9fff]/.test(recentText);
+
+          const recoveryMsg: ChatMessage = {
+            role: 'user',
+            content: isChinese
+              ? '你返回了空响应。请继续完成任务：直接调用所需的工具，或者总结已完成的工作并列出剩余步骤。不要返回空消息。'
+                + (lastAssistantContent ? `\n\n你上次说的是：「${lastAssistantContent}」\n请从这里继续。` : '')
+              : 'You returned an empty response. Please continue the task: '
+                + 'either make the necessary tool call(s), or summarize what has been completed '
+                + 'and list any remaining items. Do not return an empty message.'
+                + (lastAssistantContent ? `\n\nYour last message was: "${lastAssistantContent}"\nPlease continue from there.` : ''),
+            timestamp: Date.now(),
+          };
+          messages.push(recoveryMsg);
+          continue;
+        }
+        const emptyMsg = `[Model returned empty response. Provider: ${effectiveConfig.provider}, Model: ${effectiveConfig.model}]`;
+        console.warn('[AI] Empty response:', effectiveConfig.provider, effectiveConfig.model);
+        aiStore.appendStreamContent(emptyMsg);
+        finalContent = emptyMsg;
+        break;
+      }
 
       // If response was truncated (max_tokens) with pending tool calls:
       // - First few times: save partial content and ask AI to continue with higher token limit
@@ -706,17 +779,20 @@ export async function sendChatMessage(message: string, documentContext?: string,
           messages.push(partialMsg);
         }
 
-        // Ask AI to continue with just the tool call
+        // Ask AI to continue — match the language of the truncated response
+        const isChinese = response.content ? /[\u4e00-\u9fff]/.test(response.content) : false;
         const continueMsg: ChatMessage = {
           role: 'user',
-          content: 'Your previous response was cut off due to output length limits. The text above has been saved. Now please complete the task by making the necessary tool call(s). Do not repeat the content — use it directly in the tool arguments.',
+          content: isChinese
+            ? '你的回复因输出长度限制被截断了。上面的文本已保存。请继续完成任务，直接进行工具调用。不要重复已输出的内容。'
+            : 'Your previous response was cut off due to output length limits. The text above has been saved. Now please complete the task by making the necessary tool call(s). Do not repeat the content — use it directly in the tool arguments.',
           timestamp: Date.now(),
         };
         messages.push(continueMsg);
         continue;
       }
 
-      // No tool calls: this is the final response (text already streamed to UI)
+      // No tool calls: check if the model intended to continue
       if (!response.toolCalls || response.toolCalls.length === 0) {
         // If truncated with tools defined, the model may have been trying to call tools
         // but the arguments were cut off and couldn't be parsed — retry
@@ -740,6 +816,58 @@ export async function sendChatMessage(message: string, documentContext?: string,
           messages.push(continueMsg);
           continue;
         }
+
+        // Detect incomplete responses: model returned text suggesting it wants to
+        // continue with tool calls but stopped without making the call.
+        // Common with some Chinese AI models during multi-step tasks.
+        if (toolDefs.length > 0 && continuationRetries < MAX_CONTINUATION_RETRIES && response.content) {
+          const trimmed = response.content.trim();
+          const tail = trimmed.slice(-80);
+
+          // Check if the last sentence expresses intent to take action (common when
+          // models describe what they're going to do but fail to emit the tool call)
+          const lastSentence = trimmed.split(/[。！？\n]/).filter(s => s.trim()).pop() || '';
+          const hasActionIntent = /(让我|我来|我先|我需要|我将|我要)(.*?)(查看|获取|检查|读取|提取|分析|上传|下载|调用|执行|处理|打开|搜索)/u.test(lastSentence);
+
+          const looksIncomplete =
+            // Ends with colon (about to do something)
+            /[:：]\s*$/.test(tail) ||
+            // Ends with continuation phrase (increased from \S{0,10} to \S{0,30}
+            // to handle longer Chinese phrases like "让我先查看当前文档内容，提取图片URL。")
+            /[，。]?\s*(接下来|下面|现在|然后|让我|继续|处理|开始|上传|发送|调用|查看|获取|提取)\S{0,30}[.。:：]?\s*$/u.test(tail) ||
+            // Mentions remaining/next items to process (e.g., "还有2张图片需要处理")
+            /(还有|剩余|接下来|下一|第\d+[张个步]|remaining|next)\S{0,20}$/u.test(tail) ||
+            // Previously made tool calls in this session and response mentions more work
+            (round > 2 && /(还需要|还没有|尚未|待处理|to do|TODO|next step)/u.test(tail)) ||
+            // AI states intent to take action but didn't make any tool calls
+            // (e.g. "让我先查看当前文档内容，提取图片URL。")
+            hasActionIntent;
+
+          if (looksIncomplete) {
+            continuationRetries++;
+            console.warn(`[AI] Response appears incomplete (tail: "${tail}", actionIntent: ${hasActionIntent}) — prompting continuation ${continuationRetries}/${MAX_CONTINUATION_RETRIES}`);
+            const partialMsg: ChatMessage = {
+              role: 'assistant',
+              content: response.content,
+              timestamp: Date.now(),
+            };
+            aiStore.addMessage(partialMsg);
+            messages.push(partialMsg);
+            // Use the same language the model was using to avoid language switching.
+            // Detect language from the assistant's response.
+            const isChineseResponse = /[\u4e00-\u9fff]/.test(response.content);
+            const continueMsg: ChatMessage = {
+              role: 'user',
+              content: isChineseResponse
+                ? '请继续执行，直接调用所需的工具完成任务。不要重复已说过的内容，不要再次描述计划，直接进行工具调用。'
+                : 'Please continue and make the necessary tool call(s) to complete the task. Do not repeat what has already been said — proceed directly with the tool calls.',
+              timestamp: Date.now(),
+            };
+            messages.push(continueMsg);
+            continue;
+          }
+        }
+
         finalContent = response.content;
         break;
       }
@@ -757,6 +885,8 @@ export async function sendChatMessage(message: string, documentContext?: string,
       // Execute each tool call (internal or MCP)
       for (const tc of response.toolCalls) {
         if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+        // Yield to event loop between tool calls so stop/ESC remain responsive
+        await new Promise<void>(r => setTimeout(r, 0));
         aiStore.appendStreamContent(`\n[Calling tool: ${tc.name}...]\n`);
 
         let resultText = '';
@@ -767,21 +897,38 @@ export async function sendChatMessage(message: string, documentContext?: string,
         const TOOL_TIMEOUT_MS = 20_000;
 
         // Helper: race a promise against the abort signal AND a per-tool timeout.
+        // Uses a single Promise wrapper to avoid dangling unhandled rejections from
+        // losing race participants (abort / timeout promises).
         const raceAbortOrTimeout = <T>(p: Promise<T>): Promise<T> => {
-          const racers: Promise<never>[] = [];
+          if (signal.aborted) return Promise.reject(new DOMException('Aborted', 'AbortError'));
 
-          if (signal) {
-            racers.push(new Promise<never>((_, reject) => {
-              if (signal.aborted) { reject(new DOMException('Aborted', 'AbortError')); return; }
-              signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
-            }));
-          }
+          return new Promise<T>((resolve, reject) => {
+            let settled = false;
+            const settle = (fn: typeof resolve | typeof reject, value: unknown) => {
+              if (settled) return;
+              settled = true;
+              cleanup();
+              (fn as (v: unknown) => void)(value);
+            };
 
-          racers.push(new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error(`Tool call timed out after ${TOOL_TIMEOUT_MS / 1000}s`)), TOOL_TIMEOUT_MS)
-          ));
+            const timer = setTimeout(
+              () => settle(reject, new Error(`Tool call timed out after ${TOOL_TIMEOUT_MS / 1000}s`)),
+              TOOL_TIMEOUT_MS,
+            );
 
-          return Promise.race([p, ...racers]);
+            const onAbort = () => settle(reject, new DOMException('Aborted', 'AbortError'));
+            signal.addEventListener('abort', onAbort, { once: true });
+
+            const cleanup = () => {
+              clearTimeout(timer);
+              signal.removeEventListener('abort', onAbort);
+            };
+
+            p.then(
+              v => settle(resolve, v),
+              e => settle(reject, e),
+            );
+          });
         };
 
         try {
@@ -852,9 +999,12 @@ export async function sendChatMessage(message: string, documentContext?: string,
           console.error(`[AI] Tool call failed: ${tc.name}`, error);
           resultText = `Error: ${error instanceof Error ? error.message : String(error)}`;
           isError = true;
+        }
 
-          // If this tool call timed out or failed and its arguments contain HTTP URLs,
-          // suggest the fetch_image_to_local fallback strategy so the AI can recover.
+        // If the tool call failed (isError or exception) and its arguments contain HTTP URLs,
+        // suggest the fetch_image_to_local fallback strategy so the AI can recover.
+        // This covers BOTH MCP tools returning isError:true AND tools that throw exceptions.
+        if (isError) {
           const argValues = Object.values(tc.arguments as Record<string, unknown>);
           const hasHttpUrl = argValues.some(
             v => typeof v === 'string' && (v.startsWith('http://') || v.startsWith('https://')),
@@ -863,8 +1013,10 @@ export async function sendChatMessage(message: string, documentContext?: string,
             resultText +=
               '\n\nRecovery hint: This tool call failed while working with an image URL. ' +
               'The URL may be expired. Use `fetch_image_to_local(url)` to retrieve the image ' +
-              'via browser cache (works even for expired URLs), then retry this tool with the ' +
-              'returned local file path instead of the URL.';
+              'via browser cache (works even for expired URLs if the image is still displayed in the editor), ' +
+              'then retry this tool with the returned local file path instead of the URL. ' +
+              'NEVER regenerate the image — you lack the original prompt/style/parameters, ' +
+              'regeneration will produce incorrect off-topic results.';
           }
         }
 
@@ -886,6 +1038,45 @@ export async function sendChatMessage(message: string, documentContext?: string,
         };
         aiStore.addMessage(toolMsg);
         messages.push(toolMsg);
+
+        // Check abort between tool calls to stop immediately when user interrupts
+        if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+      }
+    }
+
+    // If the loop exited because MAX_TOOL_ROUNDS was reached (not a break),
+    // the model still has pending tool results to process. Give it one final
+    // text-only call to summarize what was done and what remains.
+    if (round >= MAX_TOOL_ROUNDS && !finalContent) {
+      console.warn(`[AI] Tool round limit (${MAX_TOOL_ROUNDS}) reached — generating final summary`);
+
+      // UI-level hint: tell the user they can increase the limit
+      const tr = get(t);
+      const settingsHint = tr('settings.permissions.aiMaxToolRounds');
+      aiStore.appendStreamContent(
+        `\n\n⚠️ [${tr('settings.permissions.aiTitle')} → ${settingsHint}: ${MAX_TOOL_ROUNDS}]`
+      );
+
+      const summaryPrompt: ChatMessage = {
+        role: 'user',
+        content: 'You have reached the maximum number of tool call rounds (' + MAX_TOOL_ROUNDS + '). '
+          + 'Please summarize what has been completed and list any remaining steps the user needs to do manually.\n\n'
+          + 'IMPORTANT: Tell the user they can increase this limit in Settings → Permissions → "' + settingsHint + '" (current value: ' + MAX_TOOL_ROUNDS + ').',
+        timestamp: Date.now(),
+      };
+      messages.push(summaryPrompt);
+
+      try {
+        const summaryResponse = await streamAIRequestWithTools(activeConfig, {
+          messages,
+          // No tools — force text-only response
+        }, signal, (chunk) => aiStore.appendStreamContent(chunk));
+
+        finalContent = summaryResponse.content || '';
+      } catch (err: any) {
+        if (err?.name !== 'AbortError' && !signal.aborted) {
+          console.error('[AI] Failed to generate round-limit summary:', err);
+        }
       }
     }
 
@@ -926,6 +1117,11 @@ export async function sendChatMessage(message: string, documentContext?: string,
     }
     console.error('[AI] sendChatMessage failed:', error);
     if (!isStale) {
+      // Save any partial streamed content so the user doesn't lose visible text
+      const partial = aiStore.getState().streamingContent;
+      if (partial) {
+        aiStore.addMessage({ role: 'assistant', content: partial, timestamp: Date.now() });
+      }
       // Tauri invoke rejects with a plain string; JS errors have .message
       const errMsg = (typeof error === 'string' ? error : error?.message) || get(t)('errors.chatRequestFailed');
       aiStore.setError(errMsg);

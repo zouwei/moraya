@@ -25,7 +25,7 @@ export const DEFAULT_MODELS: Record<AIProvider, string[]> = {
   mistral: ['mistral-large-latest', 'mistral-small-latest', 'magistral-medium-latest', 'magistral-small-latest', 'codestral-latest', 'devstral-latest'],
   glm:     ['glm-5', 'glm-4-plus', 'glm-4-air', 'glm-4-flash', 'glm-z1-flash', 'glm-z1-air'],
   minimax: ['MiniMax-M2.5', 'MiniMax-M2.5-highspeed', 'MiniMax-Text-01'],
-  doubao:  ['doubao-seed-2-0-pro', 'doubao-seed-2-0-lite', 'doubao-seed-2-0-mini', 'doubao-seed-2-0-code', 'doubao-pro-32k', 'doubao-pro-128k'],
+  doubao:  [],
   custom:  [],
 };
 

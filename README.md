@@ -199,12 +199,31 @@
 
 ## Install
 
-Download the latest release from [GitHub Releases](https://github.com/nicepkg/moraya/releases).
+### macOS (Homebrew)
+
+```bash
+brew tap zouwei/moraya
+brew install --cask moraya
+```
+
+Upgrade: `brew upgrade --cask moraya` · Uninstall: `brew uninstall --cask moraya`
+
+### All Platforms
+
+Download the latest release from [GitHub Releases](https://github.com/zouwei/moraya/releases).
+
+| Platform | File | Install |
+|----------|------|---------|
+| macOS (Apple Silicon) | `Moraya_x.x.x_aarch64.dmg` | Open DMG, drag to Applications |
+| macOS (Intel) | `Moraya_x.x.x_x64.dmg` | Open DMG, drag to Applications |
+| Windows | `Moraya_x.x.x_x64_en-US.msi` | Run the MSI installer |
+| Linux (Debian) | `moraya_x.x.x_amd64.deb` | `sudo dpkg -i moraya_*.deb` |
+| Linux (AppImage) | `Moraya_x.x.x_amd64.AppImage` | `chmod +x` then run |
 
 > **macOS note**: The app is not code-signed. If you see *"Moraya is damaged and can't be opened"*, run this in Terminal:
 >
 > ```bash
-> xattr -cr /Applications/Moraya.app  
+> xattr -cr /Applications/Moraya.app
 > ```
 >
 > Then open the app again.
@@ -354,6 +373,8 @@ All API keys are stored exclusively in your OS Keychain — never in plaintext. 
 - [x] **v0.15.0** — AI Voice Transcription: Real-time microphone → STT (Deepgram/Gladia/AssemblyAI/Azure Speech) → speaker diarization with auto-naming (pitch-based gender detection), voiceprint archive for cross-session recognition, transcription panel in AI sidebar with one-click meeting summary generation and Markdown export, voice settings tab with multi-provider config and keychain security. → [Detailed Requirements](docs/iterations/v0.15.0-voice-transcription.md)
 
 - [x] **v0.16.0** — Plugin System: Open plugin ecosystem with GitHub-based decentralized registry, Plugin API v1 (editor + AI chat/image/voice bridge), marketplace with one-click install and real-time GitHub data, SHA256 version pinning + permission model for supply chain security, official `moraya-hello` template plugin. → [Detailed Requirements](docs/iterations/v0.16.0-plugin-system.md)
+
+- [x] **v0.17.0** — Homebrew Cask: `brew install --cask moraya` one-command install for macOS, self-hosted Tap (`zouwei/homebrew-moraya`) with dual-architecture DMG support (Apple Silicon + Intel), automated SHA256 update via CI on every release, `livecheck` for version detection, `zap` for clean uninstall. → [Detailed Requirements](docs/iterations/v0.17.0-homebrew-cask.md)
 
 ## License
 

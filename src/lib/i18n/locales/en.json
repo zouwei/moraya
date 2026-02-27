@@ -72,7 +72,9 @@
       "aiRulesMaxChars": "Rules File Max Chars",
       "aiRulesMaxCharsHint": "Maximum characters read from MORAYA.md rules file. Increase for large rules files. More chars = more tokens per request.",
       "aiToolResultMaxChars": "Tool Result Max Chars",
-      "aiToolResultMaxCharsHint": "Maximum characters kept from each MCP tool result. Larger values preserve more detail but consume more context."
+      "aiToolResultMaxCharsHint": "Maximum characters kept from each MCP tool result. Larger values preserve more detail but consume more context.",
+      "aiMaxToolRounds": "Max Tool Calling Rounds",
+      "aiMaxToolRoundsHint": "Maximum number of tool call rounds the AI can perform in a single conversation turn. Increase this for complex multi-step tasks."
     },
     "voice": {
       "providers": "Speech Providers",
@@ -87,6 +89,7 @@
       "region": "Region",
       "model": "Model",
       "modelPlaceholder": "Enter model name",
+      "endpointIdPlaceholder": "Enter inference endpoint ID",
       "language": "Language",
       "langAuto": "Auto Detect",
       "langMulti": "Multi-language",
@@ -160,7 +163,11 @@
   "editor": {
     "sourceMode": "Source Mode",
     "visualMode": "Visual Mode",
-    "splitMode": "Split Mode"
+    "splitMode": "Split Mode",
+    "unsavedTitle": "Unsaved Changes",
+    "unsavedNewDocMsg": "You have unsaved content that will be lost. Save it first?",
+    "saveFirst": "Save",
+    "discardChanges": "Don't Save"
   },
   "table": {
     "insertRowAbove": "Insert Row Above",

@@ -45,6 +45,7 @@ interface Settings {
   aiMaxTokens: number;
   aiRulesMaxChars: number;
   aiToolResultMaxChars: number;
+  aiMaxToolRounds: number;
   speechProviderConfigs: SpeechProviderConfig[];
   activeSpeechConfigId: string | null;
   voiceProfiles: VoiceProfile[];
@@ -81,6 +82,7 @@ const DEFAULT_SETTINGS: Settings = {
   aiMaxTokens: 16384,
   aiRulesMaxChars: 16000,
   aiToolResultMaxChars: 10000,
+  aiMaxToolRounds: 20,
   speechProviderConfigs: [],
   activeSpeechConfigId: null,
   voiceProfiles: [],
