@@ -364,17 +364,17 @@ All API keys are stored exclusively in your OS Keychain — never in plaintext. 
 
 - [x] **v0.11.0** — Sidebar fully enhanced: directory memory + real-time file refresh + list/tree dual views + right-click context menu + file search — further strengthening local privacy-first note-taking. → [Detailed Requirements](docs/iterations/v0.11.0-sidebar-enhancement.md)
 
-- [x] **v0.12.0** — Knowledge Base Enhancement: Multi-knowledge-base switching with quick dropdown, per-knowledge-base AI rules via `MORAYA.md`, persistent KB management, and automatic AI rule injection. → [Detailed Requirements](docs/iterations/v0.12.0-knowledge-base.md)
+- [x] **v0.12.0** — Knowledge Base: Multi-KB switching, per-KB AI rules via `MORAYA.md`, automatic rule injection → [Detailed Requirements](docs/iterations/v0.12.0-knowledge-base.md)
 
-- [x] **v0.13.0** — AI Vision Input: Multimodal image support for AI chat (paste, drag-and-drop, file picker), auto-compression, 4-provider adaptation (Claude/OpenAI/Gemini/Ollama), thumbnail preview, lightbox viewer, AI abort fix, and MCP async optimization. → [Detailed Requirements](docs/iterations/v0.13.0-vision-input.md)
+- [x] **v0.13.0** — AI Vision Input: Multimodal image support in AI chat (paste/drag/pick), auto-compression, 4-provider adaptation → [Detailed Requirements](docs/iterations/v0.13.0-vision-input.md)
 
-- [x] **v0.14.0** — AI Model & Image Hosting Enhancement: 5 new chat providers (Grok/Mistral/GLM/MiniMax/Doubao), refreshed model lists for all providers, smart model datalist for image generation, 3 new image generation providers (Gemini Imagen/Qwen/Doubao), 5 object storage image hosts (Qiniu Kodo/Aliyun OSS/Tencent COS/AWS S3/Google GCS) with HMAC signing in Rust backend, region datalist with per-provider presets, settings performance fix (subscription cleanup), instant tab switching (CSS keep-alive), macOS external drive support. → [Detailed Requirements](docs/iterations/v0.14.0-ai-model-imagehost-enhancement.md)
+- [x] **v0.14.0** — AI Model & Image Hosting: 5 new chat providers, 3 new image providers, 5 object storage hosts with HMAC signing → [Detailed Requirements](docs/iterations/v0.14.0-ai-model-imagehost-enhancement.md)
 
-- [x] **v0.15.0** — AI Voice Transcription: Real-time microphone → STT (Deepgram/Gladia/AssemblyAI/Azure Speech) → speaker diarization with auto-naming (pitch-based gender detection), voiceprint archive for cross-session recognition, transcription panel in AI sidebar with one-click meeting summary generation and Markdown export, voice settings tab with multi-provider config and keychain security. → [Detailed Requirements](docs/iterations/v0.15.0-voice-transcription.md)
+- [x] **v0.15.0** — AI Voice Transcription: Real-time STT (Deepgram/Gladia/AssemblyAI/Azure), speaker diarization, voiceprint archive, meeting summary → [Detailed Requirements](docs/iterations/v0.15.0-voice-transcription.md)
 
-- [x] **v0.16.0** — Plugin System: Open plugin ecosystem with GitHub-based decentralized registry, Plugin API v1 (editor + AI chat/image/voice bridge), marketplace with one-click install and real-time GitHub data, SHA256 version pinning + permission model for supply chain security, official `moraya-hello` template plugin. → [Detailed Requirements](docs/iterations/v0.16.0-plugin-system.md)
+- [x] **v0.16.0** — Plugin System: GitHub-based decentralized registry, Plugin API v1, marketplace with one-click install, SHA256 pinning → [Detailed Requirements](docs/iterations/v0.16.0-plugin-system.md)
 
-- [x] **v0.17.0** — Homebrew Cask: `brew install --cask moraya` one-command install for macOS, self-hosted Tap (`zouwei/homebrew-moraya`) with dual-architecture DMG support (Apple Silicon + Intel), automated SHA256 update via CI on every release, `livecheck` for version detection, `zap` for clean uninstall. → [Detailed Requirements](docs/iterations/v0.17.0-homebrew-cask.md)
+- [x] **v0.17.0** — Homebrew Cask: `brew install --cask moraya`, dual-architecture DMG, automated SHA256 update via CI → [Detailed Requirements](docs/iterations/v0.17.0-homebrew-cask.md)
 
 ## License
 
