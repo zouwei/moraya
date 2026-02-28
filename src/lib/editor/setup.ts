@@ -6,6 +6,7 @@ import { history } from '@milkdown/plugin-history';
 import { clipboard } from '@milkdown/plugin-clipboard';
 import { cursor } from '@milkdown/plugin-cursor';
 import { enterHandlerPlugin } from './plugins/enter-handler';
+import { tableKeysPlugin } from './plugins/table-keys';
 import { $prose, $inputRule } from '@milkdown/utils';
 import { AllSelection, Plugin, PluginKey, TextSelection } from '@milkdown/prose/state';
 import { Decoration, DecorationSet } from '@milkdown/prose/view';
@@ -325,6 +326,7 @@ export async function createEditor(options: EditorOptions): Promise<Editor> {
     // Tier 0: Core plugins
     .use(commonmark)
     .use(codeBlockExtendedInputRule)
+    .use(tableKeysPlugin)
     .use(gfm)
     .use(history)
     .use(pasteLanguageFixPlugin)

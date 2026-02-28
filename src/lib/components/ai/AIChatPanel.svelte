@@ -75,8 +75,11 @@
   let morayaMdActive = $state(false);
   let folderPath = $state<string | null>(null);
 
-  filesStore.subscribe(state => {
-    folderPath = state.openFolderPath;
+  $effect(() => {
+    const unsub = filesStore.subscribe(state => {
+      folderPath = state.openFolderPath;
+    });
+    return unsub;
   });
 
   $effect(() => {
@@ -90,8 +93,11 @@
       .catch(() => { morayaMdActive = false; });
   });
 
-  mcpStore.subscribe(state => {
-    mcpToolCount = state.tools.length;
+  $effect(() => {
+    const unsub = mcpStore.subscribe(state => {
+      mcpToolCount = state.tools.length;
+    });
+    return unsub;
   });
 
   // ── Cached markdown rendering ──
@@ -191,15 +197,18 @@
 
   // Only assign $state vars when the value actually changed — avoids triggering
   // unnecessary Svelte reactivity during high-frequency streaming updates.
-  aiStore.subscribe(state => {
-    if (chatMessages !== state.chatHistory) chatMessages = state.chatHistory;
-    if (isLoading !== state.isLoading) isLoading = state.isLoading;
-    if (error !== state.error) error = state.error;
-    if (interrupted !== state.interrupted) interrupted = state.interrupted;
-    if (streamingContent !== state.streamingContent) streamingContent = state.streamingContent;
-    if (isConfigured !== state.isConfigured) isConfigured = state.isConfigured;
-    if (providerConfigs !== state.providerConfigs) providerConfigs = state.providerConfigs;
-    if (activeConfigId !== state.activeConfigId) activeConfigId = state.activeConfigId;
+  $effect(() => {
+    const unsub = aiStore.subscribe(state => {
+      if (chatMessages !== state.chatHistory) chatMessages = state.chatHistory;
+      if (isLoading !== state.isLoading) isLoading = state.isLoading;
+      if (error !== state.error) error = state.error;
+      if (interrupted !== state.interrupted) interrupted = state.interrupted;
+      if (streamingContent !== state.streamingContent) streamingContent = state.streamingContent;
+      if (isConfigured !== state.isConfigured) isConfigured = state.isConfigured;
+      if (providerConfigs !== state.providerConfigs) providerConfigs = state.providerConfigs;
+      if (activeConfigId !== state.activeConfigId) activeConfigId = state.activeConfigId;
+    });
+    return unsub;
   });
 
   function handleModelSwitch(e: Event) {
@@ -441,7 +450,9 @@
 
   function handleKeydown(event: KeyboardEvent) {
     if (event.isComposing) return;
-    if (event.key === 'Enter' && !event.shiftKey) {
+    // Ctrl+Enter (Windows/Linux) or Cmd+Enter (macOS) to send.
+    // Plain Enter inserts a newline (default textarea behavior).
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();
       handleSend();
     }

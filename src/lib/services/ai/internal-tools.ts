@@ -4,7 +4,7 @@
  */
 
 import type { ToolDefinition, ToolCallRequest } from './types';
-import { mcpStore, connectServer, type MCPServerConfig } from '$lib/services/mcp';
+import { mcpStore, connectServer, disconnectServer, type MCPServerConfig } from '$lib/services/mcp';
 import {
   createService,
   saveService,
@@ -267,8 +267,17 @@ async function handleAddMcpServer(
     return { content: `Error: unsupported transport_type "${transportType}"`, isError: true };
   }
 
+  // Name-based deduplication: if a server with the same name exists,
+  // disconnect and update it instead of creating a duplicate.
+  const existing = mcpStore.getState().servers.find(s => s.name === name);
+  const serverId = existing?.id ?? `mcp-${Date.now()}`;
+
+  if (existing) {
+    try { await disconnectServer(existing.id); } catch { /* ignore */ }
+  }
+
   const config: MCPServerConfig = {
-    id: `mcp-${Date.now()}`,
+    id: serverId,
     name,
     transport,
     enabled: true,
@@ -280,8 +289,9 @@ async function handleAddMcpServer(
     await connectServer(config);
     const state = mcpStore.getState();
     const toolCount = state.tools.filter(t => t.serverId === config.id).length;
+    const action = existing ? 'updated' : 'added';
     return {
-      content: `MCP Server "${name}" added and connected successfully. Discovered ${toolCount} tool(s).`,
+      content: `MCP Server "${name}" ${action} and connected successfully. Discovered ${toolCount} tool(s).`,
       isError: false,
     };
   } catch (e: any) {

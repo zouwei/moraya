@@ -87,20 +87,22 @@
   let editUrl = $state('');
   let editEnv = $state('');
 
-  mcpStore.subscribe(state => {
-    servers = state.servers;
-    connectedServers = state.connectedServers;
-    publishTargets = state.publishTargets;
-    syncConfigs = state.syncConfigs;
-    syncStatuses = state.syncStatuses;
-    isLoading = state.isLoading;
-    error = state.error;
-  });
-
-  containerStore.subscribe(state => {
-    dynamicServices = state.services;
-    nodeAvailable = state.nodeAvailable;
-    nodeVersion = state.nodeVersion;
+  $effect(() => {
+    const unsub1 = mcpStore.subscribe(state => {
+      servers = state.servers;
+      connectedServers = state.connectedServers;
+      publishTargets = state.publishTargets;
+      syncConfigs = state.syncConfigs;
+      syncStatuses = state.syncStatuses;
+      isLoading = state.isLoading;
+      error = state.error;
+    });
+    const unsub2 = containerStore.subscribe(state => {
+      dynamicServices = state.services;
+      nodeAvailable = state.nodeAvailable;
+      nodeVersion = state.nodeVersion;
+    });
+    return () => { unsub1(); unsub2(); };
   });
 
   async function handleConnect(server: MCPServerConfig) {

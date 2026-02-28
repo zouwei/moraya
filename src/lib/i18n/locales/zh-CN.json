@@ -210,7 +210,7 @@
     "typing": "输入中...",
     "placeholder": "向 AI 提问...（/ 查看命令）",
     "placeholderSelection": "询问选中内容...（/ 查看命令）",
-    "send": "发送（Enter）",
+    "send": "发送（⌘↵）",
     "stop": "停止（Esc）",
     "interrupted": "被打断",
     "insertToEditor": "插入到编辑器",

@@ -190,10 +190,13 @@ ${tr('welcome.tip')}
   let aiLoading = $state(false);
   let aiError = $state(false);
 
-  aiStore.subscribe(state => {
-    aiConfigured = state.isConfigured;
-    aiLoading = state.isLoading;
-    aiError = !!state.error;
+  $effect(() => {
+    const unsub = aiStore.subscribe(state => {
+      aiConfigured = state.isConfigured;
+      aiLoading = state.isLoading;
+      aiError = !!state.error;
+    });
+    return unsub;
   });
 
   // Publish workflow state
@@ -413,56 +416,61 @@ ${tr('welcome.tip')}
   let splitVisualEl: HTMLDivElement | undefined = $state();
   let activeScrollPane: 'source' | 'visual' | null = null;
 
-  settingsStore.subscribe(state => {
-    showSidebar = state.showSidebar;
-  });
+  $effect(() => {
+    const unsub1 = settingsStore.subscribe(state => {
+      showSidebar = state.showSidebar;
+    });
 
-  // Track previous values to skip redundant work in hot subscriber path.
-  // This subscriber fires on every store update (setContent, setDirty, setFocused, etc.)
-  // so we must avoid doing unnecessary work or writing $state on each call.
-  let prevFilePath: string | null = null;
-  let prevEditorMode: EditorMode | null = null;
+    // Track previous values to skip redundant work in hot subscriber path.
+    // This subscriber fires on every store update (setContent, setDirty, setFocused, etc.)
+    // so we must avoid doing unnecessary work or writing $state on each call.
+    let prevFilePath: string | null = null;
+    let prevEditorMode: EditorMode | null = null;
 
-  editorStore.subscribe(state => {
-    // Only recompute file name when path actually changes
-    if (state.currentFilePath !== prevFilePath) {
-      prevFilePath = state.currentFilePath;
-      currentFileName = state.currentFilePath
-        ? getFileNameFromPath(state.currentFilePath)
-        : $t('common.untitled');
-    }
-    // Guard: only write $state when mode actually changes to avoid re-entrancy
-    // during Svelte's render flush (e.g., when Editor.onDestroy calls setContent,
-    // which triggers this subscriber while the component tree is being updated).
-    if (state.editorMode !== prevEditorMode) {
-      prevEditorMode = state.editorMode;
-      editorMode = state.editorMode;
-      // Clear editor reference when switching to source-only mode
-      if (state.editorMode === 'source') {
-        milkdownEditor = null;
+    const unsub2 = editorStore.subscribe(state => {
+      // Only recompute file name when path actually changes
+      if (state.currentFilePath !== prevFilePath) {
+        prevFilePath = state.currentFilePath;
+        currentFileName = state.currentFilePath
+          ? getFileNameFromPath(state.currentFilePath)
+          : $t('common.untitled');
       }
-    }
-    // Sync dirty state to tabs store on iPad
-    if (isIPadOS) {
-      tabsStore.syncDirty(state.isDirty);
-    }
-  });
-
-  // iPad tabs: reload content when active tab changes
-  let prevActiveTabId = '';
-  if (isIPadOS) {
-    tabsStore.subscribe(state => {
-      if (state.activeTabId !== prevActiveTabId) {
-        prevActiveTabId = state.activeTabId;
-        const tab = state.tabs.find(t => t.id === state.activeTabId);
-        if (tab) {
-          content = tab.content;
-          currentFileName = tab.fileName;
-          replaceContentAndScrollToTop(tab.content);
+      // Guard: only write $state when mode actually changes to avoid re-entrancy
+      // during Svelte's render flush (e.g., when Editor.onDestroy calls setContent,
+      // which triggers this subscriber while the component tree is being updated).
+      if (state.editorMode !== prevEditorMode) {
+        prevEditorMode = state.editorMode;
+        editorMode = state.editorMode;
+        // Clear editor reference when switching to source-only mode
+        if (state.editorMode === 'source') {
+          milkdownEditor = null;
         }
       }
+      // Sync dirty state to tabs store on iPad
+      if (isIPadOS) {
+        tabsStore.syncDirty(state.isDirty);
+      }
     });
-  }
+
+    // iPad tabs: reload content when active tab changes
+    let unsub3: (() => void) | undefined;
+    if (isIPadOS) {
+      let prevActiveTabId = '';
+      unsub3 = tabsStore.subscribe(state => {
+        if (state.activeTabId !== prevActiveTabId) {
+          prevActiveTabId = state.activeTabId;
+          const tab = state.tabs.find(t => t.id === state.activeTabId);
+          if (tab) {
+            content = tab.content;
+            currentFileName = tab.fileName;
+            replaceContentAndScrollToTop(tab.content);
+          }
+        }
+      });
+    }
+
+    return () => { unsub1(); unsub2(); unsub3?.(); };
+  });
 
   // Sync native menu checkmarks when editor mode changes (all desktop platforms).
   $effect(() => {

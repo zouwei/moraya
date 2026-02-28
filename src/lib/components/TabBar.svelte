@@ -13,9 +13,12 @@
   let tabs = $state<TabItem[]>([]);
   let activeTabId = $state('');
 
-  tabsStore.subscribe(state => {
-    tabs = state.tabs;
-    activeTabId = state.activeTabId;
+  $effect(() => {
+    const unsub = tabsStore.subscribe(state => {
+      tabs = state.tabs;
+      activeTabId = state.activeTabId;
+    });
+    return unsub;
   });
 
   function handleSwitchTab(tabId: string) {

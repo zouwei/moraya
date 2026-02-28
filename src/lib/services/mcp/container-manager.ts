@@ -134,6 +134,13 @@ export async function createService(params: CreateServiceParams): Promise<Dynami
   // Ensure runtime is ready
   const runtimePath = await ensureRuntime();
 
+  // Name-based deduplication: if a service with the same name exists,
+  // remove the old one first to prevent duplicates.
+  const existingService = containerStore.getState().services.find(s => s.name === name);
+  if (existingService) {
+    try { await removeService(existingService.id); } catch { /* ignore cleanup errors */ }
+  }
+
   // Create service directory (always saved — persist unless user deletes)
   const serviceId = `dyn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const servicesDir = await getServicesDir();

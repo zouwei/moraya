@@ -34,8 +34,11 @@
 
   // Derive display title
   let isDirty = $derived(false);
-  editorStore.subscribe(state => {
-    isDirty = state.isDirty;
+  $effect(() => {
+    const unsub = editorStore.subscribe(state => {
+      isDirty = state.isDirty;
+    });
+    return unsub;
   });
 
   let displayTitle = $derived(isDirty ? `${title} - ${$t('titlebar.unsaved')}` : title);

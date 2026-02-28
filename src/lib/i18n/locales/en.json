@@ -210,7 +210,7 @@
     "typing": "typing...",
     "placeholder": "Ask AI anything... (/ for commands)",
     "placeholderSelection": "Ask about selection... (/ for commands)",
-    "send": "Send (Enter)",
+    "send": "Send (⌘↵)",
     "stop": "Stop (Esc)",
     "interrupted": "Interrupted",
     "insertToEditor": "Insert into editor",

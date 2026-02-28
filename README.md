@@ -293,6 +293,9 @@ cd src-tauri && cargo check
 | Code Block           | `Cmd+Shift+K`   | `Ctrl+Shift+K`   |
 | Quote                | `Cmd+Shift+Q`   | `Ctrl+Shift+Q`   |
 | Zoom In/Out/Reset    | `Cmd+=`/`-`/`0` | `Ctrl+=`/`-`/`0` |
+| AI Send Message      | `Cmd+Enter`     | `Ctrl+Enter`     |
+
+> **AI Chat Input**: `Enter` inserts a newline; `Cmd+Enter` / `Ctrl+Enter` sends the message. This avoids conflicts with CJK IME composition.
 
 ## AI Configuration
 

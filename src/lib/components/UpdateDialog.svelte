@@ -21,12 +21,15 @@
   let downloadProgress = $state(0);
   let error = $state<string | null>(null);
 
-  updateStore.subscribe(state => {
-    checkStatus = state.checkStatus;
-    downloadStatus = state.downloadStatus;
-    updateInfo = state.updateInfo;
-    downloadProgress = state.downloadProgress;
-    error = state.error;
+  $effect(() => {
+    const unsub = updateStore.subscribe(state => {
+      checkStatus = state.checkStatus;
+      downloadStatus = state.downloadStatus;
+      updateInfo = state.updateInfo;
+      downloadProgress = state.downloadProgress;
+      error = state.error;
+    });
+    return unsub;
   });
 
   // Auto-check when dialog opens if idle

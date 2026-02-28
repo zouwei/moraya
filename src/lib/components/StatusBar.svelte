@@ -37,13 +37,15 @@
   let charCount = $state(0);
   let updateAvailable = $state(false);
 
-  editorStore.subscribe(state => {
-    wordCount = state.wordCount;
-    charCount = state.charCount;
-  });
-
-  updateStore.subscribe(state => {
-    updateAvailable = state.checkStatus === 'available';
+  $effect(() => {
+    const unsub1 = editorStore.subscribe(state => {
+      wordCount = state.wordCount;
+      charCount = state.charCount;
+    });
+    const unsub2 = updateStore.subscribe(state => {
+      updateAvailable = state.checkStatus === 'available';
+    });
+    return () => { unsub1(); unsub2(); };
   });
 
   const modes: EditorMode[] = ['visual', 'source', 'split'];

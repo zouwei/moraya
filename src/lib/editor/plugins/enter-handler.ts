@@ -123,8 +123,14 @@ export const enterHandlerPlugin = $prose(() => {
       handleKeyDown(view, event) {
         // Only handle plain Enter (no Shift, no Cmd/Ctrl)
         if (event.key === 'Enter' && !event.shiftKey && !event.metaKey && !event.ctrlKey) {
-          // Check if current line is a code fence (```language)
           const { $from } = view.state.selection;
+
+          // Let Milkdown's built-in splitListItem keymap handle Enter inside list items
+          for (let d = $from.depth; d > 0; d--) {
+            if ($from.node(d).type.name === 'list_item') return false;
+          }
+
+          // Check if current line is a code fence (```language)
           if ($from.parent.type.name === 'paragraph') {
             const text = $from.parent.textContent;
 

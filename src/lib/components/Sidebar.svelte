@@ -55,13 +55,16 @@
   let showKBDropdown = $state(false);
   let showSaveAsKBHint = $state(false);
 
-  filesStore.subscribe(state => {
-    fileTree = state.fileTree;
-    folderPath = state.openFolderPath;
-    viewMode = state.sidebarViewMode;
-    filePreviews = state.filePreviews;
-    knowledgeBases = state.knowledgeBases;
-    activeKBId = state.activeKnowledgeBaseId;
+  $effect(() => {
+    const unsub = filesStore.subscribe(state => {
+      fileTree = state.fileTree;
+      folderPath = state.openFolderPath;
+      viewMode = state.sidebarViewMode;
+      filePreviews = state.filePreviews;
+      knowledgeBases = state.knowledgeBases;
+      activeKBId = state.activeKnowledgeBaseId;
+    });
+    return unsub;
   });
 
   $effect(() => {
