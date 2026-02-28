@@ -1,27 +1,24 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import type { Editor as MilkdownEditor } from '@milkdown/core';
-  import { editorViewCtx } from '@milkdown/core';
-  import { TextSelection } from '@milkdown/prose/state';
-  import { callCommand } from '@milkdown/utils';
+  import type { MorayaEditor } from '$lib/editor/setup';
+  import { TextSelection } from 'prosemirror-state';
   import {
-    wrapInHeadingCommand,
-    wrapInBlockquoteCommand,
-    wrapInBulletListCommand,
-    wrapInOrderedListCommand,
-    createCodeBlockCommand,
-    insertHrCommand,
-    toggleStrongCommand,
-    toggleEmphasisCommand,
-    toggleInlineCodeCommand,
-    toggleLinkCommand,
-    insertImageCommand,
-  } from '@milkdown/preset-commonmark';
-  import {
-    insertTableCommand,
-    toggleStrikethroughCommand,
-  } from '@milkdown/preset-gfm';
-  import { undoCommand, redoCommand } from '@milkdown/plugin-history';
+    setHeading,
+    wrapInBlockquote,
+    wrapInBulletList,
+    wrapInOrderedList,
+    insertCodeBlock,
+    insertHorizontalRule,
+    toggleBold,
+    toggleItalic,
+    toggleCode,
+    toggleLink,
+    toggleStrikethrough,
+    insertTable,
+    insertImage,
+    insertMathBlock as insertMathBlockCmd,
+  } from '$lib/editor/commands';
+  import { undo, redo } from 'prosemirror-history';
   import Editor from '$lib/editor/Editor.svelte';
   import SourceEditor from '$lib/editor/SourceEditor.svelte';
   import SearchBar from '$lib/editor/SearchBar.svelte';
@@ -243,8 +240,8 @@ ${tr('welcome.tip')}
     }, 4000);
   }
 
-  // Milkdown editor reference for menu commands
-  let milkdownEditor: MilkdownEditor | null = null;
+  // Editor reference for menu commands
+  let morayaEditor: MorayaEditor | null = null;
 
   // Editor component references for search
   let visualEditorRef: Editor | undefined = $state();
@@ -252,8 +249,27 @@ ${tr('welcome.tip')}
   let splitSourceRef: SourceEditor | undefined = $state();
   let splitVisualRef: Editor | undefined = $state();
 
-  function handleEditorReady(editor: MilkdownEditor) {
-    milkdownEditor = editor;
+  function handleEditorReady(editor: MorayaEditor) {
+    morayaEditor = editor;
+  }
+
+  /** Get the current document content on-demand.
+   *  In visual mode: serializes ProseMirror doc to markdown (avoids per-keystroke cost).
+   *  In source/split mode: returns the `content` binding directly (already up-to-date). */
+  function getCurrentContent(): string {
+    const mode = editorStore.getState().editorMode;
+    if (mode === 'visual' && visualEditorRef) {
+      const md = visualEditorRef.getFullMarkdown();
+      content = md; // Sync the local binding for subsequent reads
+      return md;
+    }
+    if (mode === 'split' && splitVisualRef) {
+      const md = splitVisualRef.getFullMarkdown();
+      content = md;
+      return md;
+    }
+    // Source mode or no editor ref: content binding is already up-to-date
+    return content;
   }
 
   /** Sync content to the active visual editor (atomically updates storedFrontmatter). */
@@ -275,16 +291,14 @@ ${tr('welcome.tip')}
   async function replaceContentAndScrollToTop(newContent: string) {
     editorStore.setCursorOffset(0);
     syncVisualEditor(newContent);
-    if (milkdownEditor) {
+    if (morayaEditor) {
       try {
-        milkdownEditor.action((ctx) => {
-          const view = ctx.get(editorViewCtx);
-          const tr = view.state.tr.setSelection(
-            TextSelection.create(view.state.doc, 1)
-          );
-          tr.setMeta('addToHistory', false);
-          view.dispatch(tr);
-        });
+        const view = morayaEditor.view;
+        const tr = view.state.tr.setSelection(
+          TextSelection.create(view.state.doc, 1)
+        );
+        tr.setMeta('addToHistory', false);
+        view.dispatch(tr);
       } catch {
         // Editor may not be fully ready yet
       }
@@ -294,7 +308,8 @@ ${tr('welcome.tip')}
 
   /** Save with tab sync on iPad */
   async function handleSave(asNew = false): Promise<boolean> {
-    const saved = asNew ? await saveFileAs(content) : await saveFile(content);
+    const latestContent = getCurrentContent();
+    const saved = asNew ? await saveFileAs(latestContent) : await saveFile(latestContent);
     if (saved && isIPadOS) {
       const state = editorStore.getState();
       if (state.currentFilePath) {
@@ -304,10 +319,12 @@ ${tr('welcome.tip')}
     return saved;
   }
 
-  function runEditorCommand(cmd: any, payload?: any) {
-    if (!milkdownEditor) return;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function runCmd(cmd: (state: any, dispatch?: any, view?: any) => boolean) {
+    if (!morayaEditor) return;
     try {
-      milkdownEditor.action(callCommand(cmd.key ?? cmd, payload));
+      const { view } = morayaEditor;
+      cmd(view.state, view.dispatch, view);
     } catch {
       // Command may fail if editor not ready or selection invalid
     }
@@ -316,43 +333,26 @@ ${tr('welcome.tip')}
   /** Handle commands from the iPad touch toolbar */
   function handleTouchCommand(cmd: string) {
     const commandMap: Record<string, () => void> = {
-      bold: () => runEditorCommand(toggleStrongCommand),
-      italic: () => runEditorCommand(toggleEmphasisCommand),
-      strikethrough: () => runEditorCommand(toggleStrikethroughCommand),
-      code: () => runEditorCommand(toggleInlineCodeCommand),
-      link: () => runEditorCommand(toggleLinkCommand, { href: '' }),
-      h1: () => runEditorCommand(wrapInHeadingCommand, 1),
-      h2: () => runEditorCommand(wrapInHeadingCommand, 2),
-      h3: () => runEditorCommand(wrapInHeadingCommand, 3),
-      quote: () => runEditorCommand(wrapInBlockquoteCommand),
-      bullet_list: () => runEditorCommand(wrapInBulletListCommand),
-      ordered_list: () => runEditorCommand(wrapInOrderedListCommand),
-      code_block: () => runEditorCommand(createCodeBlockCommand),
-      math_block: () => insertMathBlock(),
-      table: () => runEditorCommand(insertTableCommand, { row: 3, col: 3 }),
+      bold: () => runCmd(toggleBold),
+      italic: () => runCmd(toggleItalic),
+      strikethrough: () => runCmd(toggleStrikethrough),
+      code: () => runCmd(toggleCode),
+      link: () => runCmd(toggleLink({ href: '' })),
+      h1: () => runCmd(setHeading(1)),
+      h2: () => runCmd(setHeading(2)),
+      h3: () => runCmd(setHeading(3)),
+      quote: () => runCmd(wrapInBlockquote),
+      bullet_list: () => runCmd(wrapInBulletList),
+      ordered_list: () => runCmd(wrapInOrderedList),
+      code_block: () => runCmd(insertCodeBlock),
+      math_block: () => runCmd(insertMathBlockCmd),
+      table: () => runCmd(insertTable(3, 3)),
       image: () => { showImageDialog = true; },
-      hr: () => runEditorCommand(insertHrCommand),
-      undo: () => runEditorCommand(undoCommand),
-      redo: () => runEditorCommand(redoCommand),
+      hr: () => runCmd(insertHorizontalRule),
+      undo: () => runCmd(undo),
+      redo: () => runCmd(redo),
     };
     commandMap[cmd]?.();
-  }
-
-  async function insertMathBlock() {
-    if (!milkdownEditor) return;
-    try {
-      const { mathBlockSchema } = await import('@milkdown/plugin-math');
-      milkdownEditor.action((ctx) => {
-        const view = ctx.get(editorViewCtx);
-        const { state, dispatch } = view;
-        const mathType = mathBlockSchema.type(ctx);
-        const node = mathType.create({}, state.schema.text(''));
-        const tr = state.tr.replaceSelectionWith(node);
-        dispatch(tr);
-      });
-    } catch {
-      // Math block insert failed
-    }
   }
 
   // ── Search / Replace callbacks ─────────────────────────
@@ -449,7 +449,7 @@ ${tr('welcome.tip')}
       editorMode = state.editorMode;
       // Clear editor reference when switching to source-only mode
       if (state.editorMode === 'source') {
-        milkdownEditor = null;
+        morayaEditor = null;
       }
     }
     // Sync dirty state to tabs store on iPad
@@ -653,7 +653,7 @@ ${tr('welcome.tip')}
     // Export shortcut
     if (mod && event.shiftKey && event.key === 'E') {
       event.preventDefault();
-      exportDocument(content, 'html');
+      exportDocument(getCurrentContent(), 'html');
       return;
     }
 
@@ -689,21 +689,21 @@ ${tr('welcome.tip')}
     // Heading 1-6: Cmd+1 through Cmd+6 (fallback for menu accelerator)
     if (mod && !event.shiftKey && event.key >= '1' && event.key <= '6') {
       event.preventDefault();
-      runEditorCommand(wrapInHeadingCommand, parseInt(event.key));
+      runCmd(setHeading(parseInt(event.key)));
       return;
     }
 
     // Code block: Cmd+Shift+K (fallback for menu accelerator)
     if (mod && event.shiftKey && event.key === 'K') {
       event.preventDefault();
-      runEditorCommand(createCodeBlockCommand);
+      runCmd(insertCodeBlock);
       return;
     }
 
     // Quote: Cmd+Shift+Q (fallback for menu accelerator)
     if (mod && event.shiftKey && event.key === 'Q') {
       event.preventDefault();
-      runEditorCommand(wrapInBlockquoteCommand);
+      runCmd(wrapInBlockquote);
       return;
     }
 
@@ -741,8 +741,11 @@ ${tr('welcome.tip')}
   async function guardUnsavedChanges(): Promise<boolean> {
     if (isIPadOS) return true; // iPad uses multi-tab with per-tab dirty state
 
-    const { isDirty, currentFilePath, content: editorContent } = editorStore.getState();
+    const { isDirty, currentFilePath } = editorStore.getState();
     if (!isDirty) return true;
+    // Use getCurrentContent() to get latest content from ProseMirror
+    // (in visual-only mode, store.content is not updated per-keystroke)
+    const editorContent = getCurrentContent();
     if (!editorContent?.trim()) return true; // Empty content — nothing to lose
 
     if (currentFilePath) {
@@ -845,7 +848,8 @@ ${tr('welcome.tip')}
     // NOTE: Do NOT use Milkdown's `insert()` — it inserts raw text without
     // markdown parsing, so fenced code blocks (e.g. ```image-prompts) render
     // as plain text instead of actual code blocks.
-    content = content.trimEnd() + '\n\n' + text + '\n';
+    const latestContent = getCurrentContent();
+    content = latestContent.trimEnd() + '\n\n' + text + '\n';
     const mode = editorStore.getState().editorMode;
     if (mode !== 'source') {
       // Save scroll position before replaceAll (which resets it)
@@ -871,7 +875,8 @@ ${tr('welcome.tip')}
     // Always update content string and re-sync visual editor for proper markdown parsing.
     // NOTE: Do NOT use ProseMirror's insertText() — it inserts raw text without
     // markdown parsing, so fenced code blocks render as plain text.
-    content = content.trimEnd() + '\n\n' + text + '\n';
+    const latestContent = getCurrentContent();
+    content = latestContent.trimEnd() + '\n\n' + text + '\n';
     syncVisualEditor(content);
   }
 
@@ -888,7 +893,7 @@ ${tr('welcome.tip')}
         const imgMarkdown = `![${data.alt}](${src})`;
         content = content.trimEnd() + '\n\n' + imgMarkdown + '\n';
       } else {
-        runEditorCommand(insertImageCommand, { src, alt: data.alt });
+        runCmd(insertImage({ src, alt: data.alt }));
       }
     } catch (e) {
       console.warn('[Image] handleInsertImage failed:', e);
@@ -902,11 +907,13 @@ ${tr('welcome.tip')}
   }
 
   function handleWorkflowSEO() {
+    getCurrentContent(); // Ensure content is fresh for SEO analysis
     showWorkflow = false;
     showSEOPanel = true;
   }
 
   function handleWorkflowImageGen() {
+    getCurrentContent(); // Ensure content is fresh for image prompt extraction
     showWorkflow = false;
     imageGenDialogMounted = true;
     showImageGenDialog = true;
@@ -922,7 +929,7 @@ ${tr('welcome.tip')}
     showAIPanel = true;
     const message = $t('ai.prompts.mcpToolPrompt', { toolName: tool.name, serverName: server.name });
     try {
-      await sendChatMessage(message, content);
+      await sendChatMessage(message, getCurrentContent());
     } catch { /* handled by store */ }
   }
 
@@ -933,6 +940,8 @@ ${tr('welcome.tip')}
   }
 
   function handleImageGenInsert(images: { url: string; target: number }[], mode: 'paragraph' | 'end' | 'replace' | 'clipboard') {
+    // Ensure content is up-to-date before image operations
+    getCurrentContent();
     if (mode === 'end') {
       // Insert all images at end
       const imgMarkdown = images.map(img => `![](${img.url})`).join('\n\n');
@@ -1027,11 +1036,12 @@ ${tr('welcome.tip')}
   async function handlePublishConfirm(targetIds: string[]) {
     showPublishConfirm = false;
     const targets = settingsStore.getState().publishTargets.filter(t => targetIds.includes(t.id));
+    const publishContent = getCurrentContent();
 
     // Fallback title: SEO title → first markdown heading → file name
     const fallbackTitle =
       currentSEOData?.selectedTitle ||
-      content.match(/^#\s+(.+)$/m)?.[1]?.trim() ||
+      publishContent.match(/^#\s+(.+)$/m)?.[1]?.trim() ||
       currentFileName.replace(/\.md$/i, '');
 
     const variables: Record<string, string> = {
@@ -1043,7 +1053,7 @@ ${tr('welcome.tip')}
       slug: currentSEOData?.slug || 'untitled',
       cover: '',
       excerpt: currentSEOData?.excerpt || '',
-      content,
+      content: publishContent,
     };
 
     // Lazy-load publish services
@@ -1064,7 +1074,7 @@ ${tr('welcome.tip')}
       // Step 1: Publish
       let result: PublishResult;
       if (target.type === 'github') {
-        result = await publishToGitHub(target, variables, content);
+        result = await publishToGitHub(target, variables, publishContent);
       } else {
         result = await publishToCustomAPI(target, variables);
       }
@@ -1077,10 +1087,10 @@ ${tr('welcome.tip')}
           try {
             if (target.type === 'github') {
               const { updateGitHubRSSFeed } = await import('$lib/services/publish/rss-publisher');
-              await updateGitHubRSSFeed(target, variables, content);
+              await updateGitHubRSSFeed(target, variables, publishContent);
             } else {
               const { updateCustomAPIRSSFeed } = await import('$lib/services/publish/rss-publisher');
-              await updateCustomAPIRSSFeed(target, variables, content);
+              await updateCustomAPIRSSFeed(target, variables, publishContent);
             }
           } catch {
             // RSS failure is non-fatal
@@ -1390,23 +1400,23 @@ ${tr('welcome.tip')}
         'menu:file_open': () => handleOpenFile(),
         'menu:file_save': () => handleSave(),
         'menu:file_save_as': () => handleSave(true),
-        'menu:file_export_html': () => exportDocument(content, 'html'),
-        'menu:file_export_pdf': () => exportDocument(content, 'pdf'),
-        'menu:file_export_image': () => exportDocument(content, 'image'),
-        'menu:file_export_doc': () => exportDocument(content, 'doc'),
+        'menu:file_export_html': () => exportDocument(getCurrentContent(), 'html'),
+        'menu:file_export_pdf': () => exportDocument(getCurrentContent(), 'pdf'),
+        'menu:file_export_image': () => exportDocument(getCurrentContent(), 'image'),
+        'menu:file_export_doc': () => exportDocument(getCurrentContent(), 'doc'),
         // Edit — undo/redo
         'menu:edit_undo': () => {
           if (editorMode === 'source') {
             document.execCommand('undo');
           } else {
-            runEditorCommand(undoCommand);
+            runCmd(undo);
           }
         },
         'menu:edit_redo': () => {
           if (editorMode === 'source') {
             document.execCommand('redo');
           } else {
-            runEditorCommand(redoCommand);
+            runCmd(redo);
           }
         },
         // Select All: handled by PredefinedMenuItem::select_all (source mode)
@@ -1415,25 +1425,25 @@ ${tr('welcome.tip')}
         'menu:edit_find': () => { showSearch = true; },
         'menu:edit_replace': () => { showSearch = true; showReplace = true; },
         // Paragraph
-        'menu:para_h1': () => runEditorCommand(wrapInHeadingCommand, 1),
-        'menu:para_h2': () => runEditorCommand(wrapInHeadingCommand, 2),
-        'menu:para_h3': () => runEditorCommand(wrapInHeadingCommand, 3),
-        'menu:para_h4': () => runEditorCommand(wrapInHeadingCommand, 4),
-        'menu:para_h5': () => runEditorCommand(wrapInHeadingCommand, 5),
-        'menu:para_h6': () => runEditorCommand(wrapInHeadingCommand, 6),
-        'menu:para_table': () => runEditorCommand(insertTableCommand, { row: 3, col: 3 }),
-        'menu:para_code_block': () => runEditorCommand(createCodeBlockCommand),
-        'menu:para_math_block': () => insertMathBlock(),
-        'menu:para_quote': () => runEditorCommand(wrapInBlockquoteCommand),
-        'menu:para_bullet_list': () => runEditorCommand(wrapInBulletListCommand),
-        'menu:para_ordered_list': () => runEditorCommand(wrapInOrderedListCommand),
-        'menu:para_hr': () => runEditorCommand(insertHrCommand),
+        'menu:para_h1': () => runCmd(setHeading(1)),
+        'menu:para_h2': () => runCmd(setHeading(2)),
+        'menu:para_h3': () => runCmd(setHeading(3)),
+        'menu:para_h4': () => runCmd(setHeading(4)),
+        'menu:para_h5': () => runCmd(setHeading(5)),
+        'menu:para_h6': () => runCmd(setHeading(6)),
+        'menu:para_table': () => runCmd(insertTable(3, 3)),
+        'menu:para_code_block': () => runCmd(insertCodeBlock),
+        'menu:para_math_block': () => runCmd(insertMathBlockCmd),
+        'menu:para_quote': () => runCmd(wrapInBlockquote),
+        'menu:para_bullet_list': () => runCmd(wrapInBulletList),
+        'menu:para_ordered_list': () => runCmd(wrapInOrderedList),
+        'menu:para_hr': () => runCmd(insertHorizontalRule),
         // Format
-        'menu:fmt_bold': () => runEditorCommand(toggleStrongCommand),
-        'menu:fmt_italic': () => runEditorCommand(toggleEmphasisCommand),
-        'menu:fmt_strikethrough': () => runEditorCommand(toggleStrikethroughCommand),
-        'menu:fmt_code': () => runEditorCommand(toggleInlineCodeCommand),
-        'menu:fmt_link': () => runEditorCommand(toggleLinkCommand, { href: '' }),
+        'menu:fmt_bold': () => runCmd(toggleBold),
+        'menu:fmt_italic': () => runCmd(toggleItalic),
+        'menu:fmt_strikethrough': () => runCmd(toggleStrikethrough),
+        'menu:fmt_code': () => runCmd(toggleCode),
+        'menu:fmt_link': () => runCmd(toggleLink({ href: '' })),
         'menu:fmt_image': () => { showImageDialog = true; },
         // View — editor modes: payload is boolean (is_checked state from native menu).
         // On macOS, Cocoa auto-toggles CheckMenuItem before firing the event, so the
@@ -1568,7 +1578,7 @@ ${tr('welcome.tip')}
 
     <main class="editor-area">
       {#if editorMode === 'visual'}
-        <Editor bind:this={visualEditorRef} bind:content {showOutline} onEditorReady={handleEditorReady} onContentChange={handleContentChange} onNotify={showToast} />
+        <Editor bind:this={visualEditorRef} bind:content {showOutline} onEditorReady={handleEditorReady} onNotify={showToast} />
       {:else if editorMode === 'source'}
         <SourceEditor bind:this={sourceEditorRef} bind:content {showOutline} onContentChange={handleContentChange} />
       {:else if editorMode === 'split'}
@@ -1603,6 +1613,7 @@ ${tr('welcome.tip')}
         <AIChatPanel
           documentContent={content}
           {selectedText}
+          getDocumentContent={getCurrentContent}
           onInsert={handleAIInsert}
           onReplace={handleAIReplace}
           onOpenSettings={() => { settingsInitialTab = 'ai'; showSettings = true; }}

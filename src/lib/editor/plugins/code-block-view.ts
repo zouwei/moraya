@@ -6,8 +6,8 @@
  * to the inner <code> contentDOM).
  */
 
-import { $view } from '@milkdown/utils';
-import { codeBlockSchema } from '@milkdown/preset-commonmark';
+import type { Node as PmNode } from 'prosemirror-model';
+import type { EditorView } from 'prosemirror-view';
 import type { renderMermaid as RenderFn, updateMermaidTheme as UpdateThemeFn } from './mermaid-renderer';
 
 // ── Mermaid lazy-load wrapper ─────────────────────
@@ -332,8 +332,11 @@ function handleCopy(btn: HTMLButtonElement, codeEl: HTMLElement) {
 
 // ── NodeView Plugin ───────────────────────────────
 
-export const codeBlockViewPlugin = $view(codeBlockSchema.node, () => {
-  return (node, view, getPos) => {
+/**
+ * NodeView factory for code_block nodes.
+ * Pass as `nodeViews: { code_block: createCodeBlockNodeView }` in EditorView config.
+ */
+export function createCodeBlockNodeView(node: PmNode, view: EditorView, getPos: () => number | undefined) {
     // ── DOM structure ──
     const wrapper = document.createElement('div');
     wrapper.className = 'code-block-wrapper';
@@ -542,7 +545,7 @@ export const codeBlockViewPlugin = $view(codeBlockSchema.node, () => {
         return !code.contains(mutation.target);
       },
 
-      update(updatedNode) {
+      update(updatedNode: PmNode) {
         if (updatedNode.type.name !== 'code_block') return false;
         node = updatedNode;
         langLabel.textContent = findLanguageLabel(updatedNode.attrs.language || '');
@@ -580,5 +583,4 @@ export const codeBlockViewPlugin = $view(codeBlockSchema.node, () => {
         mermaidReRenderCallbacks.delete(onThemeChange);
       },
     };
-  };
-});
+}

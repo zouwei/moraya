@@ -1,5 +1,5 @@
 /**
- * Lightweight emoji plugin for Milkdown.
+ * Lightweight emoji plugin.
  *
  * Converts emoji shortcodes like :smile: → 😄 using node-emoji.
  * Uses system native emoji rendering (no twemoji images).
@@ -7,16 +7,15 @@
  * - Typing `:smile:` auto-converts to 😄 when the closing `:` is typed
  */
 
-import { $prose } from '@milkdown/utils';
-import { Plugin, PluginKey } from '@milkdown/prose/state';
+import { Plugin, PluginKey } from 'prosemirror-state';
 import { get as getEmoji } from 'node-emoji';
 
 const emojiPluginKey = new PluginKey('emoji');
 
 /**
- * Milkdown plugin that converts :shortcode: to native emoji on typing.
+ * ProseMirror plugin that converts :shortcode: to native emoji on typing.
  */
-export const emojiPlugin = $prose(() => {
+export function createEmojiPlugin(): Plugin {
   return new Plugin({
     key: emojiPluginKey,
     props: {
@@ -63,4 +62,4 @@ export const emojiPlugin = $prose(() => {
       },
     },
   });
-});
+}

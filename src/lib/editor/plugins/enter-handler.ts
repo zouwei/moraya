@@ -1,8 +1,18 @@
 /**
- * Enter key handler plugin for Milkdown (style).
+ * Enter key handler plugin for Milkdown (unified).
  *
+ * Handles ALL Enter-key variants in a single plugin:
+ *
+ * In table cells (merged from table-keys plugin):
+ * - Ctrl/Cmd+Enter → add a new row below
+ * - Shift+Enter → insert hard break (<br>)
+ *
+ * In paragraphs:
  * - Enter: split the current block into a new paragraph (no <br/>).
- * - Shift+Enter: insert a hard break (<br/>) within the same paragraph.
+ * - Enter after ```language: create code block.
+ * - Enter after | col1 | col2 |: create table.
+ *
+ * Other:
  * - Space after ```: intercepted via a direct capture-phase beforeinput listener
  *   to insert space as plain text without triggering Milkdown's code block input rule.
  *
@@ -10,16 +20,16 @@
  * ensuring this runs before Milkdown's built-in hardbreak keymap.
  */
 
-import { $prose } from '@milkdown/utils';
-import { Plugin, PluginKey, TextSelection } from '@milkdown/prose/state';
-import type { Schema, Node as PmNode } from '@milkdown/prose/model';
+import { Plugin, PluginKey, TextSelection } from 'prosemirror-state';
+import type { Schema, Node as PmNode } from 'prosemirror-model';
 import {
   splitBlock,
   chainCommands,
   newlineInCode,
   createParagraphNear,
   liftEmptyBlock,
-} from '@milkdown/prose/commands';
+} from 'prosemirror-commands';
+import { addRowAfter } from 'prosemirror-tables';
 
 const enterHandlerKey = new PluginKey('enter-handler');
 
@@ -76,8 +86,9 @@ function buildTableFromHeaders(schema: Schema, headers: string[]): PmNode | null
 
 /**
  * Milkdown plugin that intercepts Enter at the props level (higher priority than keymaps).
+ * Also handles Ctrl/Cmd+Enter and Shift+Enter in table cells (merged from table-keys plugin).
  */
-export const enterHandlerPlugin = $prose(() => {
+export function createEnterHandlerPlugin(): Plugin {
   const enterCommand = chainCommands(
     newlineInCode,
     createParagraphNear,
@@ -121,15 +132,67 @@ export const enterHandlerPlugin = $prose(() => {
 
     props: {
       handleKeyDown(view, event) {
-        // Only handle plain Enter (no Shift, no Cmd/Ctrl)
-        if (event.key === 'Enter' && !event.shiftKey && !event.metaKey && !event.ctrlKey) {
-          const { $from } = view.state.selection;
+        if (event.key !== 'Enter') return false;
 
-          // Let Milkdown's built-in splitListItem keymap handle Enter inside list items
-          for (let d = $from.depth; d > 0; d--) {
-            if ($from.node(d).type.name === 'list_item') return false;
+        const { $from } = view.state.selection;
+
+        // Single depth traversal to determine context: table cell or list item
+        let inTable = false;
+        let inListItem = false;
+        for (let d = $from.depth; d > 0; d--) {
+          const nodeName = $from.node(d).type.name;
+          if (nodeName === 'table_cell' || nodeName === 'table_header') {
+            inTable = true;
+            break;
+          }
+          if (nodeName === 'list_item') {
+            inListItem = true;
+            break;
+          }
+        }
+
+        // ── Table cell: Ctrl/Cmd+Enter → add row, Shift+Enter → hard break ──
+        if (inTable) {
+          if ((event.ctrlKey || event.metaKey) && !event.shiftKey) {
+            event.preventDefault();
+            addRowAfter(view.state, view.dispatch);
+
+            // Move cursor to the new row
+            const { $from: $cur } = view.state.selection;
+            for (let d = $cur.depth; d > 0; d--) {
+              const name = $cur.node(d).type.name;
+              if (name === 'table_row' || name === 'table_header_row') {
+                try {
+                  const rowEnd = $cur.after(d);
+                  const $newRow = view.state.doc.resolve(rowEnd + 1);
+                  view.dispatch(
+                    view.state.tr.setSelection(TextSelection.near($newRow)).scrollIntoView()
+                  );
+                } catch { /* new row at table boundary */ }
+                break;
+              }
+            }
+            return true;
           }
 
+          if (event.shiftKey && !event.ctrlKey && !event.metaKey) {
+            event.preventDefault();
+            const hardbreak = view.state.schema.nodes.hardbreak;
+            if (hardbreak) {
+              const tr = view.state.tr.replaceSelectionWith(hardbreak.create());
+              view.dispatch(tr.scrollIntoView());
+            }
+            return true;
+          }
+
+          return false;
+        }
+
+        // ── List item: let Milkdown's built-in splitListItem keymap handle it ──
+        if (inListItem) return false;
+
+        // ── Plain Enter (no modifiers) in non-table, non-list context ──
+        if (!event.shiftKey && !event.metaKey && !event.ctrlKey) {
           // Check if current line is a code fence (```language)
           if ($from.parent.type.name === 'paragraph') {
             const text = $from.parent.textContent;
@@ -182,8 +245,9 @@ export const enterHandlerPlugin = $prose(() => {
           }
           return enterCommand(view.state, view.dispatch, view);
         }
+
         return false;
       },
     },
   });
-});
+}

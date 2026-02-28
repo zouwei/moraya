@@ -1,25 +1,22 @@
 <script lang="ts">
   import { onMount, onDestroy, tick } from 'svelte';
-  import type { Editor as MilkdownEditor } from '@milkdown/core';
-  import { editorViewCtx, parserCtx, schemaCtx, prosePluginsCtx } from '@milkdown/core';
-  import { EditorState, TextSelection, AllSelection } from '@milkdown/prose/state';
-  import { Slice } from '@milkdown/prose/model';
-  import { Decoration, DecorationSet } from '@milkdown/prose/view';
-  import { callCommand, replaceAll } from '@milkdown/utils';
-  import { imageSchema } from '@milkdown/preset-commonmark';
+  import type { MorayaEditor } from './setup';
+  import { EditorState, TextSelection, AllSelection } from 'prosemirror-state';
+  import { Slice } from 'prosemirror-model';
+  import { Decoration, DecorationSet } from 'prosemirror-view';
   import {
-    addRowBeforeCommand,
-    addRowAfterCommand,
-    addColBeforeCommand,
-    addColAfterCommand,
-    deleteSelectedCellsCommand,
-    setAlignCommand,
-    selectRowCommand,
-    selectColCommand,
-  } from '@milkdown/preset-gfm';
+    addRowBefore,
+    addRowAfter,
+    addColumnBefore,
+    addColumnAfter,
+    deleteRow,
+    deleteColumn,
+  } from 'prosemirror-tables';
   import { getCurrentWebview } from '@tauri-apps/api/webview';
   import type { UnlistenFn } from '@tauri-apps/api/event';
-  import { createEditor, getMarkdown } from './setup';
+  import { createEditor } from './setup';
+  import { schema } from './schema';
+  import { parseMarkdown, serializeMarkdown } from './markdown';
   import { editorStore } from '../stores/editor-store';
   import { settingsStore } from '../stores/settings-store';
   import { readImageAsBlobUrl } from '../services/file-service';
@@ -43,7 +40,7 @@
   let storedFrontmatter = '';
 
   let editorEl: HTMLDivElement;
-  let editor: MilkdownEditor | null = null;
+  let editor: MorayaEditor | null = null;
 
   // Props
   let {
@@ -55,7 +52,7 @@
   }: {
     content?: string;
     showOutline?: boolean;
-    onEditorReady?: (editor: MilkdownEditor) => void;
+    onEditorReady?: (editor: MorayaEditor) => void;
     onContentChange?: (content: string) => void;
     onNotify?: (text: string, type: 'success' | 'error') => void;
   } = $props();
@@ -79,7 +76,7 @@
     headingTopsRaf = undefined;
     if (!editor) { cachedHeadingTops = []; return; }
     try {
-      const view = editor.ctx.get(editorViewCtx);
+      const view = editor.view;
       const wrapper = editorEl?.closest('.editor-wrapper') as HTMLElement | null;
       if (!wrapper) { cachedHeadingTops = []; return; }
       const wrapperTop = wrapper.getBoundingClientRect().top;
@@ -102,7 +99,7 @@
   function extractHeadings() {
     if (!editor || !showOutline) { outlineHeadings = []; cachedHeadingTops = []; return; }
     try {
-      const view = editor.ctx.get(editorViewCtx);
+      const view = editor.view;
       const heads: OutlineHeading[] = [];
       view.state.doc.descendants((node, pos) => {
         if (node.type.name === 'heading') {
@@ -139,8 +136,8 @@
 
   let isReady = $state(false);
   let isMounted = false; // tracks whether component is still alive (guards async gaps)
-  let internalChange = false; // flag to avoid replaceAll loop on Milkdown's own onChange
-  let syncingFromExternal = false; // flag to suppress onChange during replaceAll from source editor
+  let internalChange = false; // flag to avoid re-sync loop on editor's own onChange
+  let syncingFromExternal = false; // flag to suppress onChange during sync from source editor
   let syncResetTimer: ReturnType<typeof setTimeout> | undefined; // delayed reset for syncingFromExternal
   let lastSyncWasExternal = false; // true when last content came from source editor (split mode)
   let externalSyncTimer: ReturnType<typeof setTimeout> | undefined; // debounce for external content sync
@@ -232,22 +229,20 @@
   function isInsideTable(): boolean {
     if (!editor) return false;
     try {
-      return editor.action((ctx) => {
-        const view = ctx.get(editorViewCtx);
-        const { from } = view.state.selection;
-        if (from === cachedSelFrom) return cachedInTable;
-        cachedSelFrom = from;
-        const resolvedFrom = view.state.selection.$from;
-        for (let d = resolvedFrom.depth; d > 0; d--) {
-          const name = resolvedFrom.node(d).type.name;
-          if (name === 'table_cell' || name === 'table_header') {
-            cachedInTable = true;
-            return true;
-          }
+      const view = editor.view;
+      const { from } = view.state.selection;
+      if (from === cachedSelFrom) return cachedInTable;
+      cachedSelFrom = from;
+      const resolvedFrom = view.state.selection.$from;
+      for (let d = resolvedFrom.depth; d > 0; d--) {
+        const name = resolvedFrom.node(d).type.name;
+        if (name === 'table_cell' || name === 'table_header') {
+          cachedInTable = true;
+          return true;
         }
-        cachedInTable = false;
-        return false;
-      });
+      }
+      cachedInTable = false;
+      return false;
     } catch {
       return false;
     }
@@ -258,12 +253,10 @@
     const inTable = isInsideTable();
     if (inTable) {
       try {
-        editor.action((ctx) => {
-          const view = ctx.get(editorViewCtx);
-          const { from } = view.state.selection;
-          const coords = view.coordsAtPos(from);
-          tableToolbarPosition = { top: coords.top, left: coords.left };
-        });
+        const view = editor.view;
+        const { from } = view.state.selection;
+        const coords = view.coordsAtPos(from);
+        tableToolbarPosition = { top: coords.top, left: coords.left };
         showTableToolbar = true;
       } catch {
         showTableToolbar = false;
@@ -282,10 +275,11 @@
     });
   }
 
-  function runCommand(cmd: any, payload?: any) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function runTableCmd(cmd: (state: any, dispatch?: any) => boolean) {
     if (!editor) return;
     try {
-      editor.action(callCommand(cmd.key ?? cmd, payload));
+      cmd(editor.view.state, editor.view.dispatch);
     } catch {
       // Command may fail if selection is invalid
     }
@@ -294,40 +288,66 @@
   function handleDeleteRow() {
     if (!editor) return;
     try {
-      editor.action((ctx) => {
-        const view = ctx.get(editorViewCtx);
-        const resolvedFrom = view.state.selection.$from;
-        for (let d = resolvedFrom.depth; d > 0; d--) {
-          if (resolvedFrom.node(d).type.name === 'table_row') {
-            const rowIndex = resolvedFrom.index(d - 1);
-            callCommand(selectRowCommand.key, { index: rowIndex })(ctx);
-            callCommand(deleteSelectedCellsCommand.key)(ctx);
-            return;
-          }
-        }
-      });
+      deleteRow(editor.view.state, editor.view.dispatch);
     } catch {
-      runCommand(deleteSelectedCellsCommand);
+      // Delete row failed
     }
   }
 
   function handleDeleteCol() {
     if (!editor) return;
     try {
-      editor.action((ctx) => {
-        const view = ctx.get(editorViewCtx);
-        const resolvedFrom = view.state.selection.$from;
-        for (let d = resolvedFrom.depth; d > 0; d--) {
-          if (resolvedFrom.node(d).type.name === 'table_cell' || resolvedFrom.node(d).type.name === 'table_header') {
-            const colIndex = resolvedFrom.index(d - 1);
-            callCommand(selectColCommand.key, { index: colIndex })(ctx);
-            callCommand(deleteSelectedCellsCommand.key)(ctx);
-            return;
-          }
+      deleteColumn(editor.view.state, editor.view.dispatch);
+    } catch {
+      // Delete column failed
+    }
+  }
+
+  function handleSetAlign(align: string) {
+    if (!editor) return;
+    try {
+      const view = editor.view;
+      const resolvedFrom = view.state.selection.$from;
+
+      // Find current column index and table boundaries
+      let colIndex = -1;
+      let tableStart = -1;
+      let tableEnd = -1;
+
+      for (let d = resolvedFrom.depth; d > 0; d--) {
+        const node = resolvedFrom.node(d);
+        if (node.type.name === 'table_cell' || node.type.name === 'table_header') {
+          colIndex = resolvedFrom.index(d - 1);
+        }
+        if (node.type.name === 'table') {
+          tableStart = resolvedFrom.before(d);
+          tableEnd = resolvedFrom.after(d);
+          break;
+        }
+      }
+
+      if (colIndex < 0 || tableStart < 0) return;
+
+      let tr = view.state.tr;
+      view.state.doc.nodesBetween(tableStart, tableEnd, (node, pos) => {
+        if (node.type.name === 'table_row' || node.type.name === 'table_header_row') {
+          let idx = 0;
+          node.forEach((cell, offset) => {
+            if (idx === colIndex) {
+              const cellPos = pos + 1 + offset;
+              tr = tr.setNodeMarkup(cellPos, undefined, { ...cell.attrs, alignment: align });
+            }
+            idx++;
+          });
+          return false; // don't descend into cells
         }
       });
+
+      if (tr.docChanged) {
+        view.dispatch(tr);
+      }
     } catch {
-      runCommand(deleteSelectedCellsCommand);
+      // Set align failed
     }
   }
 
@@ -341,13 +361,10 @@
   function insertImageAtPos(src: string, pos: number) {
     if (!editor) return;
     try {
-      editor.action((ctx) => {
-        const view = ctx.get(editorViewCtx);
-        const imgType = imageSchema.type(ctx);
-        const node = imgType.create({ src, alt: '' });
-        const tr = view.state.tr.insert(pos, node);
-        view.dispatch(tr);
-      });
+      const view = editor.view;
+      const node = schema.nodes.image.create({ src, alt: '' });
+      const tr = view.state.tr.insert(pos, node);
+      view.dispatch(tr);
     } catch (e) {
       console.warn('[Image] insertImageAtPos failed:', e);
     }
@@ -356,13 +373,10 @@
   function insertImageAtEnd(src: string) {
     if (!editor) return;
     try {
-      editor.action((ctx) => {
-        const view = ctx.get(editorViewCtx);
-        const imgType = imageSchema.type(ctx);
-        const node = imgType.create({ src, alt: '' });
-        const tr = view.state.tr.insert(view.state.doc.content.size, node);
-        view.dispatch(tr);
-      });
+      const view = editor.view;
+      const node = schema.nodes.image.create({ src, alt: '' });
+      const tr = view.state.tr.insert(view.state.doc.content.size, node);
+      view.dispatch(tr);
     } catch (e) {
       console.warn('[Image] insertImageAtEnd failed:', e);
     }
@@ -371,14 +385,11 @@
   function insertImageAtCursor(src: string) {
     if (!editor) return;
     try {
-      editor.action((ctx) => {
-        const view = ctx.get(editorViewCtx);
-        const imgType = imageSchema.type(ctx);
-        const node = imgType.create({ src, alt: '' });
-        const { from } = view.state.selection;
-        const tr = view.state.tr.insert(from, node);
-        view.dispatch(tr);
-      });
+      const view = editor.view;
+      const node = schema.nodes.image.create({ src, alt: '' });
+      const { from } = view.state.selection;
+      const tr = view.state.tr.insert(from, node);
+      view.dispatch(tr);
     } catch (e) {
       console.warn('[Image] insertImageAtCursor failed:', e);
     }
@@ -393,36 +404,34 @@
       const blob = await fetchImageAsBlob(imageSrc);
       const result = await uploadImage(blob, config);
 
-      editor.action((ctx) => {
-        const view = ctx.get(editorViewCtx);
+      const view = editor.view;
 
-        if (targetPos != null) {
-          // Direct position — from context menu right-click
-          const node = view.state.doc.nodeAt(targetPos);
-          if (node && node.type.name === 'image') {
-            view.dispatch(
-              view.state.tr.setNodeMarkup(targetPos, undefined, {
-                ...node.attrs,
-                src: result.url,
-              }),
-            );
-            onNotify?.('Image uploaded', 'success');
-            return;
-          }
-        }
-
-        // Fallback: search by URL match (for paste / drag-drop auto-upload)
-        const { doc, tr } = view.state;
-        doc.descendants((node, pos) => {
-          if (node.type.name === 'image' && node.attrs.src === imageSrc) {
-            tr.setNodeMarkup(pos, undefined, { ...node.attrs, src: result.url });
-          }
-        });
-        if (tr.docChanged) {
-          view.dispatch(tr);
+      if (targetPos != null) {
+        // Direct position — from context menu right-click
+        const node = view.state.doc.nodeAt(targetPos);
+        if (node && node.type.name === 'image') {
+          view.dispatch(
+            view.state.tr.setNodeMarkup(targetPos, undefined, {
+              ...node.attrs,
+              src: result.url,
+            }),
+          );
           onNotify?.('Image uploaded', 'success');
+          return;
+        }
+      }
+
+      // Fallback: search by URL match (for paste / drag-drop auto-upload)
+      const { doc, tr } = view.state;
+      doc.descendants((node, pos) => {
+        if (node.type.name === 'image' && node.attrs.src === imageSrc) {
+          tr.setNodeMarkup(pos, undefined, { ...node.attrs, src: result.url });
         }
       });
+      if (tr.docChanged) {
+        view.dispatch(tr);
+        onNotify?.('Image uploaded', 'success');
+      }
     } catch (e) {
       console.warn('[Image] uploadAndReplace failed:', e);
       onNotify?.(String(e instanceof Error ? e.message : e), 'error');
@@ -474,18 +483,16 @@
     requestAnimationFrame(() => {
       if (!editor) return;
       try {
-        editor.action((ctx) => {
-          const view = ctx.get(editorViewCtx);
-          const pos = view.posAtDOM(imgEl, 0);
-          contextMenuTargetPos = pos;
+        const view = editor.view;
+        const pos = view.posAtDOM(imgEl, 0);
+        contextMenuTargetPos = pos;
 
-          const node = view.state.doc.nodeAt(pos);
-          if (node) {
-            const resolved = view.state.doc.resolve(pos + node.nodeSize);
-            const sel = TextSelection.near(resolved);
-            view.dispatch(view.state.tr.setSelection(sel));
-          }
-        });
+        const node = view.state.doc.nodeAt(pos);
+        if (node) {
+          const resolved = view.state.doc.resolve(pos + node.nodeSize);
+          const sel = TextSelection.near(resolved);
+          view.dispatch(view.state.tr.setSelection(sel));
+        }
       } catch {
         contextMenuTargetPos = null;
       }
@@ -495,19 +502,17 @@
   function handleImageResize(width: string) {
     if (!editor || contextMenuTargetPos === null) return;
     try {
-      editor.action((ctx) => {
-        const view = ctx.get(editorViewCtx);
-        const pos = contextMenuTargetPos!;
-        const node = view.state.doc.nodeAt(pos);
-        if (!node || node.type.name !== 'image') return;
+      const view = editor.view;
+      const pos = contextMenuTargetPos!;
+      const node = view.state.doc.nodeAt(pos);
+      if (!node || node.type.name !== 'image') return;
 
-        const title = width ? `width=${width}` : '';
-        const tr = view.state.tr.setNodeMarkup(pos, undefined, {
-          ...node.attrs,
-          title,
-        });
-        view.dispatch(tr);
+      const title = width ? `width=${width}` : '';
+      const tr = view.state.tr.setNodeMarkup(pos, undefined, {
+        ...node.attrs,
+        title,
       });
+      view.dispatch(tr);
     } catch {
       // Resize failed
     }
@@ -523,16 +528,14 @@
   function handleImageEditAlt() {
     if (!editor || contextMenuTargetPos === null) return;
     try {
-      editor.action((ctx) => {
-        const view = ctx.get(editorViewCtx);
-        const pos = contextMenuTargetPos!;
-        const node = view.state.doc.nodeAt(pos);
-        if (!node || node.type.name !== 'image') return;
+      const view = editor.view;
+      const pos = contextMenuTargetPos!;
+      const node = view.state.doc.nodeAt(pos);
+      if (!node || node.type.name !== 'image') return;
 
-        altEditorInitialValue = (node.attrs.alt as string) || '';
-        altEditorPosition = { ...imageMenuPosition };
-        showAltEditor = true;
-      });
+      altEditorInitialValue = (node.attrs.alt as string) || '';
+      altEditorPosition = { ...imageMenuPosition };
+      showAltEditor = true;
     } catch {
       // Edit alt failed
     }
@@ -541,18 +544,16 @@
   function handleAltSave(newAlt: string) {
     if (!editor || contextMenuTargetPos === null) return;
     try {
-      editor.action((ctx) => {
-        const view = ctx.get(editorViewCtx);
-        const pos = contextMenuTargetPos!;
-        const node = view.state.doc.nodeAt(pos);
-        if (!node || node.type.name !== 'image') return;
+      const view = editor.view;
+      const pos = contextMenuTargetPos!;
+      const node = view.state.doc.nodeAt(pos);
+      if (!node || node.type.name !== 'image') return;
 
-        const tr = view.state.tr.setNodeMarkup(pos, undefined, {
-          ...node.attrs,
-          alt: newAlt,
-        });
-        view.dispatch(tr);
+      const tr = view.state.tr.setNodeMarkup(pos, undefined, {
+        ...node.attrs,
+        alt: newAlt,
       });
+      view.dispatch(tr);
     } catch {
       // Save alt failed
     }
@@ -566,15 +567,13 @@
   function handleImageDelete() {
     if (!editor || contextMenuTargetPos === null) return;
     try {
-      editor.action((ctx) => {
-        const view = ctx.get(editorViewCtx);
-        const pos = contextMenuTargetPos!;
-        const node = view.state.doc.nodeAt(pos);
-        if (!node || node.type.name !== 'image') return;
+      const view = editor.view;
+      const pos = contextMenuTargetPos!;
+      const node = view.state.doc.nodeAt(pos);
+      if (!node || node.type.name !== 'image') return;
 
-        const tr = view.state.tr.delete(pos, pos + node.nodeSize);
-        view.dispatch(tr);
-      });
+      const tr = view.state.tr.delete(pos, pos + node.nodeSize);
+      view.dispatch(tr);
     } catch {
       // Delete failed
     }
@@ -712,24 +711,22 @@
     if (event.clientX > liRect.left + 4) return;
 
     try {
-      editor.action((ctx) => {
-        const view = ctx.get(editorViewCtx);
-        const pos = view.posAtDOM(li, 0);
-        const resolved = view.state.doc.resolve(pos);
+      const view = editor.view;
+      const pos = view.posAtDOM(li, 0);
+      const resolved = view.state.doc.resolve(pos);
 
-        for (let d = resolved.depth; d > 0; d--) {
-          const node = resolved.node(d);
-          if (node.type.name === 'list_item' && node.attrs.checked != null) {
-            view.dispatch(
-              view.state.tr.setNodeMarkup(resolved.before(d), undefined, {
-                ...node.attrs,
-                checked: !node.attrs.checked,
-              }),
-            );
-            break;
-          }
+      for (let d = resolved.depth; d > 0; d--) {
+        const node = resolved.node(d);
+        if (node.type.name === 'list_item' && node.attrs.checked != null) {
+          view.dispatch(
+            view.state.tr.setNodeMarkup(resolved.before(d), undefined, {
+              ...node.attrs,
+              checked: !node.attrs.checked,
+            }),
+          );
+          break;
         }
-      });
+      }
     } catch {
       // Ignore position resolution errors
     }
@@ -761,11 +758,9 @@
     // Find ProseMirror position
     if (editor) {
       try {
-        editor.action((ctx) => {
-          const view = ctx.get(editorViewCtx);
-          const pos = view.posAtDOM(imgEl, 0);
-          imageToolbarTargetPos = pos;
-        });
+        const view = editor.view;
+        const pos = view.posAtDOM(imgEl, 0);
+        imageToolbarTargetPos = pos;
       } catch {
         imageToolbarTargetPos = null;
       }
@@ -787,18 +782,16 @@
     requestAnimationFrame(() => {
       if (!editor) return;
       try {
-        editor.action((ctx) => {
-          const view = ctx.get(editorViewCtx);
-          const pos = view.posAtDOM(imgEl, 0);
-          contextMenuTargetPos = pos;
+        const view = editor.view;
+        const pos = view.posAtDOM(imgEl, 0);
+        contextMenuTargetPos = pos;
 
-          const node = view.state.doc.nodeAt(pos);
-          if (node) {
-            const resolved = view.state.doc.resolve(pos + node.nodeSize);
-            const sel = TextSelection.near(resolved);
-            view.dispatch(view.state.tr.setSelection(sel));
-          }
-        });
+        const node = view.state.doc.nodeAt(pos);
+        if (node) {
+          const resolved = view.state.doc.resolve(pos + node.nodeSize);
+          const sel = TextSelection.near(resolved);
+          view.dispatch(view.state.tr.setSelection(sel));
+        }
       } catch {
         contextMenuTargetPos = null;
       }
@@ -808,19 +801,17 @@
   function handleToolbarResize(width: string) {
     if (!editor || imageToolbarTargetPos === null) return;
     try {
-      editor.action((ctx) => {
-        const view = ctx.get(editorViewCtx);
-        const pos = imageToolbarTargetPos!;
-        const node = view.state.doc.nodeAt(pos);
-        if (!node || node.type.name !== 'image') return;
+      const view = editor.view;
+      const pos = imageToolbarTargetPos!;
+      const node = view.state.doc.nodeAt(pos);
+      if (!node || node.type.name !== 'image') return;
 
-        const title = width ? `width=${width}` : '';
-        const tr = view.state.tr.setNodeMarkup(pos, undefined, {
-          ...node.attrs,
-          title,
-        });
-        view.dispatch(tr);
+      const title = width ? `width=${width}` : '';
+      const tr = view.state.tr.setNodeMarkup(pos, undefined, {
+        ...node.attrs,
+        title,
       });
+      view.dispatch(tr);
     } catch {
       // Resize failed
     }
@@ -830,7 +821,7 @@
   onMount(async () => {
     isMounted = true;
 
-    // Strip frontmatter before Milkdown sees it (avoids `---` → thematic break corruption)
+    // Strip frontmatter before editor sees it (avoids `---` → thematic break corruption)
     const { frontmatter, body } = extractFrontmatter(content);
     storedFrontmatter = frontmatter;
 
@@ -882,21 +873,19 @@
 
       // 1. Restore cursor position
       try {
-        editor.action((ctx) => {
-          const view = ctx.get(editorViewCtx);
-          const docSize = view.state.doc.content.size;
-          // Map markdown offset to ProseMirror position using fraction
-          const fraction = content.length > 0 ? savedOffset / content.length : 0;
-          let pmPos = Math.round(fraction * docSize);
-          // Clamp to valid range (1 .. docSize-1)
-          pmPos = Math.max(1, Math.min(pmPos, Math.max(1, docSize - 1)));
-          // Resolve to nearest valid text position
-          const resolved = view.state.doc.resolve(pmPos);
-          const sel = TextSelection.near(resolved);
-          // Don't use scrollIntoView — we restore scroll position separately
-          view.dispatch(view.state.tr.setSelection(sel));
-          view.focus();
-        });
+        const view = editor.view;
+        const docSize = view.state.doc.content.size;
+        // Map markdown offset to ProseMirror position using fraction
+        const fraction = content.length > 0 ? savedOffset / content.length : 0;
+        let pmPos = Math.round(fraction * docSize);
+        // Clamp to valid range (1 .. docSize-1)
+        pmPos = Math.max(1, Math.min(pmPos, Math.max(1, docSize - 1)));
+        // Resolve to nearest valid text position
+        const resolved = view.state.doc.resolve(pmPos);
+        const sel = TextSelection.near(resolved);
+        // Don't use scrollIntoView — we restore scroll position separately
+        view.dispatch(view.state.tr.setSelection(sel));
+        view.focus();
       } catch {
         // Fallback: just focus
         if (proseMirrorEl) proseMirrorEl.focus();
@@ -922,24 +911,21 @@
     const handleEditorKeydown = (e: KeyboardEvent) => {
       if ((e.key === 'Backspace' || e.key === 'Delete') && editor) {
         try {
-          editor.action((ctx) => {
-            const view = ctx.get(editorViewCtx);
-            const sel = view.state.selection;
-            const docSize = view.state.doc.content.size;
-            const isAllSelected =
-              sel instanceof AllSelection ||
-              (docSize > 0 && sel.from <= 1 && sel.to >= docSize - 1);
+          const view = editor.view;
+          const sel = view.state.selection;
+          const docSize = view.state.doc.content.size;
+          const isAllSelected =
+            sel instanceof AllSelection ||
+            (docSize > 0 && sel.from <= 1 && sel.to >= docSize - 1);
 
-            if (isAllSelected) {
-              e.preventDefault();
-              e.stopPropagation();
-              const { schema } = view.state;
-              const emptyParagraph = schema.nodes.paragraph.create();
-              const tr = view.state.tr.replaceWith(0, docSize, emptyParagraph);
-              tr.setSelection(TextSelection.create(tr.doc, 1));
-              view.dispatch(tr);
-            }
-          });
+          if (isAllSelected) {
+            e.preventDefault();
+            e.stopPropagation();
+            const emptyParagraph = view.state.schema.nodes.paragraph.create();
+            const tr = view.state.tr.replaceWith(0, docSize, emptyParagraph);
+            tr.setSelection(TextSelection.create(tr.doc, 1));
+            view.dispatch(tr);
+          }
         } catch {
           // Ignore errors
         }
@@ -989,14 +975,12 @@
       // Resolve drop position to ProseMirror position
       let dropPos: number | null = null;
       try {
-        editor.action((ctx) => {
-          const view = ctx.get(editorViewCtx);
-          const posResult = view.posAtCoords({
-            left: position.x,
-            top: position.y,
-          });
-          if (posResult) dropPos = posResult.pos;
+        const view = editor.view;
+        const posResult = view.posAtCoords({
+          left: position.x,
+          top: position.y,
         });
+        if (posResult) dropPos = posResult.pos;
       } catch (e) {
         console.warn('[Image] Drop position resolution failed:', e);
       }
@@ -1023,34 +1007,31 @@
     });
   });
 
-  // ── Sync external content changes to Milkdown (split mode) ──
+  // ── Sync external content changes to editor (split mode) ──
   // Debounced to avoid rebuilding the ProseMirror document on every keystroke.
   // Uses addToHistory:false to avoid undo history accumulation.
-  function applySyncToMilkdown(md: string) {
+  function applySyncToEditor(md: string) {
     if (!editor || !isReady) return;
     // Re-extract frontmatter in case user edited it in source mode
     const { frontmatter, body } = extractFrontmatter(md);
     storedFrontmatter = frontmatter;
 
-    const milkdownContent = getMarkdown(editor);
+    const editorContent = editor.getMarkdown();
     const visualContent = toHardBreaks(body);
-    if (visualContent !== milkdownContent) {
+    if (visualContent !== editorContent) {
       try {
         syncingFromExternal = true;
         lastSyncWasExternal = true;
         if (syncResetTimer) clearTimeout(syncResetTimer);
-        editor.action((ctx) => {
-          const view = ctx.get(editorViewCtx);
-          const parser = ctx.get(parserCtx);
-          const doc = parser(visualContent);
-          if (!doc) return;
-          const tr = view.state.tr.replace(
-            0, view.state.doc.content.size,
-            new Slice(doc.content, 0, 0),
-          );
-          tr.setMeta('addToHistory', false);
-          view.dispatch(tr);
-        });
+        const view = editor.view;
+        const doc = parseMarkdown(visualContent);
+        if (!doc) return;
+        const tr = view.state.tr.replace(
+          0, view.state.doc.content.size,
+          new Slice(doc.content, 0, 0),
+        );
+        tr.setMeta('addToHistory', false);
+        view.dispatch(tr);
       } catch { /* ignore during init */ }
       // The lazy-change plugin debounces onChange by 100ms (setup.ts).
       // Keep syncingFromExternal=true until after that fires so the
@@ -1063,13 +1044,13 @@
 
   // Track whether $effect has run at least once (skip first run = initial mount).
   // On mount, the editor is already initialized with `defaultValue: content`,
-  // so applying replaceAll immediately would double-process the markdown and
+  // so applying sync immediately would double-process the markdown and
   // corrupt backslash escapes.
   let effectMounted = false;
 
   // Flag set by syncContent() to tell the $effect to skip its next trigger.
-  // Without this, every file switch causes a redundant applySyncToMilkdown()
-  // 150ms later (full getMarkdown serialization + compare + possible re-replace).
+  // Without this, every file switch causes a redundant applySyncToEditor()
+  // 150ms later (full markdown serialization + compare + possible re-sync).
   let externalSyncDone = false;
 
   $effect(() => {
@@ -1088,9 +1069,9 @@
       if (externalSyncTimer) clearTimeout(externalSyncTimer);
       return;
     }
-    // Debounce: avoid running toHardBreaks + replaceAll on every keystroke
+    // Debounce: avoid running toHardBreaks + sync on every keystroke
     if (externalSyncTimer) clearTimeout(externalSyncTimer);
-    externalSyncTimer = setTimeout(() => applySyncToMilkdown(current), 150);
+    externalSyncTimer = setTimeout(() => applySyncToEditor(current), 150);
   });
 
   // ── Search / Replace ──────────────────────────────────
@@ -1102,39 +1083,35 @@
   function findTextMatches(text: string, cs: boolean): MatchPos[] {
     if (!editor || !text) return [];
     const matches: MatchPos[] = [];
-    editor.action((ctx) => {
-      const view = ctx.get(editorViewCtx);
-      view.state.doc.descendants((node, pos) => {
-        if (node.isText && node.text) {
-          const haystack = cs ? node.text : node.text.toLowerCase();
-          const needle = cs ? text : text.toLowerCase();
-          let idx = 0;
-          while ((idx = haystack.indexOf(needle, idx)) !== -1) {
-            matches.push({ from: pos + idx, to: pos + idx + needle.length });
-            idx += needle.length;
-          }
+    const view = editor.view;
+    view.state.doc.descendants((node, pos) => {
+      if (node.isText && node.text) {
+        const haystack = cs ? node.text : node.text.toLowerCase();
+        const needle = cs ? text : text.toLowerCase();
+        let idx = 0;
+        while ((idx = haystack.indexOf(needle, idx)) !== -1) {
+          matches.push({ from: pos + idx, to: pos + idx + needle.length });
+          idx += needle.length;
         }
-      });
+      }
     });
     return matches;
   }
 
   function applySearchDecorations(matches: MatchPos[], activeIdx: number) {
     if (!editor) return;
-    editor.action((ctx) => {
-      const view = ctx.get(editorViewCtx);
-      if (matches.length === 0) {
-        (view as any).setProps({ decorations: () => DecorationSet.empty });
-        return;
-      }
-      const decos = matches.map((m, i) =>
-        Decoration.inline(m.from, m.to, {
-          class: i === activeIdx ? 'search-highlight-current' : 'search-highlight',
-        })
-      );
-      const decoSet = DecorationSet.create(view.state.doc, decos);
-      (view as any).setProps({ decorations: () => decoSet });
-    });
+    const view = editor.view;
+    if (matches.length === 0) {
+      (view as any).setProps({ decorations: () => DecorationSet.empty });
+      return;
+    }
+    const decos = matches.map((m, i) =>
+      Decoration.inline(m.from, m.to, {
+        class: i === activeIdx ? 'search-highlight-current' : 'search-highlight',
+      })
+    );
+    const decoSet = DecorationSet.create(view.state.doc, decos);
+    (view as any).setProps({ decorations: () => decoSet });
   }
 
   export function searchText(text: string, cs: boolean): number {
@@ -1163,37 +1140,43 @@
 
   export function searchReplaceCurrent(replaceWith: string) {
     if (!editor || searchIndex < 0 || searchIndex >= searchMatches.length) return;
-    editor.action((ctx) => {
-      const view = ctx.get(editorViewCtx);
-      const match = searchMatches[searchIndex];
-      const tr = view.state.tr.replaceWith(
-        match.from,
-        match.to,
-        view.state.schema.text(replaceWith)
-      );
-      view.dispatch(tr);
-    });
+    const view = editor.view;
+    const match = searchMatches[searchIndex];
+    const tr = view.state.tr.replaceWith(
+      match.from,
+      match.to,
+      view.state.schema.text(replaceWith)
+    );
+    view.dispatch(tr);
   }
 
   export function searchReplaceAll(searchStr: string, replaceWith: string, cs: boolean): number {
     if (!editor || !searchStr) return 0;
     const matches = findTextMatches(searchStr, cs);
     if (matches.length === 0) return 0;
-    editor.action((ctx) => {
-      const view = ctx.get(editorViewCtx);
-      let tr = view.state.tr;
-      for (let i = matches.length - 1; i >= 0; i--) {
-        tr = tr.replaceWith(
-          matches[i].from,
-          matches[i].to,
-          view.state.schema.text(replaceWith)
-        );
-      }
-      view.dispatch(tr);
-    });
+    const view = editor.view;
+    let tr = view.state.tr;
+    for (let i = matches.length - 1; i >= 0; i--) {
+      tr = tr.replaceWith(
+        matches[i].from,
+        matches[i].to,
+        view.state.schema.text(replaceWith)
+      );
+    }
+    view.dispatch(tr);
     const count = matches.length;
     clearSearch();
     return count;
+  }
+
+  /** Get full markdown including stored frontmatter. */
+  export function getFullMarkdown(): string {
+    if (!editor) return content;
+    try {
+      return storedFrontmatter + editor.getMarkdown();
+    } catch {
+      return content;
+    }
   }
 
   /**
@@ -1207,50 +1190,45 @@
    *    sets, etc.) is reset, preventing progressive accumulation.
    *
    * The externalSyncDone flag prevents the $effect from scheduling a redundant
-   * applySyncToMilkdown() 150ms later.
+   * applySyncToEditor() 150ms later.
    */
   export function syncContent(md: string) {
     if (!editor || !isReady) return;
-    externalSyncDone = true; // Tell $effect to skip redundant applySyncToMilkdown
+    externalSyncDone = true; // Tell $effect to skip redundant applySyncToEditor
     const { frontmatter, body } = extractFrontmatter(md);
     storedFrontmatter = frontmatter;
     try {
       syncingFromExternal = true;
       if (syncResetTimer) clearTimeout(syncResetTimer);
       const visualContent = toHardBreaks(body);
-      editor.action((ctx) => {
-        const view = ctx.get(editorViewCtx);
-        const parser = ctx.get(parserCtx);
-        const doc = parser(visualContent);
-        if (!doc) return;
+      const view = editor.view;
+      const doc = parseMarkdown(visualContent);
+      if (!doc) return;
 
-        // Step 1: Replace via dispatch (proper DOM update with step maps)
-        const tr = view.state.tr.replace(
-          0, view.state.doc.content.size,
-          new Slice(doc.content, 0, 0),
-        );
-        tr.setMeta('addToHistory', false);
-        view.dispatch(tr);
+      // Step 1: Replace via dispatch (proper DOM update with step maps)
+      const tr = view.state.tr.replace(
+        0, view.state.doc.content.size,
+        new Slice(doc.content, 0, 0),
+      );
+      tr.setMeta('addToHistory', false);
+      view.dispatch(tr);
 
-        // Step 2: Reset all plugin state by swapping to a fresh EditorState.
-        // The doc is the same (just dispatched), so the DOM diff is a no-op.
-        // This clears accumulated history items, stale decoration mappings, etc.
-        const schema = ctx.get(schemaCtx);
-        const plugins = ctx.get(prosePluginsCtx);
-        const freshState = EditorState.create({
-          schema,
-          doc: view.state.doc,
-          plugins,
-          selection: view.state.selection,
-        });
-        view.updateState(freshState);
+      // Step 2: Reset all plugin state by swapping to a fresh EditorState.
+      // The doc is the same (just dispatched), so the DOM diff is a no-op.
+      // This clears accumulated history items, stale decoration mappings, etc.
+      const freshState = EditorState.create({
+        schema: view.state.schema,
+        doc: view.state.doc,
+        plugins: view.state.plugins,
+        selection: view.state.selection,
       });
+      view.updateState(freshState);
       syncResetTimer = setTimeout(() => { syncingFromExternal = false; }, 200);
     } catch { /* ignore during init */ }
     // Reset isInsideTable cache (cursor position changed with new document)
     cachedSelFrom = -1;
     // Outline update: onChange is suppressed by syncingFromExternal, and
-    // externalSyncDone blocks the path through applySyncToMilkdown, so
+    // externalSyncDone blocks the path through applySyncToEditor, so
     // we must schedule extraction directly here.
     scheduleExtractHeadings();
   }
@@ -1260,10 +1238,7 @@
     searchIndex = -1;
     if (!editor) return;
     try {
-      editor.action((ctx) => {
-        const view = ctx.get(editorViewCtx);
-        (view as any).setProps({ decorations: () => DecorationSet.empty });
-      });
+      (editor.view as any).setProps({ decorations: () => DecorationSet.empty });
     } catch {
       // Editor may be destroyed
     }
@@ -1271,27 +1246,25 @@
 
   function scrollToMatch(idx: number) {
     if (!editor || idx < 0 || idx >= searchMatches.length) return;
-    editor.action((ctx) => {
-      const view = ctx.get(editorViewCtx);
-      const match = searchMatches[idx];
-      // Set selection at match range
-      const tr = view.state.tr.setSelection(TextSelection.create(view.state.doc, match.from, match.to));
-      tr.scrollIntoView();
-      view.dispatch(tr);
+    const view = editor.view;
+    const match = searchMatches[idx];
+    // Set selection at match range
+    const tr = view.state.tr.setSelection(TextSelection.create(view.state.doc, match.from, match.to));
+    tr.scrollIntoView();
+    view.dispatch(tr);
 
-      // ProseMirror's scrollIntoView may miss the .editor-wrapper scroll container.
-      // Manually ensure the match is visible within the wrapper.
-      requestAnimationFrame(() => {
-        try {
-          const coords = view.coordsAtPos(match.from);
-          const wrapper = view.dom.closest('.editor-wrapper') as HTMLElement | null;
-          if (!wrapper) return;
-          const rect = wrapper.getBoundingClientRect();
-          if (coords.top < rect.top || coords.bottom > rect.bottom) {
-            wrapper.scrollTop += coords.top - rect.top - rect.height / 3;
-          }
-        } catch { /* ignore */ }
-      });
+    // ProseMirror's scrollIntoView may miss the .editor-wrapper scroll container.
+    // Manually ensure the match is visible within the wrapper.
+    requestAnimationFrame(() => {
+      try {
+        const coords = view.coordsAtPos(match.from);
+        const wrapper = view.dom.closest('.editor-wrapper') as HTMLElement | null;
+        if (!wrapper) return;
+        const rect = wrapper.getBoundingClientRect();
+        if (coords.top < rect.top || coords.bottom > rect.bottom) {
+          wrapper.scrollTop += coords.top - rect.top - rect.height / 3;
+        }
+      } catch { /* ignore */ }
     });
   }
 
@@ -1334,7 +1307,7 @@
       // trailing spaces added by toHardBreaks().
       if (!lastSyncWasExternal) {
         try {
-          const markdown = getMarkdown(editor);
+          const markdown = editor.getMarkdown();
           // Re-attach frontmatter to serialized body
           const full = storedFrontmatter + markdown;
           content = full;
@@ -1347,14 +1320,12 @@
 
       // Save cursor position
       try {
-        editor.action((ctx) => {
-          const view = ctx.get(editorViewCtx);
-          const { from } = view.state.selection;
-          const docSize = view.state.doc.content.size;
-          const fraction = docSize > 0 ? from / docSize : 0;
-          const markdownOffset = Math.round(fraction * content.length);
-          editorStore.setCursorOffset(markdownOffset);
-        });
+        const view = editor.view;
+        const { from } = view.state.selection;
+        const docSize = view.state.doc.content.size;
+        const fraction = docSize > 0 ? from / docSize : 0;
+        const markdownOffset = Math.round(fraction * content.length);
+        editorStore.setCursorOffset(markdownOffset);
       } catch {
         // Ignore errors during position save
       }
@@ -1398,15 +1369,15 @@
 {#if showTableToolbar}
   <TableToolbar
     position={tableToolbarPosition}
-    onAddRowBefore={() => runCommand(addRowBeforeCommand)}
-    onAddRowAfter={() => runCommand(addRowAfterCommand)}
-    onAddColBefore={() => runCommand(addColBeforeCommand)}
-    onAddColAfter={() => runCommand(addColAfterCommand)}
+    onAddRowBefore={() => runTableCmd(addRowBefore)}
+    onAddRowAfter={() => runTableCmd(addRowAfter)}
+    onAddColBefore={() => runTableCmd(addColumnBefore)}
+    onAddColAfter={() => runTableCmd(addColumnAfter)}
     onDeleteRow={handleDeleteRow}
     onDeleteCol={handleDeleteCol}
-    onAlignLeft={() => runCommand(setAlignCommand, 'left')}
-    onAlignCenter={() => runCommand(setAlignCommand, 'center')}
-    onAlignRight={() => runCommand(setAlignCommand, 'right')}
+    onAlignLeft={() => handleSetAlign('left')}
+    onAlignCenter={() => handleSetAlign('center')}
+    onAlignRight={() => handleSetAlign('right')}
   />
 {/if}
 

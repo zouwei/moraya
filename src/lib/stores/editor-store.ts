@@ -81,6 +81,17 @@ function createEditorStore() {
     setDirty(isDirty: boolean) {
       update(state => ({ ...state, isDirty }));
     },
+    /** Mark the document as dirty without updating content.
+     *  Only triggers subscribers on the false→true transition;
+     *  subsequent calls while already dirty are no-ops. */
+    markDirty() {
+      update(state => state.isDirty ? state : { ...state, isDirty: true });
+    },
+    /** Schedule word count from plain text (doc.textContent).
+     *  Avoids the cost of full markdown serialization. */
+    scheduleWordCountFromText(text: string) {
+      scheduleWordCount(text);
+    },
     setFocused(isFocused: boolean) {
       update(state => ({ ...state, isFocused }));
     },

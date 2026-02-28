@@ -1,28 +1,34 @@
-import { Editor, rootCtx, defaultValueCtx, editorViewOptionsCtx, editorViewCtx, serializerCtx, remarkStringifyOptionsCtx } from '@milkdown/core';
-// ── Tier 0: Core plugins (static imports, always available) ──
-import { commonmark, codeBlockSchema } from '@milkdown/preset-commonmark';
-import { gfm } from '@milkdown/preset-gfm';
-import { history } from '@milkdown/plugin-history';
-import { clipboard } from '@milkdown/plugin-clipboard';
-import { cursor } from '@milkdown/plugin-cursor';
-import { enterHandlerPlugin } from './plugins/enter-handler';
-import { tableKeysPlugin } from './plugins/table-keys';
-import { $prose, $inputRule } from '@milkdown/utils';
-import { AllSelection, Plugin, PluginKey, TextSelection } from '@milkdown/prose/state';
-import { Decoration, DecorationSet } from '@milkdown/prose/view';
-import { textblockTypeInputRule } from '@milkdown/prose/inputrules';
+/**
+ * Editor setup — creates and configures a ProseMirror EditorView.
+ *
+ * Replaces the Milkdown builder pattern with direct ProseMirror APIs.
+ * Uses schema.ts for the document schema and markdown.ts for
+ * parsing/serialization.
+ */
+
+import { EditorState, Plugin, PluginKey } from 'prosemirror-state';
+import { EditorView } from 'prosemirror-view';
+import { keymap } from 'prosemirror-keymap';
+import { history } from 'prosemirror-history';
+import { baseKeymap, toggleMark, setBlockType } from 'prosemirror-commands';
+import { inputRules, textblockTypeInputRule, wrappingInputRule, InputRule } from 'prosemirror-inputrules';
+import { splitListItem, sinkListItem, liftListItem } from 'prosemirror-schema-list';
+import { dropCursor } from 'prosemirror-dropcursor';
+import { gapCursor } from 'prosemirror-gapcursor';
+import { columnResizing, tableEditing } from 'prosemirror-tables';
+import { schema } from './schema';
+import { parseMarkdown, serializeMarkdown } from './markdown';
+import { createEnterHandlerPlugin } from './plugins/enter-handler';
+import { createEditorPropsPlugin } from './plugins/editor-props-plugin';
 
 // ── Tier 1: Enhancement plugins (dynamic imports, loaded in parallel) ──
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type MilkdownPlugin = any;
-
 interface Tier1Plugins {
-  highlight?: MilkdownPlugin;
-  codeBlockView?: MilkdownPlugin;
-  emoji?: MilkdownPlugin;
-  math?: MilkdownPlugin;
-  defList?: MilkdownPlugin[];
+  highlight?: Plugin;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  codeBlockView?: any;
+  emoji?: Plugin;
+  defListInputRule?: InputRule;
 }
 
 let tier1Cache: Tier1Plugins | null = null;
@@ -42,24 +48,15 @@ export function preloadEnhancementPlugins(): Promise<Tier1Plugins> {
     import('./plugins/code-block-view'),
     import('./plugins/emoji'),
     import('./plugins/definition-list'),
-    import('@milkdown/plugin-math'),
-  ]).then(([hl, cbv, em, dl, ma]) => {
+  ]).then(([hl, cbv, em, dl]) => {
     const plugins: Tier1Plugins = {};
-    if (hl.status === 'fulfilled') plugins.highlight = hl.value.highlightPlugin;
-    if (cbv.status === 'fulfilled') plugins.codeBlockView = cbv.value.codeBlockViewPlugin;
-    if (em.status === 'fulfilled') plugins.emoji = em.value.emojiPlugin;
-    if (dl.status === 'fulfilled') {
-      const m = dl.value;
-      plugins.defList = [
-        m.defListRemarkPlugin, m.defListSchema,
-        m.defListTermSchema, m.defListDescriptionSchema, m.defListInputRule,
-      ];
-    }
-    if (ma.status === 'fulfilled') {
-      plugins.math = ma.value.math;
-      // Load KaTeX CSS only when math plugin is available
-      import('katex/dist/katex.min.css');
-    }
+    if (hl.status === 'fulfilled') plugins.highlight = hl.value.createHighlightPlugin();
+    if (cbv.status === 'fulfilled') plugins.codeBlockView = cbv.value.createCodeBlockNodeView;
+    if (em.status === 'fulfilled') plugins.emoji = em.value.createEmojiPlugin();
+    if (dl.status === 'fulfilled') plugins.defListInputRule = dl.value.createDefListInputRule();
+    // Math is handled directly in schema.ts (KaTeX rendering in toDOM)
+    // Load KaTeX CSS
+    import('katex/dist/katex.min.css');
     tier1Cache = plugins;
     tier1Loading = null;
     return plugins;
@@ -68,294 +65,368 @@ export function preloadEnhancementPlugins(): Promise<Tier1Plugins> {
   return tier1Loading;
 }
 
+// ── Input Rules ─────────────────────────────────────────────────
+
+function buildInputRules(tier1: Tier1Plugins) {
+  const rules: InputRule[] = [];
+
+  // Code block: ```language
+  rules.push(textblockTypeInputRule(
+    /^```(?<language>[a-zA-Z][a-zA-Z0-9_+#.\-]*)?[\s\n]$/,
+    schema.nodes.code_block,
+    (match) => ({ language: match.groups?.language ?? '' }),
+  ));
+
+  // Blockquote: > at start of line
+  rules.push(wrappingInputRule(/^\s*>\s$/, schema.nodes.blockquote));
+
+  // Bullet list: - or * at start of line
+  rules.push(wrappingInputRule(/^\s*[-*]\s$/, schema.nodes.bullet_list));
+
+  // Ordered list: 1. at start of line
+  rules.push(wrappingInputRule(
+    /^\s*(\d+)\.\s$/,
+    schema.nodes.ordered_list,
+    (match) => ({ order: +match[1] }),
+    (match, node) => node.childCount + node.attrs.order === +match[1],
+  ));
+
+  // Heading: # to ######
+  for (let level = 1; level <= 6; level++) {
+    const pattern = new RegExp(`^#{${level}}\\s$`);
+    rules.push(textblockTypeInputRule(pattern, schema.nodes.heading, { level }));
+  }
+
+  // Horizontal rule: ---
+  rules.push(new InputRule(/^---$/, (state, _match, start, end) => {
+    const hr = schema.nodes.horizontal_rule.create();
+    const tr = state.tr.replaceWith(start - 1, end, hr);
+    return tr;
+  }));
+
+  // Math block: $$
+  rules.push(new InputRule(/^\$\$\s$/, (state, _match, start, end) => {
+    const $start = state.doc.resolve(start);
+    if (!$start.node(-1).canReplaceWith(
+      $start.index(-1), $start.indexAfter(-1), schema.nodes.math_block
+    )) return null;
+    return state.tr.delete(start, end).setBlockType(start, start, schema.nodes.math_block);
+  }));
+
+  // Math inline: $...$
+  rules.push(new InputRule(/(?:\$)([^$]+)(?:\$)$/, (state, match, start, end) => {
+    const content = match[1];
+    if (!content) return null;
+    const node = schema.nodes.math_inline.create(null, schema.text(content));
+    return state.tr.replaceWith(start, end, node);
+  }));
+
+  // Strong: **text** or __text__
+  rules.push(new InputRule(
+    /(?<![\\w:/])(?:\*\*|__)([^*_]+?)(?:\*\*|__)(?![\\w/])$/,
+    (state, match, start, end) => {
+      const tr = state.tr;
+      if (match[1]) {
+        const textStart = start + match[0].indexOf(match[1]);
+        const textEnd = textStart + match[1].length;
+        if (textEnd < end) tr.delete(textEnd, end);
+        if (textStart > start) tr.delete(start, textStart);
+        const markFrom = start;
+        const markTo = markFrom + match[1].length;
+        tr.addMark(markFrom, markTo, schema.marks.strong.create());
+      }
+      return tr;
+    },
+  ));
+
+  // Emphasis: *text* or _text_
+  rules.push(new InputRule(
+    /(?<![\\w:/])(?:\*|_)([^*_]+?)(?:\*|_)(?![\\w/])$/,
+    (state, match, start, end) => {
+      const tr = state.tr;
+      if (match[1]) {
+        const textStart = start + match[0].indexOf(match[1]);
+        const textEnd = textStart + match[1].length;
+        if (textEnd < end) tr.delete(textEnd, end);
+        if (textStart > start) tr.delete(start, textStart);
+        const markFrom = start;
+        const markTo = markFrom + match[1].length;
+        tr.addMark(markFrom, markTo, schema.marks.em.create());
+      }
+      return tr;
+    },
+  ));
+
+  // Inline code: `text`
+  rules.push(new InputRule(
+    /(?:`)([^`]+)(?:`)$/,
+    (state, match, start, end) => {
+      const tr = state.tr;
+      if (match[1]) {
+        const textStart = start + 1;
+        const textEnd = end - 1;
+        tr.delete(end - 1, end); // remove closing backtick
+        tr.delete(start, start + 1); // remove opening backtick
+        tr.addMark(start, start + match[1].length, schema.marks.code.create());
+      }
+      return tr;
+    },
+  ));
+
+  // Strikethrough: ~~text~~
+  rules.push(new InputRule(
+    /~~([^~]+)~~$/,
+    (state, match, start, end) => {
+      const tr = state.tr;
+      if (match[1]) {
+        const textStart = start + 2;
+        const textEnd = end - 2;
+        tr.delete(end - 2, end);
+        tr.delete(start, start + 2);
+        tr.addMark(start, start + match[1].length, schema.marks.strike_through.create());
+      }
+      return tr;
+    },
+  ));
+
+  // Task list: [ ] or [x] at start of list item
+  rules.push(new InputRule(
+    /^\[(?<checked>\s|x)\]\s$/,
+    (state, match, start, end) => {
+      const pos = state.doc.resolve(start);
+      let depth = 0;
+      let node = pos.node(depth);
+      while (node && node.type.name !== 'list_item') {
+        depth--;
+        node = pos.node(depth);
+      }
+      if (!node || node.attrs.checked != null) return null;
+      const checked = Boolean(match.groups?.checked === 'x');
+      const finPos = pos.before(depth);
+      return state.tr.deleteRange(start, end).setNodeMarkup(finPos, undefined, {
+        ...node.attrs,
+        checked,
+      });
+    },
+  ));
+
+  // Definition list input rule
+  if (tier1.defListInputRule) {
+    rules.push(tier1.defListInputRule);
+  }
+
+  return inputRules({ rules });
+}
+
+// ── Keymaps ─────────────────────────────────────────────────────
+
+function buildKeymap() {
+  const listItemType = schema.nodes.list_item;
+
+  return keymap({
+    // History
+    'Mod-z': (state, dispatch) => {
+      const { undo } = require('prosemirror-history');
+      return undo(state, dispatch);
+    },
+    'Mod-y': (state, dispatch) => {
+      const { redo } = require('prosemirror-history');
+      return redo(state, dispatch);
+    },
+    'Mod-Shift-z': (state, dispatch) => {
+      const { redo } = require('prosemirror-history');
+      return redo(state, dispatch);
+    },
+
+    // Marks
+    'Mod-b': toggleMark(schema.marks.strong),
+    'Mod-i': toggleMark(schema.marks.em),
+    'Mod-e': toggleMark(schema.marks.code),
+    'Mod-Alt-x': toggleMark(schema.marks.strike_through),
+
+    // List items
+    'Enter': splitListItem(listItemType),
+    'Tab': sinkListItem(listItemType),
+    'Mod-]': sinkListItem(listItemType),
+    'Shift-Tab': liftListItem(listItemType),
+    'Mod-[': liftListItem(listItemType),
+
+    // Headings
+    'Mod-Alt-0': setBlockType(schema.nodes.paragraph),
+    'Mod-Alt-1': setBlockType(schema.nodes.heading, { level: 1 }),
+    'Mod-Alt-2': setBlockType(schema.nodes.heading, { level: 2 }),
+    'Mod-Alt-3': setBlockType(schema.nodes.heading, { level: 3 }),
+    'Mod-Alt-4': setBlockType(schema.nodes.heading, { level: 4 }),
+    'Mod-Alt-5': setBlockType(schema.nodes.heading, { level: 5 }),
+    'Mod-Alt-6': setBlockType(schema.nodes.heading, { level: 6 }),
+
+    // Block types
+    'Mod-Alt-c': setBlockType(schema.nodes.code_block),
+    'Mod-Shift-b': (state, dispatch) => {
+      const { wrapIn } = require('prosemirror-commands');
+      return wrapIn(schema.nodes.blockquote)(state, dispatch);
+    },
+
+    // Hard break
+    'Shift-Enter': (state, dispatch) => {
+      if (dispatch) {
+        dispatch(state.tr.replaceSelectionWith(schema.nodes.hardbreak.create()).scrollIntoView());
+      }
+      return true;
+    },
+  });
+}
+
+// ── Dirty Tracking Plugin ───────────────────────────────────────
+
 /**
- * ProseMirror plugin that defers markdown serialization to the next animation frame.
- * Unlike Milkdown's built-in `markdownUpdated` listener (which serializes synchronously
- * on every ProseMirror transaction), this batches rapid changes and serializes once per frame.
+ * Lightweight dirty-tracking plugin: fires on every doc change with the
+ * document's plain text content (doc.textContent). No markdown serialization,
+ * no debounce timer — runs in O(1) after each transaction.
  */
-function createLazyChangePlugin(onChange: (markdown: string) => void) {
-  return $prose((ctx) => {
-    let changeTimer: ReturnType<typeof setTimeout> | null = null;
-
-    return new Plugin({
-      key: new PluginKey('moraya-lazy-change'),
-      view: () => ({
-        update: (view, prevState) => {
-          if (!prevState || view.state.doc.eq(prevState.doc)) return;
-
-          if (changeTimer !== null) clearTimeout(changeTimer);
-          // Use setTimeout instead of rAF so user input events (Delete, typing)
-          // can preempt pending serialization after heavy operations like undo.
-          changeTimer = setTimeout(() => {
-            try {
-              const serializer = ctx.get(serializerCtx);
-              const markdown = serializer(view.state.doc);
-              onChange(markdown);
-            } catch { /* editor might be destroyed */ }
-            changeTimer = null;
-          }, 100);
-        },
-        destroy: () => {
-          if (changeTimer !== null) {
-            clearTimeout(changeTimer);
-            changeTimer = null;
-          }
-        }
-      })
-    });
+function createDirtyTrackPlugin(onDocChanged: (textContent: string) => void): Plugin {
+  return new Plugin({
+    key: new PluginKey('moraya-dirty-track'),
+    view: () => ({
+      update: (view, prevState) => {
+        if (!prevState || view.state.doc.eq(prevState.doc)) return;
+        onDocChanged(view.state.doc.textContent);
+      },
+    }),
   });
 }
 
 /**
- * WKWebView caret fix: macOS WebView does not render the native blinking caret
- * inside empty paragraphs (containing only a <br>). This plugin adds a
- * 'caret-empty-para' decoration to the empty paragraph under the cursor,
- * allowing CSS to display a fake animated caret.
+ * ProseMirror plugin that defers markdown serialization.
+ * Used ONLY in split mode where the SourceEditor needs periodic markdown sync.
+ * Debounce is set to 500ms (more relaxed than visual-only mode).
  */
-/**
- * Paste language normalization via transformPastedHTML:
- * When pasting from external sources (other editors, web pages), the clipboard
- * HTML often uses `<pre><code class="language-mermaid">` format. Milkdown's
- * code_block parseDOM only reads `data-language` from `<pre>`, so language
- * attributes are lost, breaking mermaid diagrams and other language-specific blocks.
- *
- * This plugin preprocesses pasted HTML to copy `class="language-xxx"` from
- * `<code>` elements into `data-language="xxx"` on their parent `<pre>` elements,
- * so Milkdown's existing parseDOM can read the language correctly.
- */
-const pasteLanguageFixPlugin = $prose(() => {
+function createLazyChangePlugin(onChange: (markdown: string) => void): Plugin {
+  let changeTimer: ReturnType<typeof setTimeout> | null = null;
+
   return new Plugin({
-    key: new PluginKey('paste-language-fix'),
-    props: {
-      transformPastedHTML(html) {
-        // Quick check: skip processing if no language class is present
-        if (!html.includes('language-')) return html;
+    key: new PluginKey('moraya-lazy-change'),
+    view: () => ({
+      update: (view, prevState) => {
+        if (!prevState || view.state.doc.eq(prevState.doc)) return;
 
-        try {
-          const template = document.createElement('template');
-          template.innerHTML = html;
-          const fragment = template.content;
-
-          // Find all <pre> elements and check their child <code> for language class
-          for (const pre of fragment.querySelectorAll('pre')) {
-            // Skip if <pre> already has data-language
-            if (pre.dataset.language) continue;
-
-            const code = pre.querySelector('code');
-            if (!code) continue;
-
-            // Extract language from class="language-xxx" or class="lang-xxx"
-            const match = code.className.match(/(?:language|lang)-(\S+)/);
-            if (match) {
-              pre.dataset.language = match[1];
-            }
-          }
-
-          return template.innerHTML;
-        } catch {
-          return html; // On error, return original HTML
+        if (changeTimer !== null) clearTimeout(changeTimer);
+        changeTimer = setTimeout(() => {
+          try {
+            const markdown = serializeMarkdown(view.state.doc);
+            onChange(markdown);
+          } catch { /* editor might be destroyed */ }
+          changeTimer = null;
+        }, 500);
+      },
+      destroy: () => {
+        if (changeTimer !== null) {
+          clearTimeout(changeTimer);
+          changeTimer = null;
         }
       },
-    },
+    }),
   });
-});
+}
 
-/**
- * Scroll-after-paste fix: Milkdown's clipboard plugin handles paste and
- * returns true (consuming the event), so a plugin-level handlePaste never
- * fires. Instead, use a capture-phase DOM paste listener to detect paste,
- * then scroll .editor-wrapper to the cursor after the document updates.
- */
-const scrollAfterPastePlugin = $prose(() => {
-  let pendingPaste = false;
+// ── MorayaEditor interface ──────────────────────────────────────
 
-  return new Plugin({
-    key: new PluginKey('scroll-after-paste'),
-    view(editorView) {
-      function onPaste() { pendingPaste = true; }
-      editorView.dom.addEventListener('paste', onPaste, true);
-
-      return {
-        update(view, prevState) {
-          if (!pendingPaste || view.state.doc.eq(prevState.doc)) return;
-          pendingPaste = false;
-          requestAnimationFrame(() => {
-            try {
-              const { from } = view.state.selection;
-              const coords = view.coordsAtPos(from);
-              const wrapper = view.dom.closest('.editor-wrapper') as HTMLElement | null;
-              if (!wrapper) return;
-              const rect = wrapper.getBoundingClientRect();
-              if (coords.top < rect.top || coords.bottom > rect.bottom) {
-                wrapper.scrollTop += coords.top - rect.top - rect.height / 2;
-              }
-            } catch { /* ignore */ }
-          });
-        },
-        destroy() {
-          editorView.dom.removeEventListener('paste', onPaste, true);
-        },
-      };
-    },
-  });
-});
-
-const caretFixPlugin = $prose(() => {
-  const isMac = typeof document !== 'undefined' &&
-    document.body.classList.contains('platform-macos');
-
-  return new Plugin({
-    key: new PluginKey('moraya-caret-fix'),
-    props: {
-      decorations(state) {
-        if (!isMac) return DecorationSet.empty;
-        const { selection } = state;
-        if (!selection.empty) return DecorationSet.empty;
-
-        const { $from } = selection;
-        const parent = $from.parent;
-        if (parent.type.name === 'paragraph' && parent.content.size === 0) {
-          const pos = $from.before();
-          return DecorationSet.create(state.doc, [
-            Decoration.node(pos, pos + parent.nodeSize, { class: 'caret-empty-para' }),
-          ]);
-        }
-        return DecorationSet.empty;
-      },
-    },
-  });
-});
-
-/**
- * macOS Cmd+A fix for ProseMirror:
- * When PredefinedMenuItem::select_all sends the native `selectAll:` action,
- * macOS fires a DOM `selectstart` + `selectionchange` on the contenteditable.
- * ProseMirror may not correctly translate the native DOM selection-all into
- * its own AllSelection. This plugin intercepts Cmd+A (Ctrl+A on non-Mac)
- * at the keydown level — before the native menu accelerator steals it — and
- * dispatches a proper ProseMirror AllSelection.
- */
-const selectAllFixPlugin = $prose(() => {
-  return new Plugin({
-    key: new PluginKey('select-all-fix'),
-    props: {
-      handleKeyDown(view, event) {
-        const mod = event.metaKey || event.ctrlKey;
-        if (mod && !event.shiftKey && !event.altKey && event.key === 'a') {
-          event.preventDefault();
-          const tr = view.state.tr.setSelection(new AllSelection(view.state.doc));
-          view.dispatch(tr);
-          return true;
-        }
-        return false;
-      },
-    },
-  });
-});
-
-/**
- * Prevent ProseMirror from creating a NodeSelection (blue highlight) when
- * clicking on images. Instead, place a TextSelection right after the image
- * so the cursor sits next to it without visually selecting the whole node.
- */
-const imageClickPlugin = $prose(() => {
-  return new Plugin({
-    key: new PluginKey('image-click-handler'),
-    props: {
-      handleClickOn(view, _pos, node, nodePos, event) {
-        if (node.type.name !== 'image') return false;
-        // Only intercept left-click (button 0)
-        if (event.button !== 0) return false;
-
-        const $pos = view.state.doc.resolve(nodePos + node.nodeSize);
-        const sel = TextSelection.near($pos);
-        view.dispatch(view.state.tr.setSelection(sel));
-        return true; // Prevent default NodeSelection
-      },
-    },
-  });
-});
-
-/**
- * Extended code block input rule: Milkdown's built-in input rule only matches
- * [a-z] for language names, so `image-prompts`, `c++`, `objective-c` etc. fail.
- * This rule handles the broader character set. Registered AFTER commonmark so
- * the original rule has priority for simple lowercase languages; this catches
- * the rest (hyphens, digits, dots, plus, hash).
- */
-const codeBlockExtendedInputRule = $inputRule((ctx) => {
-  return textblockTypeInputRule(
-    /^```(?<language>[a-zA-Z][a-zA-Z0-9_+#.\-]*)?[\s\n]$/,
-    codeBlockSchema.type(ctx),
-    (match) => ({ language: match.groups?.language ?? '' }),
-  );
-});
+export interface MorayaEditor {
+  /** Direct ProseMirror EditorView access. */
+  view: EditorView;
+  /** Serialize current document to markdown string. */
+  getMarkdown(): string;
+  /** Replace document content with parsed markdown. */
+  setContent(markdown: string): void;
+  /** Destroy the editor and clean up. */
+  destroy(): void;
+}
 
 export interface EditorOptions {
   root: HTMLElement;
   defaultValue?: string;
+  /** Lightweight dirty notification with plain text content for word count. No markdown serialization. */
+  onDocChanged?: (textContent: string) => void;
+  /** Full markdown serialization callback. Used in split mode for SourceEditor sync. */
   onChange?: (markdown: string) => void;
   onFocus?: () => void;
   onBlur?: () => void;
 }
 
-export async function createEditor(options: EditorOptions): Promise<Editor> {
-  const { root, defaultValue = '', onChange, onFocus, onBlur } = options;
+export async function createEditor(options: EditorOptions): Promise<MorayaEditor> {
+  const { root, defaultValue = '', onDocChanged, onChange, onFocus, onBlur } = options;
 
   // Load Tier 1 plugins (uses cache if already preloaded)
   const tier1 = await preloadEnhancementPlugins();
 
   const t0 = performance.now();
 
-  let builder = Editor.make()
-    .config((ctx) => {
-      ctx.set(rootCtx, root);
-      ctx.set(defaultValueCtx, defaultValue);
-      ctx.set(editorViewOptionsCtx, {
-        attributes: {
-          class: 'moraya-editor',
-          spellcheck: 'true',
-        },
-      });
-      // Use `-` for bullet lists and `---` for horizontal rules (matching Typora/common conventions)
-      ctx.set(remarkStringifyOptionsCtx, {
-        bullet: '-',
-        rule: '-',
-      });
-    })
-    // Tier 0: Core plugins
-    .use(commonmark)
-    .use(codeBlockExtendedInputRule)
-    .use(tableKeysPlugin)
-    .use(gfm)
-    .use(history)
-    .use(pasteLanguageFixPlugin)
-    .use(clipboard)
-    .use(cursor)
-    .use(enterHandlerPlugin)
-    .use(caretFixPlugin)
-    .use(scrollAfterPastePlugin)
-    .use(imageClickPlugin)
-    .use(selectAllFixPlugin);
+  // Parse initial markdown content
+  const doc = parseMarkdown(defaultValue);
 
-  // Lazy change detection: serializes once per animation frame instead of per keystroke
+  // Build plugins array
+  const plugins: Plugin[] = [
+    // Input rules (must come before keymaps)
+    buildInputRules(tier1),
+
+    // Keymaps
+    buildKeymap(),
+    keymap(baseKeymap),
+
+    // History (undo/redo)
+    history(),
+
+    // Cursor plugins
+    dropCursor(),
+    gapCursor(),
+
+    // Table plugins
+    columnResizing(),
+    tableEditing(),
+
+    // Custom plugins
+    createEnterHandlerPlugin(),
+    createEditorPropsPlugin(),
+  ];
+
+  // Change detection
   if (onChange) {
-    builder = builder.use(createLazyChangePlugin(onChange));
+    plugins.push(createLazyChangePlugin(onChange));
+  } else if (onDocChanged) {
+    plugins.push(createDirtyTrackPlugin(onDocChanged));
   }
 
-  // Tier 1: Enhancement plugins (only attach successfully loaded ones)
-  if (tier1.highlight) builder = builder.use(tier1.highlight);
-  if (tier1.codeBlockView) builder = builder.use(tier1.codeBlockView);
-  if (tier1.emoji) builder = builder.use(tier1.emoji);
-  if (tier1.math) builder = builder.use(tier1.math);
-  if (tier1.defList) {
-    for (const p of tier1.defList) builder = builder.use(p);
+  // Tier 1 enhancement plugins
+  if (tier1.highlight) plugins.push(tier1.highlight);
+  if (tier1.emoji) plugins.push(tier1.emoji);
+
+  // Create editor state
+  const state = EditorState.create({
+    doc,
+    schema,
+    plugins,
+  });
+
+  // NodeViews
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const nodeViews: Record<string, any> = {};
+  if (tier1.codeBlockView) {
+    nodeViews.code_block = tier1.codeBlockView;
   }
 
-  const editor = await builder.create();
-  console.log(`[Editor] createEditor: ${(performance.now() - t0).toFixed(1)}ms (plugins: ${Object.keys(tier1).length} tier1)`);
+  // Create editor view
+  const view = new EditorView(root, {
+    state,
+    nodeViews,
+    attributes: {
+      class: 'moraya-editor',
+      spellcheck: 'true',
+    },
+  });
 
-  // Handle focus/blur events on the editor DOM
+  console.log(`[Editor] createEditor: ${(performance.now() - t0).toFixed(1)}ms (plugins: ${plugins.length})`);
+
+  // Handle focus/blur events
   if (onFocus || onBlur) {
     const editorDom = root.querySelector('.ProseMirror');
     if (editorDom) {
@@ -364,13 +435,27 @@ export async function createEditor(options: EditorOptions): Promise<Editor> {
     }
   }
 
+  // Build MorayaEditor facade
+  const editor: MorayaEditor = {
+    view,
+
+    getMarkdown() {
+      return serializeMarkdown(view.state.doc);
+    },
+
+    setContent(markdown: string) {
+      const newDoc = parseMarkdown(markdown);
+      const tr = view.state.tr.replaceWith(0, view.state.doc.content.size, newDoc.content);
+      view.dispatch(tr);
+    },
+
+    destroy() {
+      view.destroy();
+    },
+  };
+
   return editor;
 }
 
-export function getMarkdown(editor: Editor): string {
-  return editor.action((ctx) => {
-    const serializer = ctx.get(serializerCtx);
-    const view = ctx.get(editorViewCtx);
-    return serializer(view.state.doc);
-  });
-}
+// Re-export for convenience
+export { serializeMarkdown as getMarkdown } from './markdown';

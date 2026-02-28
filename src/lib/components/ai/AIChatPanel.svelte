@@ -27,6 +27,7 @@
   let {
     documentContent = '',
     selectedText = '',
+    getDocumentContent,
     onInsert,
     onReplace,
     onOpenSettings,
@@ -34,11 +35,18 @@
   }: {
     documentContent?: string;
     selectedText?: string;
+    /** On-demand content getter (serializes ProseMirror doc). Falls back to documentContent prop. */
+    getDocumentContent?: () => string;
     onInsert?: (text: string) => void;
     onReplace?: (text: string) => void;
     onOpenSettings?: () => void;
     onOpenVoiceSettings?: () => void;
   } = $props();
+
+  /** Get the latest document content, preferring the on-demand getter. */
+  function latestContent(): string {
+    return getDocumentContent ? getDocumentContent() : documentContent;
+  }
 
   let chatMessages = $state<ChatMessage[]>([]);
   let isLoading = $state(false);
@@ -343,7 +351,8 @@
 
     if (activeTemplate && (activeTemplate.flow === 'input' || activeTemplate.flow === 'parameterized')) {
       // Template input flow: build messages from template
-      const resolved = resolveContent(activeTemplate, documentContent, selectedText);
+      const content = latestContent();
+      const resolved = resolveContent(activeTemplate, content, selectedText);
       const { systemPrompt, userMessage } = buildTemplateMessages(activeTemplate, {
         content: resolved.content,
         input: message,
@@ -353,14 +362,14 @@
       inputPlaceholderOverride = null;
       aiStore.addMessage({ role: 'system', content: systemPrompt, timestamp: Date.now() });
       try {
-        await sendChatMessage(userMessage, documentContent, images);
+        await sendChatMessage(userMessage, content, images);
       } catch { /* handled by store */ }
       return;
     }
 
     // Normal free chat
     try {
-      await sendChatMessage(message, documentContent, images);
+      await sendChatMessage(message, latestContent(), images);
     } catch {
       // Error is handled by store
     }
@@ -370,7 +379,8 @@
     showCommands = false;
 
     // Resolve content for flows that need it
-    const resolved = resolveContent(template, documentContent, selectedText);
+    const content = latestContent();
+    const resolved = resolveContent(template, content, selectedText);
     if (resolved.error && template.contentSource !== 'none') {
       aiStore.setError($t(resolved.error));
       return;
@@ -390,7 +400,7 @@
         userAtBottom = true;
         aiStore.addMessage({ role: 'system', content: systemPrompt, timestamp: Date.now() });
         try {
-          await sendChatMessage(userMessage, documentContent);
+          await sendChatMessage(userMessage, content);
         } catch { /* handled by store */ }
         break;
       }
@@ -419,7 +429,8 @@
     showParamPanel = false;
     userAtBottom = true;
 
-    const resolved = resolveContent(activeTemplate, documentContent, selectedText);
+    const content = latestContent();
+    const resolved = resolveContent(activeTemplate, content, selectedText);
     if (resolved.error && activeTemplate.contentSource !== 'none') {
       aiStore.setError($t(resolved.error));
       activeTemplate = null;
@@ -445,7 +456,7 @@
     inputPlaceholderOverride = null;
     aiStore.addMessage({ role: 'system', content: systemPrompt, timestamp: Date.now() });
     try {
-      await sendChatMessage(userMessage, documentContent);
+      await sendChatMessage(userMessage, content);
     } catch { /* handled by store */ }
   }
 

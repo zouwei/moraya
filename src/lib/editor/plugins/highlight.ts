@@ -3,9 +3,8 @@
  * Applies ProseMirror decorations with hljs CSS classes for language-aware coloring.
  */
 
-import { $prose } from '@milkdown/utils';
-import { Plugin, PluginKey } from '@milkdown/prose/state';
-import { Decoration, DecorationSet } from '@milkdown/prose/view';
+import { Plugin, PluginKey } from 'prosemirror-state';
+import { Decoration, DecorationSet } from 'prosemirror-view';
 import hljs from 'highlight.js/lib/core';
 
 // Import commonly used languages
@@ -188,7 +187,7 @@ function getDecorations(doc: any): DecorationSet {
  *  2. After 300ms idle: run a full re-highlight and dispatch a metadata-only
  *     transaction to flush the new decorations into the view.
  */
-export const highlightPlugin = $prose(() => {
+export function createHighlightPlugin(): Plugin {
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let needsRefresh = false;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -213,6 +212,28 @@ export const highlightPlugin = $prose(() => {
         // Map existing decorations cheaply through the transaction
         // (adjusts positions for insertions/deletions — no hljs calls).
         const mapped = decorationSet.map(tr.mapping, newState.doc);
+
+        // Short-circuit: if the change didn't touch any code_block, skip
+        // scheduling a full re-highlight. This saves the 300ms debounce +
+        // hljs re-parse for ~90% of keystrokes (normal paragraph editing).
+        let affectsCodeBlock = false;
+        const docSize = newState.doc.content.size;
+        tr.mapping.maps.forEach((stepMap) => {
+          if (affectsCodeBlock) return;
+          stepMap.forEach((from, to) => {
+            if (affectsCodeBlock) return;
+            newState.doc.nodesBetween(
+              Math.max(0, from),
+              Math.min(to, docSize),
+              (node) => {
+                if (node.type.name === 'code_block') affectsCodeBlock = true;
+                return !affectsCodeBlock;
+              }
+            );
+          });
+        });
+
+        if (!affectsCodeBlock) return mapped;
 
         // Schedule a full re-highlight after typing pause
         if (debounceTimer !== null) clearTimeout(debounceTimer);
@@ -249,4 +270,4 @@ export const highlightPlugin = $prose(() => {
       };
     },
   });
-});
+}
