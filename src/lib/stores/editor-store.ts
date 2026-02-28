@@ -87,6 +87,25 @@ function createEditorStore() {
     setCurrentFile(path: string | null) {
       update(state => ({ ...state, currentFilePath: path, isDirty: false }));
     },
+    /** Batch-restore multiple fields in a single store update (1 subscriber notification
+     *  instead of 5 separate set*() calls). Used by tab switching. */
+    batchRestore(data: {
+      filePath: string | null;
+      content: string;
+      isDirty: boolean;
+      cursorOffset: number;
+      scrollFraction: number;
+    }) {
+      update(state => ({
+        ...state,
+        currentFilePath: data.filePath,
+        content: data.content,
+        isDirty: data.isDirty,
+        cursorOffset: data.cursorOffset,
+        scrollFraction: data.scrollFraction,
+      }));
+      scheduleWordCount(data.content);
+    },
     toggleEditorMode() {
       update(state => ({
         ...state,

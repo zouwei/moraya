@@ -58,13 +58,16 @@ function createTabsStore() {
     }));
   }
 
-  /** Restore a tab's state into the editor */
+  /** Restore a tab's state into the editor.
+   *  Uses batchRestore for a single store notification instead of 5 separate updates. */
   function syncToEditor(tab: TabItem) {
-    editorStore.setCurrentFile(tab.filePath);
-    editorStore.setContent(tab.content);
-    editorStore.setDirty(tab.isDirty);
-    editorStore.setCursorOffset(tab.cursorOffset);
-    editorStore.setScrollFraction(tab.scrollFraction);
+    editorStore.batchRestore({
+      filePath: tab.filePath,
+      content: tab.content,
+      isDirty: tab.isDirty,
+      cursorOffset: tab.cursorOffset,
+      scrollFraction: tab.scrollFraction,
+    });
   }
 
   return {

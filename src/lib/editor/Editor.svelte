@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount, onDestroy, tick } from 'svelte';
   import type { Editor as MilkdownEditor } from '@milkdown/core';
-  import { editorViewCtx } from '@milkdown/core';
+  import { editorViewCtx, parserCtx } from '@milkdown/core';
   import { TextSelection, AllSelection } from '@milkdown/prose/state';
+  import { Slice } from '@milkdown/prose/model';
   import { Decoration, DecorationSet } from '@milkdown/prose/view';
   import { callCommand, replaceAll } from '@milkdown/utils';
   import { imageSchema } from '@milkdown/preset-commonmark';
@@ -223,15 +224,28 @@
   let imageToolbarCurrentWidth = $state('');
   let imageToolbarTargetPos = $state<number | null>(null);
 
+  // Cache for isInsideTable check — avoids redundant depth traversal when
+  // cursor position hasn't changed between consecutive keyup/click events.
+  let cachedSelFrom = -1;
+  let cachedInTable = false;
+
   function isInsideTable(): boolean {
     if (!editor) return false;
     try {
       return editor.action((ctx) => {
         const view = ctx.get(editorViewCtx);
+        const { from } = view.state.selection;
+        if (from === cachedSelFrom) return cachedInTable;
+        cachedSelFrom = from;
         const resolvedFrom = view.state.selection.$from;
         for (let d = resolvedFrom.depth; d > 0; d--) {
-          if (resolvedFrom.node(d).type.name === 'table') return true;
+          const name = resolvedFrom.node(d).type.name;
+          if (name === 'table_cell' || name === 'table_header') {
+            cachedInTable = true;
+            return true;
+          }
         }
+        cachedInTable = false;
         return false;
       });
     } catch {
@@ -1011,6 +1025,7 @@
 
   // ── Sync external content changes to Milkdown (split mode) ──
   // Debounced to avoid rebuilding the ProseMirror document on every keystroke.
+  // Uses addToHistory:false to avoid undo history accumulation.
   function applySyncToMilkdown(md: string) {
     if (!editor || !isReady) return;
     // Re-extract frontmatter in case user edited it in source mode
@@ -1024,7 +1039,18 @@
         syncingFromExternal = true;
         lastSyncWasExternal = true;
         if (syncResetTimer) clearTimeout(syncResetTimer);
-        editor.action(replaceAll(visualContent));
+        editor.action((ctx) => {
+          const view = ctx.get(editorViewCtx);
+          const parser = ctx.get(parserCtx);
+          const doc = parser(visualContent);
+          if (!doc) return;
+          const tr = view.state.tr.replace(
+            0, view.state.doc.content.size,
+            new Slice(doc.content, 0, 0),
+          );
+          tr.setMeta('addToHistory', false);
+          view.dispatch(tr);
+        });
       } catch { /* ignore during init */ }
       // The lazy-change plugin debounces onChange by 100ms (setup.ts).
       // Keep syncingFromExternal=true until after that fires so the
@@ -1161,8 +1187,9 @@
 
   /**
    * Replace editor content from an external source (file sync, AI, etc.).
-   * Updates storedFrontmatter atomically before replaceAll to prevent
+   * Updates storedFrontmatter atomically before replacing to prevent
    * the onChange callback from re-attaching stale/empty frontmatter.
+   * Uses addToHistory:false to prevent undo history accumulation across file switches.
    */
   export function syncContent(md: string) {
     if (!editor || !isReady) return;
@@ -1171,7 +1198,19 @@
     try {
       syncingFromExternal = true;
       if (syncResetTimer) clearTimeout(syncResetTimer);
-      editor.action(replaceAll(toHardBreaks(body)));
+      const visualContent = toHardBreaks(body);
+      editor.action((ctx) => {
+        const view = ctx.get(editorViewCtx);
+        const parser = ctx.get(parserCtx);
+        const doc = parser(visualContent);
+        if (!doc) return;
+        const tr = view.state.tr.replace(
+          0, view.state.doc.content.size,
+          new Slice(doc.content, 0, 0),
+        );
+        tr.setMeta('addToHistory', false);
+        view.dispatch(tr);
+      });
       syncResetTimer = setTimeout(() => { syncingFromExternal = false; }, 200);
     } catch { /* ignore during init */ }
   }

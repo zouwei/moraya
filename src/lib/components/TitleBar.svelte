@@ -39,13 +39,20 @@
   function handleDragStart(event: MouseEvent) {
     if (event.button !== 0) return; // Only left mouse button
     if ((event.target as HTMLElement).closest('button')) return;
+    // Skip drag on double-click (detail >= 2): macOS startDragging() handles
+    // double-click-to-maximize natively, and our ondblclick handler also calls
+    // toggleMaximize — triggering both would double-toggle (maximize then restore).
+    if (event.detail >= 2) return;
     appWindow?.startDragging();
   }
 
-  // Handle double-click on titlebar to maximize/restore window.
   function handleDblClick(event: MouseEvent) {
     if ((event.target as HTMLElement).closest('button')) return;
-    handleMaximize();
+    // On macOS, startDragging() already handles double-click-to-maximize natively.
+    // Only call toggleMaximize on non-macOS platforms.
+    if (!isMacOS) {
+      handleMaximize();
+    }
   }
 
   // Track dirty state from store — top-level subscribe, do NOT wrap in $effect().

@@ -379,6 +379,8 @@ All API keys are stored exclusively in your OS Keychain — never in plaintext. 
 
 - [x] **v0.17.0** — Homebrew Cask: `brew install --cask moraya`, dual-architecture DMG, automated SHA256 update via CI → [Detailed Requirements](docs/iterations/v0.17.0-homebrew-cask.md)
 
+- [x] **v0.18.0** — Document Outline: Editor-side outline panel, H1–H6 heading extraction, click-to-scroll navigation, active heading highlight, Cmd+Shift+O toggle → [Detailed Requirements](docs/iterations/v0.18.0-document-outline.md)
+
 ## License
 
 [Apache License 2.0](LICENSE)
