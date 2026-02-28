@@ -1067,6 +1067,11 @@
   // corrupt backslash escapes.
   let effectMounted = false;
 
+  // Flag set by syncContent() to tell the $effect to skip its next trigger.
+  // Without this, every file switch causes a redundant applySyncToMilkdown()
+  // 150ms later (full getMarkdown serialization + compare + possible re-replace).
+  let externalSyncDone = false;
+
   $effect(() => {
     const current = content;
     if (!effectMounted) {
@@ -1075,6 +1080,12 @@
     }
     if (internalChange) {
       internalChange = false;
+      return;
+    }
+    if (externalSyncDone) {
+      externalSyncDone = false;
+      // Clear any pending timer from a previous split-mode sync
+      if (externalSyncTimer) clearTimeout(externalSyncTimer);
       return;
     }
     // Debounce: avoid running toHardBreaks + replaceAll on every keystroke
@@ -1186,33 +1197,33 @@
   }
 
   /**
-   * Replace editor content from an external source (file sync, AI, etc.).
-   * Updates storedFrontmatter atomically before replacing to prevent
-   * the onChange callback from re-attaching stale/empty frontmatter.
-   * Uses addToHistory:false to prevent undo history accumulation across file switches.
+   * Replace editor content from an external source (file switch, AI, etc.).
+   * Uses Milkdown's replaceAll() which dispatches a normal ProseMirror transaction
+   * with addToHistory:true (default). This is O(1) for the history plugin — it just
+   * pushes a new undo entry. Do NOT use addToHistory:false here: it causes the
+   * history plugin to map ALL existing undo items through the transaction (O(N)),
+   * leading to O(N²) cumulative work after N file switches.
+   *
+   * The externalSyncDone flag prevents the $effect from scheduling a redundant
+   * applySyncToMilkdown() 150ms later (which would serialize the entire document
+   * via getMarkdown() + compare + possibly re-replace — all wasted work).
    */
   export function syncContent(md: string) {
     if (!editor || !isReady) return;
+    externalSyncDone = true; // Tell $effect to skip redundant applySyncToMilkdown
     const { frontmatter, body } = extractFrontmatter(md);
     storedFrontmatter = frontmatter;
     try {
       syncingFromExternal = true;
       if (syncResetTimer) clearTimeout(syncResetTimer);
       const visualContent = toHardBreaks(body);
-      editor.action((ctx) => {
-        const view = ctx.get(editorViewCtx);
-        const parser = ctx.get(parserCtx);
-        const doc = parser(visualContent);
-        if (!doc) return;
-        const tr = view.state.tr.replace(
-          0, view.state.doc.content.size,
-          new Slice(doc.content, 0, 0),
-        );
-        tr.setMeta('addToHistory', false);
-        view.dispatch(tr);
-      });
+      editor.action(replaceAll(visualContent));
       syncResetTimer = setTimeout(() => { syncingFromExternal = false; }, 200);
     } catch { /* ignore during init */ }
+    // Outline update: onChange is suppressed by syncingFromExternal, and
+    // externalSyncDone blocks the path through applySyncToMilkdown, so
+    // we must schedule extraction directly here.
+    scheduleExtractHeadings();
   }
 
   export function clearSearch() {
