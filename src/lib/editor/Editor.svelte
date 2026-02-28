@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount, onDestroy, tick } from 'svelte';
   import type { Editor as MilkdownEditor } from '@milkdown/core';
-  import { editorViewCtx, parserCtx } from '@milkdown/core';
-  import { TextSelection, AllSelection } from '@milkdown/prose/state';
+  import { editorViewCtx, parserCtx, schemaCtx, prosePluginsCtx } from '@milkdown/core';
+  import { EditorState, TextSelection, AllSelection } from '@milkdown/prose/state';
   import { Slice } from '@milkdown/prose/model';
   import { Decoration, DecorationSet } from '@milkdown/prose/view';
   import { callCommand, replaceAll } from '@milkdown/utils';
@@ -1198,8 +1198,11 @@
 
   /**
    * Replace editor content from an external source (file switch, AI, etc.).
-   * Uses addToHistory:false to keep file switches out of undo history,
-   * avoiding step-inversion overhead (which copies the full old document).
+   * Creates a completely fresh EditorState to reset ALL plugin state (history,
+   * decorations, etc.), preventing progressive accumulation across file switches.
+   * Without this, the history plugin's addMaps() grows unboundedly and highlight
+   * decoration remapping becomes progressively more expensive.
+   *
    * The externalSyncDone flag prevents the $effect from scheduling a redundant
    * applySyncToMilkdown() 150ms later (which would serialize the entire document
    * via getMarkdown() — the real source of accumulation lag).
@@ -1218,15 +1221,18 @@
         const parser = ctx.get(parserCtx);
         const doc = parser(visualContent);
         if (!doc) return;
-        const tr = view.state.tr.replace(
-          0, view.state.doc.content.size,
-          new Slice(doc.content, 0, 0),
-        );
-        tr.setMeta('addToHistory', false);
-        view.dispatch(tr);
+        // Flush: create a brand new EditorState instead of dispatching a transaction.
+        // This resets all plugin state (history items, decoration sets, etc.)
+        // so nothing accumulates across file switches.
+        const schema = ctx.get(schemaCtx);
+        const plugins = ctx.get(prosePluginsCtx);
+        const state = EditorState.create({ schema, doc, plugins });
+        view.updateState(state);
       });
       syncResetTimer = setTimeout(() => { syncingFromExternal = false; }, 200);
     } catch { /* ignore during init */ }
+    // Reset isInsideTable cache (cursor position changed with new document)
+    cachedSelFrom = -1;
     // Outline update: onChange is suppressed by syncingFromExternal, and
     // externalSyncDone blocks the path through applySyncToMilkdown, so
     // we must schedule extraction directly here.
