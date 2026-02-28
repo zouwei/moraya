@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import { filesStore, type KnowledgeBase } from '../stores/files-store';
   import { open, ask } from '@tauri-apps/plugin-dialog';
   import { t } from '$lib/i18n';
@@ -10,12 +11,12 @@
   let editingName = $state('');
   let editInputEl = $state<HTMLInputElement | null>(null);
 
-  $effect(() => {
-    const unsub = filesStore.subscribe(state => {
-      knowledgeBases = state.knowledgeBases;
-    });
-    return unsub;
+  // Top-level store subscription — do NOT wrap in $effect().
+  // Svelte 5 $effect tracks reads in subscribe callbacks, causing infinite loops.
+  const unsubFiles = filesStore.subscribe(state => {
+    knowledgeBases = state.knowledgeBases;
   });
+  onDestroy(() => { unsubFiles(); });
 
   async function addKnowledgeBase() {
     const selected = await open({

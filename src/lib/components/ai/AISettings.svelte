@@ -18,6 +18,7 @@
   import { testImageConnectionWithResolve } from '$lib/services/ai/image-service';
   import { settingsStore } from '$lib/stores/settings-store';
   import { invoke } from '@tauri-apps/api/core';
+  import { onDestroy } from 'svelte';
   import { t } from '$lib/i18n';
 
   // ── AI Chat Model State ──
@@ -79,22 +80,21 @@
     return BASE_URL_PRESETS[provider] ?? [];
   }
 
-  // ── Subscribe to stores ──
-  $effect(() => {
-    const unsub1 = aiStore.subscribe(state => {
-      chatConfigs = state.providerConfigs;
-      activeChatConfigId = state.activeConfigId;
-    });
-    const unsub2 = settingsStore.subscribe(state => {
-      imageConfigs = state.imageProviderConfigs;
-      activeImageConfigId = state.activeImageConfigId;
-    });
-    return () => {
-      unsub1();
-      unsub2();
-      if (chatTestTimer) clearTimeout(chatTestTimer);
-      if (imgTestTimer) clearTimeout(imgTestTimer);
-    };
+  // Top-level store subscriptions — do NOT wrap in $effect().
+  // Svelte 5 $effect tracks reads in subscribe callbacks, causing infinite loops.
+  const unsub1 = aiStore.subscribe(state => {
+    chatConfigs = state.providerConfigs;
+    activeChatConfigId = state.activeConfigId;
+  });
+  const unsub2 = settingsStore.subscribe(state => {
+    imageConfigs = state.imageProviderConfigs;
+    activeImageConfigId = state.activeImageConfigId;
+  });
+  onDestroy(() => {
+    unsub1();
+    unsub2();
+    if (chatTestTimer) clearTimeout(chatTestTimer);
+    if (imgTestTimer) clearTimeout(imgTestTimer);
   });
 
   // ── Chat Model Functions ──

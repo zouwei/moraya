@@ -16,11 +16,9 @@
   let targets = $state<PublishTarget[]>([]);
   let selectedIds = $state<Set<string>>(new Set());
 
-  $effect(() => {
-    const unsub = settingsStore.subscribe(state => {
-      targets = state.publishTargets || [];
-    });
-    return unsub;
+  // Top-level store subscription — do NOT wrap in $effect().
+  settingsStore.subscribe(state => {
+    targets = state.publishTargets || [];
   });
 
   function toggleTarget(id: string) {

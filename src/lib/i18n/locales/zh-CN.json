@@ -563,6 +563,7 @@
     "splitMode": "对比模式",
     "toggleSidebar": "切换侧边栏",
     "toggleAIPanel": "切换 AI 面板",
+    "toggleOutline": "切换大纲",
     "zoomIn": "放大",
     "zoomOut": "缩小",
     "actualSize": "实际大小",
@@ -1324,5 +1325,8 @@
     "noSpeechConfig": "未配置语音识别服务，请前往 设置 → 语音 添加。",
     "noSpeechConfigHint": "请前往 设置 → 语音 Tab 添加语音识别服务（如 Deepgram）。",
     "goToVoiceSettings": "打开语音设置"
+  },
+  "outline": {
+    "empty": "暂无标题"
   }
 }

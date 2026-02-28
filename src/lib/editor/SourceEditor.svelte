@@ -2,14 +2,17 @@
   import { onMount, onDestroy } from 'svelte';
   import { settingsStore } from '../stores/settings-store';
   import { editorStore } from '../stores/editor-store';
+  import OutlinePanel, { type OutlineHeading } from '$lib/components/OutlinePanel.svelte';
 
   let {
     content = $bindable(''),
     hideScrollbar = false,
+    showOutline = false,
     onContentChange,
   }: {
     content?: string;
     hideScrollbar?: boolean;
+    showOutline?: boolean;
     onContentChange?: (content: string) => void;
   } = $props();
 
@@ -24,6 +27,56 @@
     tabSize = state.editorTabSize;
     editorLineWidth = state.editorLineWidth;
   });
+
+  // ── Outline ──
+  let outlineHeadings = $state<OutlineHeading[]>([]);
+  let activeHeadingId = $state<string | null>(null);
+  let outlineTimer: ReturnType<typeof setTimeout> | undefined;
+  let scrollRafOutline: number | undefined;
+
+  /** Build a map from heading id → line index for quick lookup */
+  function extractHeadingsFromMarkdown() {
+    const heads: OutlineHeading[] = [];
+    const lines = content.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      const m = lines[i].match(/^(#{1,6})\s+(.+)$/);
+      if (m) {
+        heads.push({ id: `h-${i}`, level: m[1].length, text: m[2].replace(/\s*#+\s*$/, '') });
+      }
+    }
+    outlineHeadings = heads;
+  }
+
+  function updateActiveHeadingSource() {
+    if (outlineHeadings.length === 0 || !textareaEl) { activeHeadingId = null; return; }
+    const outer = textareaEl.closest('.source-editor-outer') as HTMLElement | null;
+    if (!outer) return;
+    // Estimate visible line based on scroll fraction
+    const totalLines = content.split('\n').length;
+    const scrollFrac = outer.scrollHeight > outer.clientHeight
+      ? outer.scrollTop / (outer.scrollHeight - outer.clientHeight)
+      : 0;
+    const visibleLine = Math.floor(scrollFrac * totalLines);
+    let lastId: string | null = null;
+    for (const h of outlineHeadings) {
+      const line = parseInt(h.id.slice(2));
+      if (line <= visibleLine) lastId = h.id;
+      else break;
+    }
+    activeHeadingId = lastId ?? outlineHeadings[0]?.id ?? null;
+  }
+
+  function handleOutlineSelectSource(h: OutlineHeading) {
+    if (!textareaEl) return;
+    const outer = textareaEl.closest('.source-editor-outer') as HTMLElement | null;
+    if (!outer) return;
+    const line = parseInt(h.id.slice(2));
+    const totalLines = content.split('\n').length;
+    if (totalLines <= 1) return;
+    const frac = line / totalLines;
+    const maxScroll = outer.scrollHeight - outer.clientHeight;
+    outer.scrollTo({ top: Math.round(frac * maxScroll), behavior: 'smooth' });
+  }
 
   // Only compute line count when line numbers are visible
   let lineCount = $derived(showLineNumbers ? countNewlines(content) : 0);
@@ -72,6 +125,11 @@
       editorStore.setDirtyContent(true, content);
       storeTimer = null;
     }, 50);
+    // Debounced outline update (skipped when outline is hidden)
+    if (showOutline) {
+      clearTimeout(outlineTimer);
+      outlineTimer = setTimeout(extractHeadingsFromMarkdown, 300);
+    }
   }
 
   function handleKeydown(event: KeyboardEvent) {
@@ -91,6 +149,7 @@
   onMount(() => {
     // Initialize ghost div content synchronously on mount
     if (ghostEl) ghostEl.textContent = content + '\n';
+    if (showOutline) extractHeadingsFromMarkdown();
 
     if (textareaEl) {
       const { cursorOffset: offset, scrollFraction } = editorStore.getState();
@@ -136,6 +195,8 @@
     if (ghostRaf !== null) {
       cancelAnimationFrame(ghostRaf);
     }
+    if (outlineTimer) clearTimeout(outlineTimer);
+    if (scrollRafOutline) cancelAnimationFrame(scrollRafOutline);
     unsubSettings();
   });
 
@@ -229,7 +290,17 @@
   }
 </script>
 
-<div class="source-editor-outer" class:hide-scrollbar={hideScrollbar}>
+<div class="source-editor-outer" class:hide-scrollbar={hideScrollbar} class:has-outline={showOutline} onscroll={() => {
+  if (!showOutline) return;
+  if (scrollRafOutline) return;
+  scrollRafOutline = requestAnimationFrame(() => {
+    scrollRafOutline = undefined;
+    updateActiveHeadingSource();
+  });
+}}>
+  {#if showOutline}
+    <OutlinePanel headings={outlineHeadings} activeId={activeHeadingId} onSelect={handleOutlineSelectSource} />
+  {/if}
   <div class="source-editor-inner">
     {#if showLineNumbers}
       <div class="line-numbers">
@@ -263,6 +334,19 @@
        is narrowed by sidebar + AI panel. */
     padding: 2rem clamp(1rem, 4%, 3rem);
     background: var(--bg-primary);
+  }
+
+  .source-editor-outer.has-outline {
+    display: flex;
+    align-items: flex-start;
+    gap: 0;
+    padding-left: clamp(0.5rem, 2%, 1.5rem);
+  }
+
+  .has-outline .source-editor-inner {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
   }
 
   .source-editor-outer.hide-scrollbar {

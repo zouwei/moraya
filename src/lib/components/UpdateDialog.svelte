@@ -21,15 +21,13 @@
   let downloadProgress = $state(0);
   let error = $state<string | null>(null);
 
-  $effect(() => {
-    const unsub = updateStore.subscribe(state => {
-      checkStatus = state.checkStatus;
-      downloadStatus = state.downloadStatus;
-      updateInfo = state.updateInfo;
-      downloadProgress = state.downloadProgress;
-      error = state.error;
-    });
-    return unsub;
+  // Top-level store subscription — do NOT wrap in $effect().
+  updateStore.subscribe(state => {
+    checkStatus = state.checkStatus;
+    downloadStatus = state.downloadStatus;
+    updateInfo = state.updateInfo;
+    downloadProgress = state.downloadProgress;
+    error = state.error;
   });
 
   // Auto-check when dialog opens if idle

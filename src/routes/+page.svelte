@@ -175,6 +175,7 @@ ${tr('welcome.tip')}
   let showSettings = $state(false);
   let settingsInitialTab = $state<'general' | 'ai' | 'voice'>('general');
   let showAIPanel = $state(false);
+  let showOutline = $state(false);
   let showImageDialog = $state(false);
   let showSearch = $state(false);
   let showReplace = $state(false);
@@ -190,13 +191,13 @@ ${tr('welcome.tip')}
   let aiLoading = $state(false);
   let aiError = $state(false);
 
-  $effect(() => {
-    const unsub = aiStore.subscribe(state => {
-      aiConfigured = state.isConfigured;
-      aiLoading = state.isLoading;
-      aiError = !!state.error;
-    });
-    return unsub;
+  // Top-level store subscription — do NOT wrap in $effect().
+  // In Svelte 5, $effect tracks reads inside subscribe callbacks, causing
+  // infinite re-subscription loops when callbacks compare/write $state vars.
+  aiStore.subscribe(state => {
+    aiConfigured = state.isConfigured;
+    aiLoading = state.isLoading;
+    aiError = !!state.error;
   });
 
   // Publish workflow state
@@ -281,6 +282,7 @@ ${tr('welcome.tip')}
           const tr = view.state.tr.setSelection(
             TextSelection.create(view.state.doc, 1)
           );
+          tr.setMeta('addToHistory', false);
           view.dispatch(tr);
         });
       } catch {
@@ -416,72 +418,67 @@ ${tr('welcome.tip')}
   let splitVisualEl: HTMLDivElement | undefined = $state();
   let activeScrollPane: 'source' | 'visual' | null = null;
 
-  $effect(() => {
-    const unsub1 = settingsStore.subscribe(state => {
-      showSidebar = state.showSidebar;
-    });
-
-    // Track previous values to skip redundant work in hot subscriber path.
-    // This subscriber fires on every store update (setContent, setDirty, setFocused, etc.)
-    // so we must avoid doing unnecessary work or writing $state on each call.
-    let prevFilePath: string | null = null;
-    let prevEditorMode: EditorMode | null = null;
-
-    const unsub2 = editorStore.subscribe(state => {
-      // Only recompute file name when path actually changes
-      if (state.currentFilePath !== prevFilePath) {
-        prevFilePath = state.currentFilePath;
-        currentFileName = state.currentFilePath
-          ? getFileNameFromPath(state.currentFilePath)
-          : $t('common.untitled');
-      }
-      // Guard: only write $state when mode actually changes to avoid re-entrancy
-      // during Svelte's render flush (e.g., when Editor.onDestroy calls setContent,
-      // which triggers this subscriber while the component tree is being updated).
-      if (state.editorMode !== prevEditorMode) {
-        prevEditorMode = state.editorMode;
-        editorMode = state.editorMode;
-        // Clear editor reference when switching to source-only mode
-        if (state.editorMode === 'source') {
-          milkdownEditor = null;
-        }
-      }
-      // Sync dirty state to tabs store on iPad
-      if (isIPadOS) {
-        tabsStore.syncDirty(state.isDirty);
-      }
-    });
-
-    // iPad tabs: reload content when active tab changes
-    let unsub3: (() => void) | undefined;
-    if (isIPadOS) {
-      let prevActiveTabId = '';
-      unsub3 = tabsStore.subscribe(state => {
-        if (state.activeTabId !== prevActiveTabId) {
-          prevActiveTabId = state.activeTabId;
-          const tab = state.tabs.find(t => t.id === state.activeTabId);
-          if (tab) {
-            content = tab.content;
-            currentFileName = tab.fileName;
-            replaceContentAndScrollToTop(tab.content);
-          }
-        }
-      });
-    }
-
-    return () => { unsub1(); unsub2(); unsub3?.(); };
+  // Top-level store subscriptions — do NOT wrap in $effect().
+  // In Svelte 5, $effect tracks reads inside subscribe callbacks, causing
+  // infinite re-subscription loops when callbacks compare/write $state vars.
+  // This was the root cause of the AI panel freeze (introduced in v0.17.1).
+  settingsStore.subscribe(state => {
+    showSidebar = state.showSidebar;
+    showOutline = state.showOutline;
   });
+
+  // Track previous values to skip redundant work in hot subscriber path.
+  // This subscriber fires on every store update (setContent, setDirty, setFocused, etc.)
+  // so we must avoid doing unnecessary work or writing $state on each call.
+  let prevFilePath: string | null = null;
+  let prevEditorMode: EditorMode | null = null;
+
+  editorStore.subscribe(state => {
+    // Only recompute file name when path actually changes
+    if (state.currentFilePath !== prevFilePath) {
+      prevFilePath = state.currentFilePath;
+      currentFileName = state.currentFilePath
+        ? getFileNameFromPath(state.currentFilePath)
+        : $t('common.untitled');
+    }
+    // Guard: only write $state when mode actually changes to avoid re-entrancy
+    // during Svelte's render flush (e.g., when Editor.onDestroy calls setContent,
+    // which triggers this subscriber while the component tree is being updated).
+    if (state.editorMode !== prevEditorMode) {
+      prevEditorMode = state.editorMode;
+      editorMode = state.editorMode;
+      // Clear editor reference when switching to source-only mode
+      if (state.editorMode === 'source') {
+        milkdownEditor = null;
+      }
+    }
+    // Sync dirty state to tabs store on iPad
+    if (isIPadOS) {
+      tabsStore.syncDirty(state.isDirty);
+    }
+  });
+
+  // iPad tabs: reload content when active tab changes
+  if (isIPadOS) {
+    let prevActiveTabId = '';
+    tabsStore.subscribe(state => {
+      if (state.activeTabId !== prevActiveTabId) {
+        prevActiveTabId = state.activeTabId;
+        const tab = state.tabs.find(t => t.id === state.activeTabId);
+        if (tab) {
+          content = tab.content;
+          currentFileName = tab.fileName;
+          replaceContentAndScrollToTop(tab.content);
+        }
+      }
+    });
+  }
 
   // Sync native menu checkmarks when editor mode changes (all desktop platforms).
   $effect(() => {
     if (!isTauri) return;
-    invoke('set_editor_mode_menu', { mode: editorMode }).catch(() => {});
-  });
 
-  // Sync sidebar and AI panel check state to native menu
-  $effect(() => {
-    if (!isTauri) return;
-    invoke('set_menu_check', { id: 'view_sidebar', checked: showSidebar });
+    invoke('set_editor_mode_menu', { mode: editorMode }).catch(() => {});
   });
 
   // Expose sidebar width to titlebar for centering via CSS custom property
@@ -491,11 +488,6 @@ ${tr('welcome.tip')}
     } else {
       document.documentElement.style.removeProperty('--sidebar-visible-width');
     }
-  });
-
-  $effect(() => {
-    if (!isTauri) return;
-    invoke('set_menu_check', { id: 'view_ai_panel', checked: showAIPanel });
   });
 
   // Sync native menu labels when locale changes
@@ -548,6 +540,7 @@ ${tr('welcome.tip')}
       view_mode_split: tr('menu.splitMode') + (isMacOS ? '       ⇧⌘/' : '       Ctrl+Shift+/'),
       view_sidebar: tr('menu.toggleSidebar'),
       view_ai_panel: tr('menu.toggleAIPanel'),
+      view_outline: tr('menu.toggleOutline'),
       view_zoom_in: tr('menu.zoomIn'),
       view_zoom_out: tr('menu.zoomOut'),
       view_actual_size: tr('menu.actualSize'),
@@ -606,8 +599,9 @@ ${tr('welcome.tip')}
       return;
     }
 
-    // View shortcuts
-    if (mod && event.key === '\\') {
+    // View shortcuts — on Tauri, CheckMenuItem accelerators handle these natively.
+    // JS keydown would cause double-toggle (JS toggle + native menu event).
+    if (!isTauri && mod && event.key === '\\') {
       event.preventDefault();
       settingsStore.toggleSidebar();
       return;
@@ -641,9 +635,18 @@ ${tr('welcome.tip')}
     }
 
     // AI Panel toggle: Cmd+Shift+I / Ctrl+Shift+I
-    if (mod && event.shiftKey && (event.key === 'I' || event.key === 'i')) {
+    // On Tauri, the native CheckMenuItem accelerator handles this.
+    if (!isTauri && mod && event.shiftKey && (event.key === 'I' || event.key === 'i')) {
       event.preventDefault();
       showAIPanel = !showAIPanel;
+      return;
+    }
+
+    // Outline toggle: Cmd+Shift+O / Ctrl+Shift+O
+    // On Tauri, the native CheckMenuItem accelerator handles this.
+    if (!isTauri && mod && event.shiftKey && (event.key === 'O' || event.key === 'o')) {
+      event.preventDefault();
+      settingsStore.update({ showOutline: !showOutline });
       return;
     }
 
@@ -799,9 +802,25 @@ ${tr('welcome.tip')}
     await replaceContentAndScrollToTop(content);
   }
 
-  async function handleFileSelect(path: string) {
+  // Guard against concurrent file loads: rapid clicks (e.g. KB file switching)
+  // create overlapping async loadFile → replaceAll chains, each expensive.
+  // Debounce + serial guard: rapid clicks are coalesced into a single operation,
+  // preventing concurrent guardUnsavedChanges/save/loadFile/replaceAll calls entirely.
+  let fileSelectSerial = 0;
+  let fileSelectDebounce: ReturnType<typeof setTimeout> | undefined;
+
+  function handleFileSelect(path: string) {
+    const mySerial = ++fileSelectSerial;
+    clearTimeout(fileSelectDebounce);
+    fileSelectDebounce = setTimeout(() => doFileSelect(path, mySerial), 50);
+  }
+
+  async function doFileSelect(path: string, mySerial: number) {
+    if (mySerial !== fileSelectSerial) return;
     if (!(await guardUnsavedChanges())) return;
+    if (mySerial !== fileSelectSerial) return; // Superseded by a newer click
     const fileContent = await loadFile(path);
+    if (mySerial !== fileSelectSerial) return; // Superseded while IPC was in-flight
     if (isIPadOS) {
       const fileName = getFileNameFromPath(path);
       tabsStore.openFileTab(path, fileName, fileContent);
@@ -811,7 +830,8 @@ ${tr('welcome.tip')}
       return;
     }
     content = fileContent;
-    editorStore.setContent(fileContent);
+    // Note: loadFile() already calls editorStore.setCurrentFile + setContent,
+    // so no duplicate setContent call here.
     resetWorkflowState();
     await replaceContentAndScrollToTop(content);
   }
@@ -1362,7 +1382,8 @@ ${tr('welcome.tip')}
     let dragDropUnlisten: UnlistenFn | undefined;
 
     if (isTauri) {
-      const menuHandlers: Record<string, () => void> = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const menuHandlers: Record<string, (payload?: any) => void> = {
         // File
         'menu:file_new': () => handleNewFile(),
         'menu:file_new_window': () => isIPadOS ? handleNewFile() : invoke('create_new_window').catch(() => {}),
@@ -1414,13 +1435,16 @@ ${tr('welcome.tip')}
         'menu:fmt_code': () => runEditorCommand(toggleInlineCodeCommand),
         'menu:fmt_link': () => runEditorCommand(toggleLinkCommand, { href: '' }),
         'menu:fmt_image': () => { showImageDialog = true; },
-        // View — editor modes (direct $state update + store update for robustness)
-        'menu:view_mode_visual': () => { editorMode = 'visual'; editorStore.setEditorMode('visual'); },
-        'menu:view_mode_source': () => { editorMode = 'source'; editorStore.setEditorMode('source'); },
-        'menu:view_mode_split': () => { editorMode = 'split'; editorStore.setEditorMode('split'); },
-        // View — panels
+        // View — editor modes: payload is boolean (is_checked state from native menu).
+        // On macOS, Cocoa auto-toggles CheckMenuItem before firing the event, so the
+        // checked item indicates the mode the user selected.
+        'menu:view_mode_visual': (p) => { if (p === true) { editorMode = 'visual'; editorStore.setEditorMode('visual'); } },
+        'menu:view_mode_source': (p) => { if (p === true) { editorMode = 'source'; editorStore.setEditorMode('source'); } },
+        'menu:view_mode_split': (p) => { if (p === true) { editorMode = 'split'; editorStore.setEditorMode('split'); } },
+        // View — panels (regular MenuItems, no check state — just toggle)
         'menu:view_sidebar': () => settingsStore.toggleSidebar(),
         'menu:view_ai_panel': () => { showAIPanel = !showAIPanel; },
+        'menu:view_outline': () => { settingsStore.update({ showOutline: !showOutline }); },
         // View — zoom
         'menu:view_zoom_in': () => {
           const s = settingsStore.getState();
@@ -1459,7 +1483,7 @@ ${tr('welcome.tip')}
       };
 
       Object.entries(menuHandlers).forEach(([event, handler]) => {
-        listen(event, () => handler()).then(unlisten => menuUnlisteners.push(unlisten));
+        listen(event, (e) => handler(e.payload)).then(unlisten => menuUnlisteners.push(unlisten));
       });
 
       // Helper: load a file by path and sync to all editor modes
@@ -1544,9 +1568,9 @@ ${tr('welcome.tip')}
 
     <main class="editor-area">
       {#if editorMode === 'visual'}
-        <Editor bind:this={visualEditorRef} bind:content onEditorReady={handleEditorReady} onContentChange={handleContentChange} onNotify={showToast} />
+        <Editor bind:this={visualEditorRef} bind:content {showOutline} onEditorReady={handleEditorReady} onContentChange={handleContentChange} onNotify={showToast} />
       {:else if editorMode === 'source'}
-        <SourceEditor bind:this={sourceEditorRef} bind:content onContentChange={handleContentChange} />
+        <SourceEditor bind:this={sourceEditorRef} bind:content {showOutline} onContentChange={handleContentChange} />
       {:else if editorMode === 'split'}
         <div class="split-container">
           <div class="split-source" bind:this={splitSourceEl}>

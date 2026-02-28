@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import { settingsStore, type Theme } from '../stores/settings-store';
   import { filesStore, type KnowledgeBase } from '../stores/files-store';
   import { t, SUPPORTED_LOCALES, type LocaleSelection } from '$lib/i18n';
@@ -43,26 +44,26 @@
   const lightThemes = getLightThemes();
   const darkThemes = getDarkThemes();
 
-  $effect(() => {
-    const unsub1 = filesStore.subscribe(state => {
-      knowledgeBases = state.knowledgeBases;
-    });
-    const unsub2 = settingsStore.subscribe(state => {
-      theme = state.theme;
-      colorTheme = state.colorTheme;
-      darkColorTheme = state.darkColorTheme;
-      useSeparateDarkTheme = state.useSeparateDarkTheme;
-      fontSize = state.fontSize;
-      autoSave = state.autoSave;
-      autoSaveInterval = state.autoSaveInterval / 1000;
-      rememberLastFolder = state.rememberLastFolder;
-      currentLocale = state.localeSelection;
-      editorLineWidth = state.editorLineWidth;
-      editorTabSize = state.editorTabSize;
-      showLineNumbers = state.showLineNumbers;
-    });
-    return () => { unsub1(); unsub2(); };
+  // Top-level store subscriptions — do NOT wrap in $effect().
+  // Svelte 5 $effect tracks reads in subscribe callbacks, causing infinite loops.
+  const unsub1 = filesStore.subscribe(state => {
+    knowledgeBases = state.knowledgeBases;
   });
+  const unsub2 = settingsStore.subscribe(state => {
+    theme = state.theme;
+    colorTheme = state.colorTheme;
+    darkColorTheme = state.darkColorTheme;
+    useSeparateDarkTheme = state.useSeparateDarkTheme;
+    fontSize = state.fontSize;
+    autoSave = state.autoSave;
+    autoSaveInterval = state.autoSaveInterval / 1000;
+    rememberLastFolder = state.rememberLastFolder;
+    currentLocale = state.localeSelection;
+    editorLineWidth = state.editorLineWidth;
+    editorTabSize = state.editorTabSize;
+    showLineNumbers = state.showLineNumbers;
+  });
+  onDestroy(() => { unsub1(); unsub2(); });
 
   function handleLocaleChange(event: Event) {
     const value = (event.target as HTMLSelectElement).value as LocaleSelection;

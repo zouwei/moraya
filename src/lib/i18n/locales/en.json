@@ -563,6 +563,7 @@
     "splitMode": "Split Mode",
     "toggleSidebar": "Toggle Sidebar",
     "toggleAIPanel": "Toggle AI Panel",
+    "toggleOutline": "Toggle Outline",
     "zoomIn": "Zoom In",
     "zoomOut": "Zoom Out",
     "actualSize": "Actual Size",
@@ -1324,5 +1325,8 @@
     "noSpeechConfig": "No speech provider configured. Please add one in Settings → Voice.",
     "noSpeechConfigHint": "Go to Settings → Voice to add a speech provider (e.g. Deepgram).",
     "goToVoiceSettings": "Open Voice Settings"
+  },
+  "outline": {
+    "empty": "No headings"
   }
 }

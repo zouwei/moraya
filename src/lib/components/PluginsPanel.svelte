@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import { t } from '$lib/i18n';
   import { pluginStore } from '$lib/services/plugin';
   import type { PluginMarketData, InstalledPlugin, PluginStateEntry, PluginSandboxLevel } from '$lib/services/plugin';
@@ -15,10 +16,10 @@
 
   let storeState = $state({ installed: [] as InstalledPlugin[], market: [] as PluginMarketData[], marketLoading: false, marketFromCache: false, marketFetchedAt: 0, installProgress: {} as Record<string, { downloaded: number; total: number }>, blacklist: [] as string[] });
 
-  $effect(() => {
-    const unsub = pluginStore.subscribe(s => { storeState = s; });
-    return unsub;
-  });
+  // Top-level store subscription — do NOT wrap in $effect().
+  // Svelte 5 $effect tracks reads in subscribe callbacks, causing infinite loops.
+  const unsubPlugin = pluginStore.subscribe(s => { storeState = s; });
+  onDestroy(() => { unsubPlugin(); });
 
   const categories = $derived.by(() => {
     const cats = new Set(['all', ...storeState.market.map(p => p.category)]);

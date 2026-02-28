@@ -333,16 +333,28 @@ pub fn run() {
                 // Handle menu events — emit to the main window
                 let app_handle_for_events = app.handle().clone();
                 app.on_menu_event(move |_app, event| {
-                    // Skip spurious events fired by GTK's set_checked() during
-                    // programmatic checkmark updates (update_mode_checks).
+                    // Skip spurious events fired by set_checked() during
+                    // programmatic checkmark updates (update_mode_checks / set_check_item).
                     if menu::is_updating_mode_checks() {
                         return;
                     }
 
                     let id = event.id().0.as_str();
 
-                    // Emit as global event to all webviews
-                    let _ = app_handle_for_events.emit(&format!("menu:{}", id), ());
+                    // For CheckMenuItem editor modes, emit the current check state as
+                    // payload so the frontend can SET (not toggle) the value.
+                    // view_sidebar/view_ai_panel/view_outline are regular MenuItems (no
+                    // check state) — they just emit and the frontend toggles.
+                    match id {
+                        "view_mode_visual" | "view_mode_source" | "view_mode_split" => {
+                            if let Some(checked) = menu::get_check_state(&app_handle_for_events, id) {
+                                let _ = app_handle_for_events.emit(&format!("menu:{}", id), checked);
+                            }
+                        }
+                        _ => {
+                            let _ = app_handle_for_events.emit(&format!("menu:{}", id), ());
+                        }
+                    }
                 });
             }
 

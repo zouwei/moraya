@@ -17,7 +17,7 @@
   import { markdownToHtmlBody } from '$lib/services/export-service';
   import { openUrl } from '@tauri-apps/plugin-opener';
   import { open as openDialog } from '@tauri-apps/plugin-dialog';
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { t } from '$lib/i18n';
   import { compressImage, blobToBase64 } from '$lib/services/ai/image-utils';
   import TemplateGallery from './TemplateGallery.svelte';
@@ -75,11 +75,11 @@
   let morayaMdActive = $state(false);
   let folderPath = $state<string | null>(null);
 
-  $effect(() => {
-    const unsub = filesStore.subscribe(state => {
-      folderPath = state.openFolderPath;
-    });
-    return unsub;
+  // Top-level store subscriptions — do NOT wrap in $effect().
+  // In Svelte 5, $effect tracks reads inside subscribe callbacks, causing
+  // infinite re-subscription loops when callbacks write to $state vars.
+  const unsubFiles = filesStore.subscribe(state => {
+    folderPath = state.openFolderPath;
   });
 
   $effect(() => {
@@ -93,11 +93,8 @@
       .catch(() => { morayaMdActive = false; });
   });
 
-  $effect(() => {
-    const unsub = mcpStore.subscribe(state => {
-      mcpToolCount = state.tools.length;
-    });
-    return unsub;
+  const unsubMcp = mcpStore.subscribe(state => {
+    mcpToolCount = state.tools.length;
   });
 
   // ── Cached markdown rendering ──
@@ -118,6 +115,7 @@
   // Throttled streaming HTML: render at most every 150ms to keep the main thread free.
   let renderedStreamHtml = $state('');
   $effect(() => {
+
     const raw = streamingContent;
     if (!raw) {
       renderedStreamHtml = '';
@@ -185,30 +183,33 @@
   // Do NOT return a cleanup that removes it on each re-run — that causes
   // double layout invalidation per frame during resize.
   $effect(() => {
+
     document.documentElement.style.setProperty('--ai-panel-width', `${panelWidth}px`);
   });
-  // Clean up only on component destroy
-  onMount(() => () => {
+  // Clean up on component destroy
+  onDestroy(() => {
+    unsubFiles();
+    unsubMcp();
+    unsubAI();
     document.documentElement.style.removeProperty('--ai-panel-width');
   });
 
   // Auto-scroll: track whether user is near bottom
   let userAtBottom = $state(true);
 
-  // Only assign $state vars when the value actually changed — avoids triggering
-  // unnecessary Svelte reactivity during high-frequency streaming updates.
-  $effect(() => {
-    const unsub = aiStore.subscribe(state => {
-      if (chatMessages !== state.chatHistory) chatMessages = state.chatHistory;
-      if (isLoading !== state.isLoading) isLoading = state.isLoading;
-      if (error !== state.error) error = state.error;
-      if (interrupted !== state.interrupted) interrupted = state.interrupted;
-      if (streamingContent !== state.streamingContent) streamingContent = state.streamingContent;
-      if (isConfigured !== state.isConfigured) isConfigured = state.isConfigured;
-      if (providerConfigs !== state.providerConfigs) providerConfigs = state.providerConfigs;
-      if (activeConfigId !== state.activeConfigId) activeConfigId = state.activeConfigId;
-    });
-    return unsub;
+  // Top-level aiStore subscription — do NOT wrap in $effect().
+  // In Svelte 5, $effect tracks reads inside subscribe callbacks (e.g. the
+  // `chatMessages !== state.chatHistory` comparison reads $state `chatMessages`),
+  // causing the effect to re-run on every write → infinite loop.
+  const unsubAI = aiStore.subscribe(state => {
+    if (chatMessages !== state.chatHistory) chatMessages = state.chatHistory;
+    if (isLoading !== state.isLoading) isLoading = state.isLoading;
+    if (error !== state.error) error = state.error;
+    if (interrupted !== state.interrupted) interrupted = state.interrupted;
+    if (streamingContent !== state.streamingContent) streamingContent = state.streamingContent;
+    if (isConfigured !== state.isConfigured) isConfigured = state.isConfigured;
+    if (providerConfigs !== state.providerConfigs) providerConfigs = state.providerConfigs;
+    if (activeConfigId !== state.activeConfigId) activeConfigId = state.activeConfigId;
   });
 
   function handleModelSwitch(e: Event) {

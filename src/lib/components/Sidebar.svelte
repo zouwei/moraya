@@ -55,17 +55,17 @@
   let showKBDropdown = $state(false);
   let showSaveAsKBHint = $state(false);
 
-  $effect(() => {
-    const unsub = filesStore.subscribe(state => {
-      fileTree = state.fileTree;
-      folderPath = state.openFolderPath;
-      viewMode = state.sidebarViewMode;
-      filePreviews = state.filePreviews;
-      knowledgeBases = state.knowledgeBases;
-      activeKBId = state.activeKnowledgeBaseId;
-    });
-    return unsub;
+  // Top-level store subscription — do NOT wrap in $effect().
+  // Svelte 5 $effect tracks reads in subscribe callbacks, causing infinite loops.
+  const unsubFiles = filesStore.subscribe(state => {
+    fileTree = state.fileTree;
+    folderPath = state.openFolderPath;
+    viewMode = state.sidebarViewMode;
+    filePreviews = state.filePreviews;
+    knowledgeBases = state.knowledgeBases;
+    activeKBId = state.activeKnowledgeBaseId;
   });
+  onDestroy(() => { unsubFiles(); });
 
   $effect(() => {
     // Close dropdown when clicking outside

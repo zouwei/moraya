@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import { editorStore } from '../stores/editor-store';
   import { t } from '$lib/i18n';
   import { isTauri, isMacOS } from '$lib/utils/platform';
@@ -32,14 +33,27 @@
     appWindow?.close();
   }
 
-  // Derive display title
-  let isDirty = $derived(false);
-  $effect(() => {
-    const unsub = editorStore.subscribe(state => {
-      isDirty = state.isDirty;
-    });
-    return unsub;
+  // macOS Overlay: data-tauri-drag-region doesn't propagate to children,
+  // so clicking on <span class="title-text"> won't trigger dragging.
+  // Use explicit startDragging() on mousedown for reliable window dragging.
+  function handleDragStart(event: MouseEvent) {
+    if (event.button !== 0) return; // Only left mouse button
+    if ((event.target as HTMLElement).closest('button')) return;
+    appWindow?.startDragging();
+  }
+
+  // Handle double-click on titlebar to maximize/restore window.
+  function handleDblClick(event: MouseEvent) {
+    if ((event.target as HTMLElement).closest('button')) return;
+    handleMaximize();
+  }
+
+  // Track dirty state from store — top-level subscribe, do NOT wrap in $effect().
+  let isDirty = $state(false);
+  const unsubEditor = editorStore.subscribe(state => {
+    isDirty = state.isDirty;
   });
+  onDestroy(() => { unsubEditor(); });
 
   let displayTitle = $derived(isDirty ? `${title} - ${$t('titlebar.unsaved')}` : title);
 
@@ -58,13 +72,14 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="titlebar no-select" data-tauri-drag-region>
+<div class="titlebar no-select" data-tauri-drag-region
+  onmousedown={handleDragStart} ondblclick={handleDblClick}>
   <div class="titlebar-left">
-    <span class="app-name">Moraya</span>
+    <span class="app-name" data-tauri-drag-region>Moraya</span>
   </div>
 
   <div class="titlebar-center" data-tauri-drag-region>
-    <span class="title-text">{displayTitle}</span>
+    <span class="title-text" data-tauri-drag-region>{displayTitle}</span>
   </div>
 
   <div class="titlebar-right">

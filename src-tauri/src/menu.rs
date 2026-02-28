@@ -180,8 +180,9 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
             &mode_source,
             &mode_split,
             &PredefinedMenuItem::separator(app)?,
-            &CheckMenuItem::with_id(app, "view_sidebar", "Toggle Sidebar", true, false, Some("CmdOrCtrl+\\"))?,
-            &CheckMenuItem::with_id(app, "view_ai_panel", "Toggle AI Panel", true, false, Some("CmdOrCtrl+Shift+I"))?,
+            &MenuItem::with_id(app, "view_sidebar", "Toggle Sidebar", true, Some("CmdOrCtrl+\\"))?,
+            &MenuItem::with_id(app, "view_ai_panel", "Toggle AI Panel", true, Some("CmdOrCtrl+Shift+I"))?,
+            &MenuItem::with_id(app, "view_outline", "Toggle Outline", true, Some("CmdOrCtrl+Shift+O"))?,
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, "view_zoom_in", "Zoom In", true, Some("CmdOrCtrl+="))?,
             &MenuItem::with_id(app, "view_zoom_out", "Zoom Out", true, Some("CmdOrCtrl+-"))?,
@@ -326,7 +327,14 @@ pub fn update_mode_checks(app: &AppHandle, active_mode: &str) {
 }
 
 /// Set the checked state of a single CheckMenuItem by its ID.
+///
+/// Uses [`UPDATING_MODE_CHECKS`] guard to prevent the feedback loop where
+/// `set_checked()` triggers `on_menu_event` (GTK/macOS), which emits back
+/// to the frontend, toggling the state, firing `$effect`, calling this
+/// function again — ad infinitum.
 pub fn set_check_item(app: &AppHandle, item_id: &str, checked: bool) {
+    UPDATING_MODE_CHECKS.store(true, Ordering::SeqCst);
+
     if let Some(menu) = app.menu() {
         if let Ok(items) = menu.items() {
             for item in &items {
@@ -336,6 +344,7 @@ pub fn set_check_item(app: &AppHandle, item_id: &str, checked: bool) {
                             if let MenuItemKind::Check(check_item) = sub_item {
                                 if check_item.id().0.as_str() == item_id {
                                     let _ = check_item.set_checked(checked);
+                                    UPDATING_MODE_CHECKS.store(false, Ordering::SeqCst);
                                     return;
                                 }
                             }
@@ -345,6 +354,29 @@ pub fn set_check_item(app: &AppHandle, item_id: &str, checked: bool) {
             }
         }
     }
+
+    UPDATING_MODE_CHECKS.store(false, Ordering::SeqCst);
+}
+
+/// Read the current `is_checked()` state of a CheckMenuItem by ID.
+/// Returns `None` if the item is not found.
+pub fn get_check_state(app: &AppHandle, item_id: &str) -> Option<bool> {
+    let menu = app.menu()?;
+    let items = menu.items().ok()?;
+    for item in &items {
+        if let MenuItemKind::Submenu(submenu) = item {
+            if let Ok(sub_items) = submenu.items() {
+                for sub_item in &sub_items {
+                    if let MenuItemKind::Check(check_item) = sub_item {
+                        if check_item.id().0.as_str() == item_id {
+                            return check_item.is_checked().ok();
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Update menu item labels for i18n.

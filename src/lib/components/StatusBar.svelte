@@ -37,15 +37,14 @@
   let charCount = $state(0);
   let updateAvailable = $state(false);
 
-  $effect(() => {
-    const unsub1 = editorStore.subscribe(state => {
-      wordCount = state.wordCount;
-      charCount = state.charCount;
-    });
-    const unsub2 = updateStore.subscribe(state => {
-      updateAvailable = state.checkStatus === 'available';
-    });
-    return () => { unsub1(); unsub2(); };
+  // Top-level store subscriptions — do NOT wrap in $effect().
+  // Svelte 5 $effect tracks reads in subscribe callbacks, causing infinite loops.
+  editorStore.subscribe(state => {
+    wordCount = state.wordCount;
+    charCount = state.charCount;
+  });
+  updateStore.subscribe(state => {
+    updateAvailable = state.checkStatus === 'available';
   });
 
   const modes: EditorMode[] = ['visual', 'source', 'split'];

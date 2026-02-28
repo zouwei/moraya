@@ -32,6 +32,7 @@
   import ImageContextMenu from './ImageContextMenu.svelte';
   import ImageToolbar from './ImageToolbar.svelte';
   import ImageAltEditor from './ImageAltEditor.svelte';
+  import OutlinePanel, { type OutlineHeading } from '$lib/components/OutlinePanel.svelte';
 
   const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico', 'tiff', 'tif', 'avif']);
 
@@ -46,11 +47,13 @@
   // Props
   let {
     content = $bindable(''),
+    showOutline = false,
     onEditorReady,
     onContentChange,
     onNotify,
   }: {
     content?: string;
+    showOutline?: boolean;
     onEditorReady?: (editor: MilkdownEditor) => void;
     onContentChange?: (content: string) => void;
     onNotify?: (text: string, type: 'success' | 'error') => void;
@@ -58,6 +61,80 @@
 
   let editorLineWidth = $state(settingsStore.getState().editorLineWidth);
   const unsubSettings = settingsStore.subscribe(s => { editorLineWidth = s.editorLineWidth; });
+
+  // ── Outline ──
+  let outlineHeadings = $state<OutlineHeading[]>([]);
+  let activeHeadingId = $state<string | null>(null);
+  let outlineTimer: ReturnType<typeof setTimeout> | undefined;
+  let scrollRafOutline: number | undefined;
+  let headingTopsRaf: number | undefined; // RAF for computeHeadingTops
+
+  // Cached heading top positions (document-relative, in pixels).
+  // Recomputed only when headings change — avoids expensive coordsAtPos
+  // calls on every scroll frame that cause layout thrashing.
+  let cachedHeadingTops: number[] = [];
+
+  function computeHeadingTops() {
+    headingTopsRaf = undefined;
+    if (!editor) { cachedHeadingTops = []; return; }
+    try {
+      const view = editor.ctx.get(editorViewCtx);
+      const wrapper = editorEl?.closest('.editor-wrapper') as HTMLElement | null;
+      if (!wrapper) { cachedHeadingTops = []; return; }
+      const wrapperTop = wrapper.getBoundingClientRect().top;
+      const scrollTop = wrapper.scrollTop;
+      cachedHeadingTops = outlineHeadings.map(h => {
+        const pos = parseInt(h.id.slice(2));
+        const coords = view.coordsAtPos(pos);
+        return coords.top - wrapperTop + scrollTop;
+      });
+    } catch { cachedHeadingTops = []; }
+  }
+
+  /** Schedule outline heading extraction. Skipped when outline is hidden. */
+  function scheduleExtractHeadings() {
+    if (!showOutline) return;
+    clearTimeout(outlineTimer);
+    outlineTimer = setTimeout(extractHeadings, 300);
+  }
+
+  function extractHeadings() {
+    if (!editor || !showOutline) { outlineHeadings = []; cachedHeadingTops = []; return; }
+    try {
+      const view = editor.ctx.get(editorViewCtx);
+      const heads: OutlineHeading[] = [];
+      view.state.doc.descendants((node, pos) => {
+        if (node.type.name === 'heading') {
+          heads.push({ id: `h-${pos}`, level: node.attrs.level as number, text: node.textContent });
+        }
+      });
+      outlineHeadings = heads;
+      // Recompute positions after DOM has updated; cancel previous pending RAF
+      if (headingTopsRaf) cancelAnimationFrame(headingTopsRaf);
+      headingTopsRaf = requestAnimationFrame(computeHeadingTops);
+    } catch { outlineHeadings = []; cachedHeadingTops = []; }
+  }
+
+  function updateActiveHeading() {
+    if (outlineHeadings.length === 0 || cachedHeadingTops.length === 0) { activeHeadingId = null; return; }
+    const wrapper = editorEl?.closest('.editor-wrapper') as HTMLElement | null;
+    if (!wrapper) return;
+    const scrollY = wrapper.scrollTop + 80;
+    let lastId: string | null = null;
+    for (let i = 0; i < outlineHeadings.length; i++) {
+      if (cachedHeadingTops[i] <= scrollY) lastId = outlineHeadings[i].id;
+      else break;
+    }
+    activeHeadingId = lastId ?? outlineHeadings[0]?.id ?? null;
+  }
+
+  function handleOutlineSelect(h: OutlineHeading) {
+    const idx = outlineHeadings.indexOf(h);
+    if (idx < 0 || idx >= cachedHeadingTops.length) return;
+    const wrapper = editorEl?.closest('.editor-wrapper') as HTMLElement | null;
+    if (!wrapper) return;
+    wrapper.scrollTo({ top: cachedHeadingTops[idx] - 60, behavior: 'smooth' });
+  }
 
   let isReady = $state(false);
   let isMounted = false; // tracks whether component is still alive (guards async gaps)
@@ -758,6 +835,8 @@
         // Single batched store update instead of setDirty + setContent separately
         // (each update triggers all subscribers synchronously; batching halves the cascade)
         editorStore.setDirtyContent(true, full);
+        // Debounced outline update (skipped when outline is hidden)
+        scheduleExtractHeadings();
       },
       onFocus: () => {
         if (isMounted) editorStore.setFocused(true);
@@ -777,6 +856,7 @@
     editor = createdEditor;
     isReady = true;
     onEditorReady?.(editor);
+    if (showOutline) extractHeadings();
 
     // Restore cursor position from store and focus (delay for DOM readiness)
     const proseMirrorEl = editorEl.querySelector('.ProseMirror') as HTMLElement | null;
@@ -951,6 +1031,8 @@
       // reformatted markdown doesn't flow back to the source editor.
       syncResetTimer = setTimeout(() => { syncingFromExternal = false; }, 200);
     }
+    // Refresh outline after external sync (onChange is suppressed by syncingFromExternal)
+    scheduleExtractHeadings();
   }
 
   // Track whether $effect has run at least once (skip first run = initial mount).
@@ -1140,6 +1222,9 @@
     if (externalSyncTimer) clearTimeout(externalSyncTimer);
     if (tableToolbarRaf) cancelAnimationFrame(tableToolbarRaf);
     if (hoverRaf) cancelAnimationFrame(hoverRaf);
+    if (outlineTimer) clearTimeout(outlineTimer);
+    if (scrollRafOutline) cancelAnimationFrame(scrollRafOutline);
+    if (headingTopsRaf) cancelAnimationFrame(headingTopsRaf);
 
     // Remove all event listeners added in onMount to prevent listener accumulation
     // across editor mode switches (visual ↔ source ↔ split).
@@ -1211,14 +1296,24 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="editor-wrapper" class:ready={isReady} onclick={(e) => {
+<div class="editor-wrapper" class:ready={isReady} class:has-outline={showOutline} onclick={(e) => {
   // Click on empty area → focus editor and place cursor at end
   if (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains('editor-root')) {
     const pm = editorEl?.querySelector('.ProseMirror') as HTMLElement | null;
     if (pm) pm.focus();
   }
+}} onscroll={() => {
+  if (!showOutline) return;
+  if (scrollRafOutline) return;
+  scrollRafOutline = requestAnimationFrame(() => {
+    scrollRafOutline = undefined;
+    updateActiveHeading();
+  });
 }}>
-  <div bind:this={editorEl} class="editor-root" style="max-width: min({editorLineWidth}px, 100%)"></div>
+  {#if showOutline}
+    <OutlinePanel headings={outlineHeadings} activeId={activeHeadingId} onSelect={handleOutlineSelect} />
+  {/if}
+  <div bind:this={editorEl} class="editor-root" style="max-width: {showOutline ? '100%' : `min(${editorLineWidth}px, 100%)`}"></div>
 </div>
 
 {#if showTableToolbar}
@@ -1287,6 +1382,13 @@
     cursor: text;
   }
 
+  .editor-wrapper.has-outline {
+    display: flex;
+    align-items: flex-start;
+    gap: 0;
+    padding-left: clamp(0.5rem, 2%, 1.5rem);
+  }
+
   .editor-wrapper.ready {
     visibility: visible;
   }
@@ -1296,5 +1398,11 @@
     margin: 0 auto;
     word-wrap: break-word;
     overflow-wrap: break-word;
+  }
+
+  .has-outline .editor-root {
+    margin: 0;
+    flex: 1;
+    min-width: 0;
   }
 </style>

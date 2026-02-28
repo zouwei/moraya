@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import { settingsStore } from '$lib/stores/settings-store';
   import { t } from '$lib/i18n';
   import {
@@ -21,12 +22,12 @@
   let testStatus = $state<Record<string, 'idle' | 'testing' | 'success' | 'failed'>>({});
   let headersText = $state('');
 
-  $effect(() => {
-    const unsubscribe = settingsStore.subscribe(state => {
-      targets = state.publishTargets || [];
-    });
-    return unsubscribe;
+  // Top-level store subscription — do NOT wrap in $effect().
+  // Svelte 5 $effect tracks reads in subscribe callbacks, causing infinite loops.
+  const unsubSettings = settingsStore.subscribe(state => {
+    targets = state.publishTargets || [];
   });
+  onDestroy(() => { unsubSettings(); });
 
   function addGitHubTarget() {
     editingTarget = createDefaultGitHubTarget();

@@ -24,11 +24,9 @@
 
   let isAIConfigured = $derived(!!(providerConfig && providerConfig.apiKey));
 
-  $effect(() => {
-    const unsub = aiStore.subscribe(state => {
-      providerConfig = state.providerConfigs.find(c => c.id === state.activeConfigId) || null;
-    });
-    return unsub;
+  // Top-level store subscription — do NOT wrap in $effect().
+  aiStore.subscribe(state => {
+    providerConfig = state.providerConfigs.find(c => c.id === state.activeConfigId) || null;
   });
 
   async function generate() {

@@ -51,6 +51,7 @@ interface Settings {
   voiceProfiles: VoiceProfile[];
   recordingBackupDir: string | null;   // null = disabled
   voiceSyncDir: string | null;         // null = use AppData default
+  showOutline: boolean;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -88,6 +89,7 @@ const DEFAULT_SETTINGS: Settings = {
   voiceProfiles: [],
   recordingBackupDir: null,
   voiceSyncDir: null,
+  showOutline: false,
 };
 
 function resolveLocale(selection: LocaleSelection): SupportedLocale {

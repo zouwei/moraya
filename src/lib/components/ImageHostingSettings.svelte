@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import { t } from '$lib/i18n';
   import { settingsStore } from '$lib/stores/settings-store';
   import type { ImageHostTarget, ImageHostProvider, GitHubCdnMode } from '$lib/services/image-hosting';
@@ -16,22 +17,22 @@
   // Publish targets for quick import (GitHub only)
   let publishTargets = $state<Array<{ type: string; name: string; repoUrl?: string; branch?: string; token?: string }>>([]);
 
-  $effect(() => {
-    const unsub = settingsStore.subscribe(state => {
-      targets = state.imageHostTargets || [];
-      defaultId = state.defaultImageHostId || '';
-      publishTargets = (state.publishTargets || [])
-        .filter((t: { type: string }) => t.type === 'github')
-        .map((t: { type: string; name: string; repoUrl?: string; branch?: string; token?: string }) => ({
-          type: t.type,
-          name: t.name,
-          repoUrl: t.repoUrl,
-          branch: t.branch,
-          token: t.token,
-        }));
-    });
-    return unsub;
+  // Top-level store subscription — do NOT wrap in $effect().
+  // Svelte 5 $effect tracks reads in subscribe callbacks, causing infinite loops.
+  const unsubSettings = settingsStore.subscribe(state => {
+    targets = state.imageHostTargets || [];
+    defaultId = state.defaultImageHostId || '';
+    publishTargets = (state.publishTargets || [])
+      .filter((t: { type: string }) => t.type === 'github')
+      .map((t: { type: string; name: string; repoUrl?: string; branch?: string; token?: string }) => ({
+        type: t.type,
+        name: t.name,
+        repoUrl: t.repoUrl,
+        branch: t.branch,
+        token: t.token,
+      }));
   });
+  onDestroy(() => { unsubSettings(); });
 
   const PROVIDER_ICONS: Record<ImageHostProvider, string> = {
     smms: '🟠',
