@@ -1198,14 +1198,16 @@
 
   /**
    * Replace editor content from an external source (file switch, AI, etc.).
-   * Creates a completely fresh EditorState to reset ALL plugin state (history,
-   * decorations, etc.), preventing progressive accumulation across file switches.
-   * Without this, the history plugin's addMaps() grows unboundedly and highlight
-   * decoration remapping becomes progressively more expensive.
+   *
+   * Two-step approach to prevent both cursor lag AND plugin state accumulation:
+   * 1. Dispatch a normal replace transaction with addToHistory:false — this gives
+   *    ProseMirror proper step maps for efficient, correct DOM reconciliation.
+   * 2. Swap to a fresh EditorState built from the SAME doc — the DOM diff is a
+   *    no-op (same document), but all plugin state (history items, decoration
+   *    sets, etc.) is reset, preventing progressive accumulation.
    *
    * The externalSyncDone flag prevents the $effect from scheduling a redundant
-   * applySyncToMilkdown() 150ms later (which would serialize the entire document
-   * via getMarkdown() — the real source of accumulation lag).
+   * applySyncToMilkdown() 150ms later.
    */
   export function syncContent(md: string) {
     if (!editor || !isReady) return;
@@ -1221,13 +1223,27 @@
         const parser = ctx.get(parserCtx);
         const doc = parser(visualContent);
         if (!doc) return;
-        // Flush: create a brand new EditorState instead of dispatching a transaction.
-        // This resets all plugin state (history items, decoration sets, etc.)
-        // so nothing accumulates across file switches.
+
+        // Step 1: Replace via dispatch (proper DOM update with step maps)
+        const tr = view.state.tr.replace(
+          0, view.state.doc.content.size,
+          new Slice(doc.content, 0, 0),
+        );
+        tr.setMeta('addToHistory', false);
+        view.dispatch(tr);
+
+        // Step 2: Reset all plugin state by swapping to a fresh EditorState.
+        // The doc is the same (just dispatched), so the DOM diff is a no-op.
+        // This clears accumulated history items, stale decoration mappings, etc.
         const schema = ctx.get(schemaCtx);
         const plugins = ctx.get(prosePluginsCtx);
-        const state = EditorState.create({ schema, doc, plugins });
-        view.updateState(state);
+        const freshState = EditorState.create({
+          schema,
+          doc: view.state.doc,
+          plugins,
+          selection: view.state.selection,
+        });
+        view.updateState(freshState);
       });
       syncResetTimer = setTimeout(() => { syncingFromExternal = false; }, 200);
     } catch { /* ignore during init */ }
