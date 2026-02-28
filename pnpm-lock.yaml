@@ -23,9 +23,6 @@ importers:
       '@milkdown/plugin-history':
         specifier: ^7.18.0
         version: 7.18.0
-      '@milkdown/plugin-listener':
-        specifier: ^7.18.0
-        version: 7.18.0
       '@milkdown/plugin-math':
         specifier: ^7.5.9
         version: 7.5.9(@milkdown/core@7.18.0)(@milkdown/ctx@7.18.0)(@milkdown/prose@7.18.0)(@milkdown/transformer@7.18.0)
@@ -355,9 +352,6 @@ packages:
 
   '@milkdown/plugin-history@7.18.0':
     resolution: {integrity: sha512-hWM3rpad/THy267dXgEWRu9Arf+3j2KE8UN3jhqsUvVLZZ2ZetaPc2imHowJaLR8PwCb649+1RxL+IKrXizNKQ==}
-
-  '@milkdown/plugin-listener@7.18.0':
-    resolution: {integrity: sha512-F2iPKdWYGJX5kMnmIeZeybQ5gZUwT/smNBbt/itPBn5cD4YRF1qmY/MxDs0+nvoN2NSxtEx5pHOtd5/E4mCf2A==}
 
   '@milkdown/plugin-math@7.5.9':
     resolution: {integrity: sha512-LzFZKNc7zm3uOTs9mEN/12/X+UdGoyQRp5Gt9GE7lPJ96jOZaGJD0vMtX0mTauTOmUxDQoQS0I7NW1g9UhC6qQ==}
@@ -2063,16 +2057,6 @@ snapshots:
       '@milkdown/ctx': 7.18.0
       '@milkdown/prose': 7.18.0
       '@milkdown/utils': 7.18.0
-    transitivePeerDependencies:
-      - supports-color
-
-  '@milkdown/plugin-listener@7.18.0':
-    dependencies:
-      '@milkdown/core': 7.18.0
-      '@milkdown/ctx': 7.18.0
-      '@milkdown/prose': 7.18.0
-      '@types/lodash-es': 4.17.12
-      lodash-es: 4.17.23
     transitivePeerDependencies:
       - supports-color
 

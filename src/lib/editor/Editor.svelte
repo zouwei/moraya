@@ -1198,15 +1198,11 @@
 
   /**
    * Replace editor content from an external source (file switch, AI, etc.).
-   * Uses Milkdown's replaceAll() which dispatches a normal ProseMirror transaction
-   * with addToHistory:true (default). This is O(1) for the history plugin — it just
-   * pushes a new undo entry. Do NOT use addToHistory:false here: it causes the
-   * history plugin to map ALL existing undo items through the transaction (O(N)),
-   * leading to O(N²) cumulative work after N file switches.
-   *
+   * Uses addToHistory:false to keep file switches out of undo history,
+   * avoiding step-inversion overhead (which copies the full old document).
    * The externalSyncDone flag prevents the $effect from scheduling a redundant
    * applySyncToMilkdown() 150ms later (which would serialize the entire document
-   * via getMarkdown() + compare + possibly re-replace — all wasted work).
+   * via getMarkdown() — the real source of accumulation lag).
    */
   export function syncContent(md: string) {
     if (!editor || !isReady) return;
@@ -1217,7 +1213,18 @@
       syncingFromExternal = true;
       if (syncResetTimer) clearTimeout(syncResetTimer);
       const visualContent = toHardBreaks(body);
-      editor.action(replaceAll(visualContent));
+      editor.action((ctx) => {
+        const view = ctx.get(editorViewCtx);
+        const parser = ctx.get(parserCtx);
+        const doc = parser(visualContent);
+        if (!doc) return;
+        const tr = view.state.tr.replace(
+          0, view.state.doc.content.size,
+          new Slice(doc.content, 0, 0),
+        );
+        tr.setMeta('addToHistory', false);
+        view.dispatch(tr);
+      });
       syncResetTimer = setTimeout(() => { syncingFromExternal = false; }, 200);
     } catch { /* ignore during init */ }
     // Outline update: onChange is suppressed by syncingFromExternal, and
