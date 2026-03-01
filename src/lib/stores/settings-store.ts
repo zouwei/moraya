@@ -1,6 +1,8 @@
 import { writable, get } from 'svelte/store';
 import { load } from '@tauri-apps/plugin-store';
 import { invoke } from '@tauri-apps/api/core';
+import { emit, listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { setLocale, detectSystemLocale, type SupportedLocale, type LocaleSelection } from '$lib/i18n';
 import { getThemeById } from '$lib/styles/themes';
 import { type ImageHostConfig, type ImageHostTarget, DEFAULT_IMAGE_HOST_CONFIG, generateImageHostTargetId } from '$lib/services/image-hosting';
@@ -142,6 +144,19 @@ function applyColorTheme(settings: Settings) {
   }
 }
 
+/** Cross-window view settings sync */
+const VIEW_SYNC_EVENT = 'view-settings-sync';
+let syncGuard = false; // Prevent re-emission when receiving sync from other windows
+let windowLabel: string | null = null;
+
+function emitViewSync(partial: Record<string, unknown>) {
+  if (syncGuard) return;
+  if (!windowLabel) {
+    try { windowLabel = getCurrentWindow().label; } catch { windowLabel = 'main'; }
+  }
+  emit(VIEW_SYNC_EVENT, { source: windowLabel, ...partial }).catch(() => {});
+}
+
 /** Debounced persist to avoid excessive disk writes */
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 function schedulePersist(state: Settings) {
@@ -229,6 +244,11 @@ function createSettingsStore() {
     update(partial: Partial<Settings>) {
       update(state => {
         const next = { ...state, ...partial };
+        // Sync view-related settings across windows
+        const viewSync: Record<string, unknown> = {};
+        if ('showSidebar' in partial) viewSync.showSidebar = next.showSidebar;
+        if ('showOutline' in partial) viewSync.showOutline = next.showOutline;
+        if (Object.keys(viewSync).length > 0) emitViewSync(viewSync);
         return next;
       });
     },
@@ -267,7 +287,11 @@ function createSettingsStore() {
       update(state => ({ ...state, localeSelection: selection }));
     },
     toggleSidebar() {
-      update(state => ({ ...state, showSidebar: !state.showSidebar }));
+      update(state => {
+        const next = { ...state, showSidebar: !state.showSidebar };
+        emitViewSync({ showSidebar: next.showSidebar });
+        return next;
+      });
     },
     getState() {
       return get({ subscribe });
@@ -408,4 +432,19 @@ export async function initSettingsStore() {
     }
   } catch { /* first launch — no saved data */ }
   settingsStore._setInitialized();
+
+  // Cross-window view settings sync: listen for changes from other windows
+  if (!windowLabel) {
+    try { windowLabel = getCurrentWindow().label; } catch { windowLabel = 'main'; }
+  }
+  listen<{ source: string; showSidebar?: boolean; showOutline?: boolean }>(VIEW_SYNC_EVENT, (event) => {
+    if (event.payload.source === windowLabel) return; // Ignore own events
+    const partial: Partial<Settings> = {};
+    if ('showSidebar' in event.payload) partial.showSidebar = event.payload.showSidebar;
+    if ('showOutline' in event.payload) partial.showOutline = event.payload.showOutline;
+    if (Object.keys(partial).length === 0) return;
+    syncGuard = true;
+    settingsStore.update(partial);
+    syncGuard = false;
+  }).catch(() => {});
 }

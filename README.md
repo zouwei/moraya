@@ -381,6 +381,8 @@ All API keys are stored exclusively in your OS Keychain — never in plaintext. 
 
 - [x] **v0.18.0** — Document Outline: Editor-side outline panel, H1–H6 heading extraction, click-to-scroll navigation, active heading highlight, Cmd+Shift+O toggle → [Detailed Requirements](docs/iterations/v0.18.0-document-outline.md)
 
+- [x] **v0.19.0** — Rendering Pipeline v2: ProseMirror Doc LRU cache, per-block hljs highlight cache, large file async parsing, fast-switch cancellation mechanism → [Detailed Requirements](docs/iterations/v0.19.0-rendering-pipeline.md)
+
 ## License
 
 [Apache License 2.0](LICENSE)

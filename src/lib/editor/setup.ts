@@ -14,7 +14,10 @@ import { baseKeymap, toggleMark, setBlockType } from 'prosemirror-commands';
 import { inputRules, textblockTypeInputRule, wrappingInputRule, InputRule } from 'prosemirror-inputrules';
 import { splitListItem, sinkListItem, liftListItem } from 'prosemirror-schema-list';
 import { dropCursor } from 'prosemirror-dropcursor';
-import { gapCursor } from 'prosemirror-gapcursor';
+// NOTE: gapCursor plugin removed — it creates GapCursor selections between
+// blocks where ProseMirror places the DOM selection at gap positions, causing
+// a visible native caret that cannot be hidden by CSS alone. Markdown documents
+// always have text positions (headings, paragraphs, lists) so gap cursor is unnecessary.
 import { columnResizing, tableEditing } from 'prosemirror-tables';
 import { schema } from './schema';
 import { parseMarkdown, serializeMarkdown } from './markdown';
@@ -378,7 +381,6 @@ export async function createEditor(options: EditorOptions): Promise<MorayaEditor
 
     // Cursor plugins
     dropCursor(),
-    gapCursor(),
 
     // Table plugins
     columnResizing(),

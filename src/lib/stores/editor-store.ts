@@ -57,11 +57,15 @@ function createEditorStore() {
     }
     wordCountTimer = scheduleIdle(() => {
       const wc = countWords(text);
-      update(state => ({
-        ...state,
-        wordCount: wc,
-        charCount: text.length,
-      }));
+      const cc = text.length;
+      // Only create a new state object (and trigger subscribers) when counts
+      // actually changed. This prevents a subscriber cascade on every idle
+      // callback when the user hasn't changed the document length.
+      update(state =>
+        state.wordCount === wc && state.charCount === cc
+          ? state
+          : { ...state, wordCount: wc, charCount: cc }
+      );
       wordCountTimer = null;
     });
   }
@@ -93,7 +97,7 @@ function createEditorStore() {
       scheduleWordCount(text);
     },
     setFocused(isFocused: boolean) {
-      update(state => ({ ...state, isFocused }));
+      update(state => state.isFocused === isFocused ? state : { ...state, isFocused });
     },
     setCurrentFile(path: string | null) {
       update(state => ({ ...state, currentFilePath: path, isDirty: false }));
@@ -127,10 +131,21 @@ function createEditorStore() {
       update(state => state.editorMode === mode ? state : { ...state, editorMode: mode });
     },
     setCursorOffset(offset: number) {
-      update(state => ({ ...state, cursorOffset: offset }));
+      update(state => state.cursorOffset === offset ? state : { ...state, cursorOffset: offset });
     },
     setScrollFraction(fraction: number) {
-      update(state => ({ ...state, scrollFraction: fraction }));
+      update(state => state.scrollFraction === fraction ? state : { ...state, scrollFraction: fraction });
+    },
+    /** Batch content flush + cursor/scroll save in a single store update.
+     *  Used by Editor.svelte onDestroy to prevent 3 separate subscriber notifications. */
+    batchFlush(data: { content: string; cursorOffset: number; scrollFraction: number }) {
+      update(state => ({
+        ...state,
+        content: data.content,
+        cursorOffset: data.cursorOffset,
+        scrollFraction: data.scrollFraction,
+      }));
+      scheduleWordCount(data.content);
     },
     reset() {
       set({

@@ -527,6 +527,19 @@ export function parseMarkdown(markdown: string): PmNode {
   return parser.parse(markdown);
 }
 
+const ASYNC_PARSE_THRESHOLD = 50_000;
+
+/**
+ * Async version of parseMarkdown. For large files (≥50KB), yields to the
+ * event loop via setTimeout(0) so the main thread stays responsive.
+ */
+export function parseMarkdownAsync(markdown: string): Promise<PmNode> {
+  if (markdown.length < ASYNC_PARSE_THRESHOLD) {
+    return Promise.resolve(parser.parse(markdown));
+  }
+  return new Promise(resolve => setTimeout(() => resolve(parser.parse(markdown)), 0));
+}
+
 /**
  * Serialize a ProseMirror document node to a markdown string.
  */

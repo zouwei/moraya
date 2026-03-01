@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import type { MorayaEditor } from '$lib/editor/setup';
   import { TextSelection } from 'prosemirror-state';
   import {
@@ -188,10 +188,11 @@ ${tr('welcome.tip')}
   let aiLoading = $state(false);
   let aiError = $state(false);
 
-  // Top-level store subscription — do NOT wrap in $effect().
+  // Top-level store subscriptions — do NOT wrap in $effect().
   // In Svelte 5, $effect tracks reads inside subscribe callbacks, causing
   // infinite re-subscription loops when callbacks compare/write $state vars.
-  aiStore.subscribe(state => {
+  // Capture unsubscribe handles for onDestroy cleanup (prevents HMR accumulation).
+  const unsubAI = aiStore.subscribe(state => {
     aiConfigured = state.isConfigured;
     aiLoading = state.isLoading;
     aiError = !!state.error;
@@ -289,21 +290,21 @@ ${tr('welcome.tip')}
 
   /** Replace editor content and scroll to the top for a newly opened file. */
   async function replaceContentAndScrollToTop(newContent: string) {
+    const mySerial = fileSelectSerial;
     editorStore.setCursorOffset(0);
     syncVisualEditor(newContent);
-    if (morayaEditor) {
-      try {
-        const view = morayaEditor.view;
-        const tr = view.state.tr.setSelection(
-          TextSelection.create(view.state.doc, 1)
-        );
-        tr.setMeta('addToHistory', false);
-        view.dispatch(tr);
-      } catch {
-        // Editor may not be fully ready yet
-      }
-    }
+    // syncVisualEditor → syncContent → applySyncDoc already sets
+    // TextSelection.atStart(doc). Do NOT dispatch another selection
+    // here — two rapid DOM selection updates confuse WebKit's caret rendering,
+    // causing the cursor to appear between blocks instead of inside text.
+    if (mySerial !== fileSelectSerial) return; // Superseded by a newer switch
     await scrollEditorToTop();
+    // Re-focus the editor after layout settles so WebKit renders the caret correctly.
+    if (morayaEditor && mySerial === fileSelectSerial) {
+      requestAnimationFrame(() => {
+        try { morayaEditor?.view.focus(); } catch { /* destroyed */ }
+      });
+    }
   }
 
   /** Save with tab sync on iPad */
@@ -422,7 +423,7 @@ ${tr('welcome.tip')}
   // In Svelte 5, $effect tracks reads inside subscribe callbacks, causing
   // infinite re-subscription loops when callbacks compare/write $state vars.
   // This was the root cause of the AI panel freeze (introduced in v0.17.1).
-  settingsStore.subscribe(state => {
+  const unsubSettings = settingsStore.subscribe(state => {
     showSidebar = state.showSidebar;
     showOutline = state.showOutline;
   });
@@ -430,16 +431,25 @@ ${tr('welcome.tip')}
   // Track previous values to skip redundant work in hot subscriber path.
   // This subscriber fires on every store update (setContent, setDirty, setFocused, etc.)
   // so we must avoid doing unnecessary work or writing $state on each call.
-  let prevFilePath: string | null = null;
+  // Use undefined sentinel so even the initial null → null fires registration
+  let prevFilePath: string | null | undefined = undefined;
   let prevEditorMode: EditorMode | null = null;
 
-  editorStore.subscribe(state => {
+  const unsubEditor = editorStore.subscribe(state => {
     // Only recompute file name when path actually changes
     if (state.currentFilePath !== prevFilePath) {
       prevFilePath = state.currentFilePath;
       currentFileName = state.currentFilePath
         ? getFileNameFromPath(state.currentFilePath)
         : $t('common.untitled');
+
+      // Register with macOS Dock menu tracker
+      if (isTauri && isMacOS) {
+        invoke('register_dock_document', {
+          displayName: currentFileName,
+          filePath: state.currentFilePath ?? null,
+        }).catch(() => {});
+      }
     }
     // Guard: only write $state when mode actually changes to avoid re-entrancy
     // during Svelte's render flush (e.g., when Editor.onDestroy calls setContent,
@@ -459,9 +469,10 @@ ${tr('welcome.tip')}
   });
 
   // iPad tabs: reload content when active tab changes
+  let unsubTabs: (() => void) | undefined;
   if (isIPadOS) {
     let prevActiveTabId = '';
-    tabsStore.subscribe(state => {
+    unsubTabs = tabsStore.subscribe(state => {
       if (state.activeTabId !== prevActiveTabId) {
         prevActiveTabId = state.activeTabId;
         const tab = state.tabs.find(t => t.id === state.activeTabId);
@@ -474,11 +485,32 @@ ${tr('welcome.tip')}
     });
   }
 
+  onDestroy(() => {
+    unsubAI();
+    unsubSettings();
+    unsubEditor();
+    unsubTabs?.();
+  });
+
   // Sync native menu checkmarks when editor mode changes (all desktop platforms).
   $effect(() => {
     if (!isTauri) return;
 
     invoke('set_editor_mode_menu', { mode: editorMode }).catch(() => {});
+  });
+
+  // Sync native menu checkmarks when view panels are toggled.
+  $effect(() => {
+    if (!isTauri) return;
+    invoke('set_menu_check', { id: 'view_sidebar', checked: showSidebar }).catch(() => {});
+  });
+  $effect(() => {
+    if (!isTauri) return;
+    invoke('set_menu_check', { id: 'view_ai_panel', checked: showAIPanel }).catch(() => {});
+  });
+  $effect(() => {
+    if (!isTauri) return;
+    invoke('set_menu_check', { id: 'view_outline', checked: showOutline }).catch(() => {});
   });
 
   // Expose sidebar width to titlebar for centering via CSS custom property
@@ -1451,10 +1483,10 @@ ${tr('welcome.tip')}
         'menu:view_mode_visual': (p) => { if (p === true) { editorMode = 'visual'; editorStore.setEditorMode('visual'); } },
         'menu:view_mode_source': (p) => { if (p === true) { editorMode = 'source'; editorStore.setEditorMode('source'); } },
         'menu:view_mode_split': (p) => { if (p === true) { editorMode = 'split'; editorStore.setEditorMode('split'); } },
-        // View — panels (regular MenuItems, no check state — just toggle)
-        'menu:view_sidebar': () => settingsStore.toggleSidebar(),
-        'menu:view_ai_panel': () => { showAIPanel = !showAIPanel; },
-        'menu:view_outline': () => { settingsStore.update({ showOutline: !showOutline }); },
+        // View — panels (CheckMenuItems: payload is boolean checked state)
+        'menu:view_sidebar': (p) => { if (typeof p === 'boolean') { if (p !== showSidebar) settingsStore.toggleSidebar(); } else { settingsStore.toggleSidebar(); } },
+        'menu:view_ai_panel': (p) => { if (typeof p === 'boolean') { showAIPanel = p; } else { showAIPanel = !showAIPanel; } },
+        'menu:view_outline': (p) => { if (typeof p === 'boolean') { if (p !== showOutline) settingsStore.update({ showOutline: p }); } else { settingsStore.update({ showOutline: !showOutline }); } },
         // View — zoom
         'menu:view_zoom_in': () => {
           const s = settingsStore.getState();

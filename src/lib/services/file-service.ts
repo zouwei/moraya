@@ -3,6 +3,7 @@ import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialo
 import { readFile } from '@tauri-apps/plugin-fs';
 import { editorStore } from '../stores/editor-store';
 import { filesStore, type FileEntry } from '../stores/files-store';
+import { invalidateDocCache } from '../editor/doc-cache';
 
 const MIME_MAP: Record<string, string> = {
   png: 'image/png',
@@ -44,6 +45,7 @@ export async function saveFile(content: string): Promise<boolean> {
 
   if (state.currentFilePath) {
     await invoke('write_file', { path: state.currentFilePath, content });
+    invalidateDocCache(state.currentFilePath);
     editorStore.setDirty(false);
     return true;
   }
@@ -62,6 +64,7 @@ export async function saveFileAs(content: string): Promise<boolean> {
 
   const path = selected.endsWith('.md') ? selected : `${selected}.md`;
   await invoke('write_file', { path, content });
+  invalidateDocCache(path);
   editorStore.setCurrentFile(path);
   editorStore.setDirty(false);
   filesStore.addRecentFile(path);

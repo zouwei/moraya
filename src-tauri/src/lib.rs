@@ -24,6 +24,20 @@ pub struct MainWindowReady(pub AtomicBool);
 /// Atomic counter for generating unique window labels.
 static WINDOW_COUNTER: AtomicU32 = AtomicU32::new(0);
 
+/// Tracks which document is open in each window (used for macOS Dock menu).
+pub struct DockDocumentTracker(pub Mutex<HashMap<String, DockDocEntry>>);
+
+/// Entry for a single window in the Dock document tracker.
+#[derive(Clone)]
+pub struct DockDocEntry {
+    pub display_name: String,
+    pub file_path: Option<String>,
+}
+
+/// Label of the currently focused window (macOS Dock menu checkmark).
+#[cfg(target_os = "macos")]
+pub(crate) static FOCUSED_WINDOW_LABEL: Mutex<Option<String>> = Mutex::new(None);
+
 /// Tracks the number of focused Moraya windows (Windows only).
 /// Used to register/unregister the global Ctrl+Shift+I shortcut so it
 /// intercepts the key before WebView2 opens DevTools.
@@ -143,8 +157,20 @@ pub(crate) fn create_editor_window(
     .inner_size(1200.0, 800.0)
     .min_inner_size(600.0, 400.0)
     .decorations(true)
-    .center()
     .devtools(false);
+
+    // Cascade new windows: offset from the focused/existing window by 30px.
+    // Falls back to centering if no existing window position is available.
+    let cascade_pos = app
+        .webview_windows()
+        .values()
+        .find_map(|w| w.outer_position().ok())
+        .map(|pos| (pos.x as f64 + 30.0, pos.y as f64 + 30.0));
+    if let Some((x, y)) = cascade_pos {
+        builder = builder.position(x, y);
+    } else {
+        builder = builder.center();
+    }
 
     #[cfg(target_os = "macos")]
     {
@@ -206,6 +232,41 @@ fn create_new_window(
     create_editor_window(&app, &pending, None)
 }
 
+/// Register or update the document displayed in a window (for macOS Dock menu).
+/// Called from frontend whenever the file path or document name changes.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+fn register_dock_document(
+    window: tauri::Window,
+    tracker: tauri::State<'_, DockDocumentTracker>,
+    app: tauri::AppHandle,
+    display_name: String,
+    file_path: Option<String>,
+) {
+    let label = window.label().to_string();
+    // Only rebuild the dock menu when the entry actually changed.
+    // This prevents redundant NSMenu rebuilds (~20 ObjC calls each).
+    let changed = {
+        let mut map = tracker.0.lock().unwrap();
+        let needs_update = match map.get(&label) {
+            Some(entry) => entry.display_name != display_name || entry.file_path != file_path,
+            None => true,
+        };
+        if needs_update {
+            map.insert(label, DockDocEntry { display_name, file_path });
+        }
+        needs_update
+    };
+    if changed {
+        dock::refresh_dock_menu(&app);
+    }
+}
+
+/// No-op on non-macOS platforms — the command must exist so frontend invoke doesn't fail.
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+fn register_dock_document(_display_name: String, _file_path: Option<String>) {}
+
 /// Extract file paths from CLI arguments (used on Windows where file association
 /// spawns a new process with the file path as an argument).
 fn file_paths_from_args() -> Vec<String> {
@@ -250,6 +311,7 @@ pub fn run() {
         .manage(OpenedFiles(Mutex::new(initial_files)))
         .manage(PendingFiles(Mutex::new(HashMap::new())))
         .manage(MainWindowReady(AtomicBool::new(false)))
+        .manage(DockDocumentTracker(Mutex::new(HashMap::new())))
         .invoke_handler(tauri::generate_handler![
             commands::file::read_file,
             commands::file::read_resource_file,
@@ -295,6 +357,7 @@ pub fn run() {
             get_opened_file,
             open_file_in_new_window,
             create_new_window,
+            register_dock_document,
         ])
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
@@ -341,12 +404,11 @@ pub fn run() {
 
                     let id = event.id().0.as_str();
 
-                    // For CheckMenuItem editor modes, emit the current check state as
+                    // For CheckMenuItem items, emit the current check state as
                     // payload so the frontend can SET (not toggle) the value.
-                    // view_sidebar/view_ai_panel/view_outline are regular MenuItems (no
-                    // check state) — they just emit and the frontend toggles.
                     match id {
-                        "view_mode_visual" | "view_mode_source" | "view_mode_split" => {
+                        "view_mode_visual" | "view_mode_source" | "view_mode_split"
+                        | "view_sidebar" | "view_ai_panel" | "view_outline" => {
                             if let Some(checked) = menu::get_check_state(&app_handle_for_events, id) {
                                 let _ = app_handle_for_events.emit(&format!("menu:{}", id), checked);
                             }
@@ -388,6 +450,49 @@ pub fn run() {
                         if prev == 1 {
                             let _ = _app.global_shortcut().unregister(shortcut);
                         }
+                    }
+                }
+            }
+
+            // macOS Dock menu: track focused window + clean up on destroy
+            #[cfg(target_os = "macos")]
+            {
+                if let tauri::RunEvent::WindowEvent { label, event, .. } = &_event {
+                    match event {
+                        tauri::WindowEvent::Focused(true) => {
+                            // Only rebuild dock menu when the focused window actually
+                            // changes. Skips redundant rebuilds when the same window
+                            // regains focus (e.g., user switches back from another app).
+                            let changed = {
+                                let mut focused = match FOCUSED_WINDOW_LABEL.lock() {
+                                    Ok(g) => g,
+                                    Err(e) => e.into_inner(),
+                                };
+                                if focused.as_deref() == Some(label.as_str()) {
+                                    false
+                                } else {
+                                    *focused = Some(label.clone());
+                                    true
+                                }
+                            };
+                            if changed {
+                                dock::refresh_dock_menu(_app);
+                            }
+                        }
+                        tauri::WindowEvent::Destroyed => {
+                            if let Some(tracker) = _app.try_state::<DockDocumentTracker>() {
+                                if let Ok(mut map) = tracker.0.lock() {
+                                    map.remove(label);
+                                }
+                            }
+                            if let Ok(mut focused) = FOCUSED_WINDOW_LABEL.lock() {
+                                if focused.as_deref() == Some(label.as_str()) {
+                                    *focused = None;
+                                }
+                            }
+                            dock::refresh_dock_menu(_app);
+                        }
+                        _ => {}
                     }
                 }
             }

@@ -608,6 +608,13 @@
   min-height: calc(100vh - var(--titlebar-height) - var(--statusbar-height) - 8rem);
   caret-color: var(--text-primary);
   cursor: text;
+  /* Standard ProseMirror CSS — required for correct cursor positioning.
+     Without pre-wrap, WebKit miscalculates caret coordinates at end of blocks
+     (especially headings), causing the cursor to appear far from the last character. */
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  -webkit-font-variant-ligatures: none;
+  font-variant-ligatures: none;
 }
 
 .ProseMirror:focus {
@@ -636,6 +643,10 @@
 
 /* Only apply on macOS (WebKit) — on Windows/Linux (Chromium) the native caret works fine
    and this CSS would create a double/ghost cursor. */
+/* Hide native caret when fake caret is active to prevent double cursors */
+.platform-macos .ProseMirror:focus .caret-empty-para {
+  caret-color: transparent;
+}
 .platform-macos .ProseMirror:focus .caret-empty-para:empty::before,
 .platform-macos .ProseMirror:focus .caret-empty-para:has(> br:only-child)::before {
   content: '';

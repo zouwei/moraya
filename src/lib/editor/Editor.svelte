@@ -16,7 +16,8 @@
   import type { UnlistenFn } from '@tauri-apps/api/event';
   import { createEditor } from './setup';
   import { schema } from './schema';
-  import { parseMarkdown, serializeMarkdown } from './markdown';
+  import { parseMarkdown, parseMarkdownAsync, serializeMarkdown } from './markdown';
+  import { docCache } from './doc-cache';
   import { editorStore } from '../stores/editor-store';
   import { settingsStore } from '../stores/settings-store';
   import { readImageAsBlobUrl } from '../services/file-service';
@@ -142,6 +143,7 @@
   let lastSyncWasExternal = false; // true when last content came from source editor (split mode)
   let externalSyncTimer: ReturnType<typeof setTimeout> | undefined; // debounce for external content sync
   let tableToolbarRaf: number | undefined; // RAF throttle for table toolbar updates
+  let syncGeneration = 0; // Incremented on each syncContent call; stale async callbacks bail out
 
   // References for event listener cleanup in onDestroy
   let mountedEditorEl: HTMLDivElement | null = null;
@@ -825,31 +827,48 @@
     const { frontmatter, body } = extractFrontmatter(content);
     storedFrontmatter = frontmatter;
 
-    const createdEditor = await createEditor({
+    // Split mode needs full markdown serialization (source editor sync via onChange).
+    // Visual-only mode uses lightweight dirty tracking (no serialization per-keystroke).
+    const needsSerialization = !!onContentChange;
+
+    const editorOptions: Parameters<typeof createEditor>[0] = {
       root: editorEl,
       defaultValue: body,
-      onChange: (markdown) => {
-        if (!isMounted) return; // Component destroyed during async gap
-        if (syncingFromExternal) return; // Don't push reformatted text back to source editor
-        lastSyncWasExternal = false; // User typed in visual editor
-        internalChange = true;
-        // Re-attach frontmatter to the serialized body
-        const full = storedFrontmatter + markdown;
-        content = full;
-        onContentChange?.(full);
-        // Single batched store update instead of setDirty + setContent separately
-        // (each update triggers all subscribers synchronously; batching halves the cascade)
-        editorStore.setDirtyContent(true, full);
-        // Debounced outline update (skipped when outline is hidden)
-        scheduleExtractHeadings();
-      },
       onFocus: () => {
         if (isMounted) editorStore.setFocused(true);
       },
       onBlur: () => {
         if (isMounted) editorStore.setFocused(false);
       },
-    });
+    };
+
+    if (needsSerialization) {
+      // Split mode: full serialization every 500ms for SourceEditor sync
+      editorOptions.onChange = (markdown) => {
+        if (!isMounted) return;
+        if (syncingFromExternal) return;
+        lastSyncWasExternal = false;
+        internalChange = true;
+        const full = storedFrontmatter + markdown;
+        content = full;
+        onContentChange?.(full);
+        editorStore.setDirtyContent(true, full);
+        scheduleExtractHeadings();
+      };
+    } else {
+      // Visual-only mode: O(1) dirty mark + word count from textContent.
+      // No markdown serialization — content is serialized on-demand via getFullMarkdown().
+      editorOptions.onDocChanged = (textContent) => {
+        if (!isMounted) return;
+        if (syncingFromExternal) return;
+        lastSyncWasExternal = false;
+        editorStore.markDirty();
+        editorStore.scheduleWordCountFromText(textContent);
+        scheduleExtractHeadings();
+      };
+    }
+
+    const createdEditor = await createEditor(editorOptions);
 
     // Guard: if component was destroyed while createEditor was running,
     // destroy the orphaned editor immediately to prevent stale callbacks.
@@ -1024,8 +1043,14 @@
         lastSyncWasExternal = true;
         if (syncResetTimer) clearTimeout(syncResetTimer);
         const view = editor.view;
-        const doc = parseMarkdown(visualContent);
-        if (!doc) return;
+        const filePath = editorStore.getState().currentFilePath || '';
+        // Check LRU doc cache
+        let doc = docCache.get(filePath, visualContent);
+        if (!doc) {
+          doc = parseMarkdown(visualContent);
+          if (!doc) return;
+          if (filePath) docCache.set(filePath, visualContent, doc);
+        }
         const tr = view.state.tr.replace(
           0, view.state.doc.content.size,
           new Slice(doc.content, 0, 0),
@@ -1072,6 +1097,13 @@
     // Debounce: avoid running toHardBreaks + sync on every keystroke
     if (externalSyncTimer) clearTimeout(externalSyncTimer);
     externalSyncTimer = setTimeout(() => applySyncToEditor(current), 150);
+  });
+
+  // When outline is toggled on (e.g. after async settings load), extract headings.
+  $effect(() => {
+    if (showOutline && editor && isReady) {
+      extractHeadings();
+    }
   });
 
   // ── Search / Replace ──────────────────────────────────
@@ -1180,6 +1212,62 @@
   }
 
   /**
+   * Apply a parsed ProseMirror doc to the editor view (two-step sync).
+   *
+   * Step 1: Dispatch a replace transaction with step maps for efficient DOM update.
+   * Step 2: Swap to a fresh EditorState (same doc, reset plugin state).
+   */
+  function applySyncDoc(doc: import('prosemirror-model').Node) {
+    if (!editor) return;
+    const view = editor.view;
+
+    // Step 1: Replace via dispatch (proper DOM update with step maps)
+    const tr = view.state.tr.replace(
+      0, view.state.doc.content.size,
+      new Slice(doc.content, 0, 0),
+    );
+    tr.setMeta('addToHistory', false);
+    tr.setMeta('file-switch', true);
+    view.dispatch(tr);
+
+    // Step 2: Reset all plugin state by swapping to a fresh EditorState.
+    // Place cursor at end of first block (natural editing position for documents
+    // with content). Falls back to document start for empty documents.
+    const newDoc = view.state.doc;
+    let sel: import('prosemirror-state').Selection;
+    try {
+      const firstChild = newDoc.firstChild;
+      if (firstChild && firstChild.content.size > 0) {
+        // End of first block's text content: offset 1 (block opening) + content size
+        const endPos = 1 + firstChild.content.size;
+        sel = TextSelection.create(newDoc, endPos);
+      } else {
+        sel = TextSelection.atStart(newDoc);
+      }
+    } catch {
+      sel = TextSelection.atStart(newDoc);
+    }
+    const freshState = EditorState.create({
+      schema: view.state.schema,
+      doc: newDoc,
+      plugins: view.state.plugins,
+      selection: sel,
+    });
+    view.updateState(freshState);
+
+    // Clear any stale search decorations from setProps (they reference old doc positions)
+    if (searchMatches.length > 0) {
+      searchMatches = [];
+      searchIndex = -1;
+      (view as any).setProps({ decorations: () => DecorationSet.empty });
+    }
+
+    syncResetTimer = setTimeout(() => { syncingFromExternal = false; }, 200);
+    cachedSelFrom = -1;
+    scheduleExtractHeadings();
+  }
+
+  /**
    * Replace editor content from an external source (file switch, AI, etc.).
    *
    * Two-step approach to prevent both cursor lag AND plugin state accumulation:
@@ -1189,48 +1277,54 @@
    *    no-op (same document), but all plugin state (history items, decoration
    *    sets, etc.) is reset, preventing progressive accumulation.
    *
+   * Optimizations:
+   * - LRU doc cache: skips parseMarkdown() for previously opened files.
+   * - Async parsing: files ≥50KB yield to the event loop via setTimeout(0).
+   * - Generation counter: cancels stale async callbacks on rapid file switches.
+   *
    * The externalSyncDone flag prevents the $effect from scheduling a redundant
    * applySyncToEditor() 150ms later.
    */
   export function syncContent(md: string) {
     if (!editor || !isReady) return;
+    const myGen = ++syncGeneration;
     externalSyncDone = true; // Tell $effect to skip redundant applySyncToEditor
     const { frontmatter, body } = extractFrontmatter(md);
     storedFrontmatter = frontmatter;
-    try {
-      syncingFromExternal = true;
-      if (syncResetTimer) clearTimeout(syncResetTimer);
-      const visualContent = toHardBreaks(body);
-      const view = editor.view;
-      const doc = parseMarkdown(visualContent);
+
+    syncingFromExternal = true;
+    if (syncResetTimer) clearTimeout(syncResetTimer);
+    const visualContent = toHardBreaks(body);
+    const filePath = editorStore.getState().currentFilePath || '';
+
+    // Check LRU doc cache first
+    const cached = docCache.get(filePath, visualContent);
+    if (cached) {
+      try { applySyncDoc(cached); } catch { /* ignore during init */ }
+      return;
+    }
+
+    // Small file: synchronous parse + apply
+    if (visualContent.length < 50_000) {
+      try {
+        const doc = parseMarkdown(visualContent);
+        if (!doc) return;
+        if (filePath) docCache.set(filePath, visualContent, doc);
+        applySyncDoc(doc);
+      } catch { /* ignore during init */ }
+      return;
+    }
+
+    // Large file (≥50KB): async parse to avoid blocking the event loop
+    parseMarkdownAsync(visualContent).then(doc => {
+      if (myGen !== syncGeneration) return; // Superseded by a newer switch
+      if (!editor || !isReady) return;
       if (!doc) return;
-
-      // Step 1: Replace via dispatch (proper DOM update with step maps)
-      const tr = view.state.tr.replace(
-        0, view.state.doc.content.size,
-        new Slice(doc.content, 0, 0),
-      );
-      tr.setMeta('addToHistory', false);
-      view.dispatch(tr);
-
-      // Step 2: Reset all plugin state by swapping to a fresh EditorState.
-      // The doc is the same (just dispatched), so the DOM diff is a no-op.
-      // This clears accumulated history items, stale decoration mappings, etc.
-      const freshState = EditorState.create({
-        schema: view.state.schema,
-        doc: view.state.doc,
-        plugins: view.state.plugins,
-        selection: view.state.selection,
-      });
-      view.updateState(freshState);
-      syncResetTimer = setTimeout(() => { syncingFromExternal = false; }, 200);
-    } catch { /* ignore during init */ }
-    // Reset isInsideTable cache (cursor position changed with new document)
-    cachedSelFrom = -1;
-    // Outline update: onChange is suppressed by syncingFromExternal, and
-    // externalSyncDone blocks the path through applySyncToEditor, so
-    // we must schedule extraction directly here.
-    scheduleExtractHeadings();
+      try {
+        if (filePath) docCache.set(filePath, visualContent, doc);
+        applySyncDoc(doc);
+      } catch { /* ignore during init */ }
+    });
   }
 
   export function clearSearch() {
@@ -1298,21 +1392,24 @@
     mountedHandlers = null;
 
     if (editor) {
+      // Flush content + save cursor/scroll in a single batched store update.
+      // Previously 3 separate calls (setContent + setCursorOffset + setScrollFraction)
+      // triggered 3 subscriber cascades. batchFlush merges them into 1.
+      let flushContent = content;
+      let cursorOffset = 0;
+      let scrollFraction = 0;
+
       // Flush content: sync ProseMirror doc to parent before destruction.
-      // The lazy change plugin debounces onChange by 100ms, so if the user
-      // types then immediately switches mode, the last edits haven't been
-      // synced yet. This ensures no content is lost.
       // Skip flush when lastSyncWasExternal=true (split mode, source editor
       // is the source of truth) to avoid polluting content with hard-break
       // trailing spaces added by toHardBreaks().
       if (!lastSyncWasExternal) {
         try {
           const markdown = editor.getMarkdown();
-          // Re-attach frontmatter to serialized body
           const full = storedFrontmatter + markdown;
+          flushContent = full;
           content = full;
           onContentChange?.(full);
-          editorStore.setContent(full);
         } catch {
           // Serialization may fail if editor is partially destroyed
         }
@@ -1324,8 +1421,7 @@
         const { from } = view.state.selection;
         const docSize = view.state.doc.content.size;
         const fraction = docSize > 0 ? from / docSize : 0;
-        const markdownOffset = Math.round(fraction * content.length);
-        editorStore.setCursorOffset(markdownOffset);
+        cursorOffset = Math.round(fraction * flushContent.length);
       } catch {
         // Ignore errors during position save
       }
@@ -1334,8 +1430,11 @@
       const wrapper = editorEl?.closest('.editor-wrapper') as HTMLElement | null;
       if (wrapper && wrapper.scrollHeight > wrapper.clientHeight) {
         const maxScroll = wrapper.scrollHeight - wrapper.clientHeight;
-        editorStore.setScrollFraction(maxScroll > 0 ? wrapper.scrollTop / maxScroll : 0);
+        scrollFraction = maxScroll > 0 ? wrapper.scrollTop / maxScroll : 0;
       }
+
+      // Single batched store update (1 subscriber notification instead of 3)
+      editorStore.batchFlush({ content: flushContent, cursorOffset, scrollFraction });
 
       editor.destroy();
     }

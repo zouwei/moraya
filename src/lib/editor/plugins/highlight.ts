@@ -116,6 +116,24 @@ function flattenHljsTree(nodes: (HljsNode | string)[], parentClasses: string[] =
   return result;
 }
 
+// ── Per-block hljs result cache ────────────────────────────────
+// Caches the relative-offset spans for each (language, code) pair so that
+// switching back to a previously highlighted file skips all hljs calls.
+// FIFO eviction at 100 entries.
+
+interface CachedSpan {
+  relOffset: number;
+  length: number;
+  classes: string;
+}
+
+const HLJS_CACHE_MAX = 100;
+const hljsCache = new Map<string, CachedSpan[]>();
+
+function hljsCacheKey(language: string, code: string): string {
+  return language + '\0' + code;
+}
+
 /**
  * Build ProseMirror decorations for a highlighted code block.
  */
@@ -130,47 +148,63 @@ function getDecorations(doc: any): DecorationSet {
 
     if (!code) return;
 
-    let result;
-    try {
-      if (language && hljs.getLanguage(language)) {
-        result = hljs.highlight(code, { language, ignoreIllegals: true });
-      } else if (!language) {
-        // No language label: skip auto-detection entirely. highlightAuto tests
-        // ALL registered languages (~23) which is very expensive and runs on
-        // every re-decoration. Users should label their code blocks.
-        return;
-      } else {
-        // Unrecognized language label (e.g. "image-prompts", "mermaid"):
-        // skip highlighting — these are domain-specific, not source code.
-        return;
+    if (!language) return; // No language label: skip (avoid expensive highlightAuto)
+    if (!hljs.getLanguage(language)) return; // Unrecognized language
+
+    const cKey = hljsCacheKey(language, code);
+    const blockStart = pos + 1; // code content starts after opening tag
+
+    // Check per-block cache
+    const cachedSpans = hljsCache.get(cKey);
+    if (cachedSpans) {
+      for (const span of cachedSpans) {
+        const from = blockStart + span.relOffset;
+        const to = from + span.length;
+        if (from < to) {
+          decorations.push(Decoration.inline(from, to, { class: span.classes }));
+        }
       }
-    } catch {
-      return; // Skip if highlighting fails
+      return;
     }
 
-    // Access the internal emitter tree
+    // Cache miss — run hljs
+    let result;
+    try {
+      result = hljs.highlight(code, { language, ignoreIllegals: true });
+    } catch {
+      return;
+    }
+
     const emitter = result as any;
     const rootNode = emitter._emitter?.rootNode ?? emitter._emitter?.root;
     if (!rootNode?.children) return;
 
     const spans = flattenHljsTree(rootNode.children);
 
-    // The code content starts at pos + 1 (after the opening of the code_block node)
-    let offset = pos + 1;
+    // Build relative-offset spans for caching + absolute decorations
+    const toCache: CachedSpan[] = [];
+    let offset = 0;
 
     for (const span of spans) {
-      const from = offset;
-      const to = offset + span.text.length;
-      offset = to;
+      const relOffset = offset;
+      const length = span.text.length;
+      offset += length;
 
-      if (span.classes.length > 0 && from < to) {
+      if (span.classes.length > 0 && length > 0) {
+        const classes = span.classes.join(' ');
+        toCache.push({ relOffset, length, classes });
         decorations.push(
-          Decoration.inline(from, to, {
-            class: span.classes.join(' '),
-          })
+          Decoration.inline(blockStart + relOffset, blockStart + relOffset + length, { class: classes })
         );
       }
     }
+
+    // Store in cache (FIFO eviction)
+    if (hljsCache.size >= HLJS_CACHE_MAX) {
+      const oldest = hljsCache.keys().next().value;
+      if (oldest !== undefined) hljsCache.delete(oldest);
+    }
+    hljsCache.set(cKey, toCache);
   });
 
   return DecorationSet.create(doc, decorations);
@@ -207,6 +241,13 @@ export function createHighlightPlugin(): Plugin {
             return getDecorations(newState.doc);
           }
           return decorationSet;
+        }
+
+        // File switch: rebuild decorations from scratch (old decorations belong
+        // to the previous document and cannot be meaningfully mapped).
+        if (tr.getMeta('file-switch')) {
+          if (debounceTimer !== null) { clearTimeout(debounceTimer); debounceTimer = null; }
+          return getDecorations(newState.doc);
         }
 
         // Map existing decorations cheaply through the transaction
