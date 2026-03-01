@@ -43,7 +43,7 @@
     position: sticky;
     top: 0;
     align-self: flex-start;
-    max-height: calc(100vh - 8rem);
+    max-height: calc(100vh - var(--titlebar-height) - var(--statusbar-height) - 4rem);
     overflow-y: auto;
     overflow-x: hidden;
     padding-right: 8px;

@@ -124,6 +124,16 @@
       if (cachedHeadingTops[i] <= scrollY) lastId = outlineHeadings[i].id;
       else break;
     }
+    // When scrolled to the bottom, the last heading may be visible but not yet
+    // past the 80px threshold (not enough content below to scroll further).
+    // Fix: if at bottom and the last heading is within the viewport, activate it.
+    const maxScroll = wrapper.scrollHeight - wrapper.clientHeight;
+    if (maxScroll > 0 && wrapper.scrollTop >= maxScroll - 2) {
+      const lastTop = cachedHeadingTops[outlineHeadings.length - 1];
+      if (lastTop <= wrapper.scrollTop + wrapper.clientHeight) {
+        lastId = outlineHeadings[outlineHeadings.length - 1].id;
+      }
+    }
     activeHeadingId = lastId ?? outlineHeadings[0]?.id ?? null;
   }
 
@@ -1447,7 +1457,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="editor-wrapper" class:ready={isReady} class:has-outline={showOutline} onclick={(e) => {
   // Click on empty area → focus editor and place cursor at end
-  if (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains('editor-root')) {
+  if (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains('editor-root') || (e.target as HTMLElement).classList.contains('editor-content-area')) {
     const pm = editorEl?.querySelector('.ProseMirror') as HTMLElement | null;
     if (pm) pm.focus();
   }
@@ -1459,10 +1469,12 @@
     updateActiveHeading();
   });
 }}>
-  {#if showOutline}
-    <OutlinePanel headings={outlineHeadings} activeId={activeHeadingId} onSelect={handleOutlineSelect} />
-  {/if}
-  <div bind:this={editorEl} class="editor-root" style="max-width: {showOutline ? '100%' : `min(${editorLineWidth}px, 100%)`}"></div>
+  <div class="editor-content-area" style="max-width: {showOutline ? `${editorLineWidth + 200}px` : `${editorLineWidth}px`}">
+    {#if showOutline}
+      <OutlinePanel headings={outlineHeadings} activeId={activeHeadingId} onSelect={handleOutlineSelect} />
+    {/if}
+    <div bind:this={editorEl} class="editor-root"></div>
+  </div>
 </div>
 
 {#if showTableToolbar}
@@ -1531,26 +1543,30 @@
     cursor: text;
   }
 
-  .editor-wrapper.has-outline {
-    display: flex;
-    align-items: flex-start;
-    gap: 0;
-    padding-left: clamp(0.5rem, 2%, 1.5rem);
-  }
-
   .editor-wrapper.ready {
     visibility: visible;
   }
 
-  .editor-root {
+  /* Inner centering container: constrains total width and centers with auto margins.
+     Without outline: max-width = editorLineWidth (e.g. 800px).
+     With outline: max-width = editorLineWidth + 200px (outline width). */
+  .editor-content-area {
     width: 100%;
     margin: 0 auto;
+  }
+
+  .has-outline .editor-content-area {
+    display: flex;
+    align-items: flex-start;
+  }
+
+  .editor-root {
+    width: 100%;
     word-wrap: break-word;
     overflow-wrap: break-word;
   }
 
   .has-outline .editor-root {
-    margin: 0;
     flex: 1;
     min-width: 0;
   }

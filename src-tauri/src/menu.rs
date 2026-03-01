@@ -229,7 +229,7 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
                 "A minimal, AI-ready Markdown editor\n\n\
                  Tech Stack\n\
                  Rust + Tauri v2 · Svelte 5 · TypeScript\n\
-                 Milkdown v7 · ProseMirror · KaTeX\n\n\
+                 ProseMirror · KaTeX · mermaid\n\n\
                  https://moraya.app"
                     .into(),
             ),

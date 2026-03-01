@@ -343,45 +343,22 @@ All API keys are stored exclusively in your OS Keychain — never in plaintext. 
 
 ## Development Roadmap
 
-- [x] **v0.1.0** — Core Platform: WYSIWYG editor (Milkdown), math rendering (KaTeX), multi-provider AI chat (Claude/OpenAI/Gemini/DeepSeek/Ollama), MCP client (stdio/SSE/HTTP), Source/Visual/Split modes, native menu, i18n → [Detailed Requirements](docs/iterations/v0.1.0-core-platform.md)
-
-- [x] **v0.2.0** — Publish Workflow: SEO assistant, AI image generation, multi-target publishing → [Detailed Requirements](docs/iterations/v0.2.0-publish-workflow.md)
-
-- [x] **v0.3.0** — MCP Ecosystem Enhancement: AI tool calling, stdio UI, presets, knowledge sync, conversational MCP config, editor content sync, multi-model management → [Detailed Requirements](docs/iterations/v0.3.0-mcp-ecosystem.md)
-
-- [x] **v0.3.1** — MCP Marketplace: Multi-source registry browsing, one-click install with auto-config, 3 data sources (Official, LobeHub, Smithery) → [Detailed Requirements](docs/iterations/v0.3.1-mcp-marketplace.md)
-
-- [x] **v0.4.0** — Dynamic MCP Container: AI-driven dynamic MCP service creation, lightweight Node.js runtime, 4 internal AI tools, hybrid lifecycle management → [Detailed Requirements](docs/iterations/v0.4.0-mcp-container.md)
-
-- [x] **v0.5.0** — RSS Feed: Auto-update RSS feed when publishing articles, per-target RSS config, zero-dependency XML generation → [Detailed Requirements](docs/iterations/v0.5.0-rss-feed.md)
-
-- [x] **v0.6.0** — Security Hardening: API Key Keychain storage, AI proxy in Rust backend, CSP tightening, MCP security hardening, path traversal protection, HTML export sanitization, error sanitization, unsafe FFI hardening → [Detailed Requirements](docs/iterations/v0.6.0-security-hardening.md)
-
-- [x] **v0.7.0** — iPadOS Adaptation: Tauri iOS target (iPad-only IPA), Tab bar for multi-file editing, floating touch toolbar for virtual keyboard, touch interaction adaptation (hover→active, 44pt targets), virtual keyboard viewport handling, MCP stdio disabled on iOS, TestFlight CI/CD via GitHub Actions → [Detailed Requirements](docs/iterations/v0.7.0-ipados-adaptation.md)
-
-- [x] **v0.8.0** — AI Template System: 10 categories, 71+ templates, 5 flow types, configuration-driven AI interactions → [Detailed Requirements](docs/iterations/v0.8.0-ai-templates.md)
-
-- [x] **v0.9.0** — Code Block Enhancement: Language label, language selector, copy button, CodeBlock NodeView toolbar → [Detailed Requirements](docs/iterations/v0.9.0-code-block-enhancement.md)
-
-- [x] **v0.10.0** — Mermaid Diagrams: 9 diagram types, edit/preview dual mode, lazy-loaded rendering, theme adaptation → [Detailed Requirements](docs/iterations/v0.10.0-mermaid-diagrams.md)
-
-- [x] **v0.11.0** — Sidebar fully enhanced: directory memory + real-time file refresh + list/tree dual views + right-click context menu + file search — further strengthening local privacy-first note-taking. → [Detailed Requirements](docs/iterations/v0.11.0-sidebar-enhancement.md)
-
-- [x] **v0.12.0** — Knowledge Base: Multi-KB switching, per-KB AI rules via `MORAYA.md`, automatic rule injection → [Detailed Requirements](docs/iterations/v0.12.0-knowledge-base.md)
-
-- [x] **v0.13.0** — AI Vision Input: Multimodal image support in AI chat (paste/drag/pick), auto-compression, 4-provider adaptation → [Detailed Requirements](docs/iterations/v0.13.0-vision-input.md)
-
-- [x] **v0.14.0** — AI Model & Image Hosting: 5 new chat providers, 3 new image providers, 5 object storage hosts with HMAC signing → [Detailed Requirements](docs/iterations/v0.14.0-ai-model-imagehost-enhancement.md)
-
-- [x] **v0.15.0** — AI Voice Transcription: Real-time STT (Deepgram/Gladia/AssemblyAI/Azure), speaker diarization, voiceprint archive, meeting summary → [Detailed Requirements](docs/iterations/v0.15.0-voice-transcription.md)
-
-- [x] **v0.16.0** — Plugin System: GitHub-based decentralized registry, Plugin API v1, marketplace with one-click install, SHA256 pinning → [Detailed Requirements](docs/iterations/v0.16.0-plugin-system.md)
-
-- [x] **v0.17.0** — Homebrew Cask: `brew install --cask moraya`, dual-architecture DMG, automated SHA256 update via CI → [Detailed Requirements](docs/iterations/v0.17.0-homebrew-cask.md)
-
-- [x] **v0.18.0** — Document Outline: Editor-side outline panel, H1–H6 heading extraction, click-to-scroll navigation, active heading highlight, Cmd+Shift+O toggle → [Detailed Requirements](docs/iterations/v0.18.0-document-outline.md)
-
-- [x] **v0.19.0** — Rendering Pipeline v2: ProseMirror Doc LRU cache, per-block hljs highlight cache, large file async parsing, fast-switch cancellation mechanism → [Detailed Requirements](docs/iterations/v0.19.0-rendering-pipeline.md)
+| Version | Feature | Status |
+|---------|---------|--------|
+| v0.1.0-v0.3.0 | Core Editor, AI Integration, MCP Ecosystem | Complete |
+| v0.4.0 | MCP Container & Dynamic Services | Complete |
+| v0.5.0 | Publish Workflow (SEO, AIGC, GitHub/RSS) | Complete |
+| v0.6.0 | Security Hardening (Keychain, CSP, Path validation) | Complete |
+| v0.7.0-v0.8.0 | Image Scaling, Image Hosting (5 providers) | Complete |
+| v0.9.0-v0.10.0 | AI Prompt Templates, Editor UX Enhancement | Complete |
+| v0.11.0 | Multi-Tab Editing | Complete |
+| v0.12.0 | Plugin System | Complete |
+| v0.13.0 | Mermaid Diagram Support | Complete |
+| v0.14.0 | AI Model & Image Hosting Enhancement | Complete |
+| v0.15.0 | AI Voice Transcription | Complete |
+| v0.16.0-v0.17.0 | Search & Replace, ProseMirror Performance | Complete |
+| v0.18.0 | Document Outline, Table Keys, Freeze Fix | Complete |
+| v0.19.0 | Rendering Pipeline v2 (Doc Cache, hljs Cache, Async Parse) | Complete |
 
 ## License
 
