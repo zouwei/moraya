@@ -25,13 +25,19 @@
       "general": "通用",
       "editor": "编辑器",
       "appearance": "外观",
-      "ai": "AI",
+      "ai": "对话模型",
+      "imageAi": "图片模型",
       "mcp": "MCP",
-      "image": "图片",
+      "image": "图床",
       "publish": "发布",
       "permissions": "权限",
-      "voice": "语音",
+      "voice": "语音模型",
       "plugins": "插件"
+    },
+    "groups": {
+      "general": "通用",
+      "ai": "AI 设置",
+      "extensions": "扩展"
     },
     "language": {
       "label": "语言",
@@ -65,6 +71,10 @@
       "lineWidth": "编辑器行宽",
       "tabSize": "制表符大小",
       "showLineNumbers": "源码模式显示行号"
+    },
+    "tabDesc": {
+      "image": "配置图床云存储服务。在文档中插入图片时，将自动上传至图床并替换为云端外链。支持七牛云、阿里云 OSS、腾讯 COS、AWS S3 等。",
+      "publish": "配置文章发布目标，将 Markdown 文档一键发布到 GitHub Pages、生成 RSS 订阅源或推送至自定义 API 接口。"
     },
     "version": "Moraya v{version}",
     "permissions": {

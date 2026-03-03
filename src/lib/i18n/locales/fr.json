@@ -25,13 +25,19 @@
       "general": "Général",
       "editor": "Éditeur",
       "appearance": "Apparence",
-      "ai": "IA",
+      "ai": "Chat",
+      "imageAi": "Image IA",
       "mcp": "MCP",
-      "image": "Image",
+      "image": "Hébergement",
       "publish": "Publication",
       "permissions": "Permissions",
-      "voice": "Voix",
+      "voice": "Voix IA",
       "plugins": "Plugins"
+    },
+    "groups": {
+      "general": "Général",
+      "ai": "Paramètres IA",
+      "extensions": "Extensions"
     },
     "language": {
       "label": "Langue",

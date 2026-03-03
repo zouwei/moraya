@@ -25,13 +25,23 @@
       "general": "सामान्य",
       "editor": "एडिटर",
       "appearance": "रूप-रंग",
-      "ai": "AI",
+      "ai": "चैट",
+      "imageAi": "इमेज AI",
       "mcp": "MCP",
-      "image": "चित्र",
+      "image": "होस्टिंग",
       "publish": "प्रकाशन",
       "permissions": "अनुमतियाँ",
-      "voice": "आवाज़",
+      "voice": "वॉयस AI",
       "plugins": "Plugin"
+    },
+    "groups": {
+      "general": "सामान्य",
+      "ai": "AI सेटिंग्स",
+      "extensions": "एक्सटेंशन"
+    },
+    "tabDesc": {
+      "image": "अपने दस्तावेज़ों से अपलोड की गई इमेज होस्ट करने के लिए क्लाउड स्टोरेज प्रदाता कॉन्फ़िगर करें।",
+      "publish": "ब्लॉग, GitHub Pages या RSS जैसे प्रकाशन गंतव्य कॉन्फ़िगर करें।"
     },
     "language": {
       "label": "भाषा",

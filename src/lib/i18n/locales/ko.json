@@ -25,13 +25,23 @@
       "general": "일반",
       "editor": "편집기",
       "appearance": "외관",
-      "ai": "AI",
+      "ai": "채팅",
+      "imageAi": "이미지 AI",
       "mcp": "MCP",
-      "image": "이미지",
+      "image": "호스팅",
       "publish": "게시",
       "permissions": "권한",
-      "voice": "음성",
+      "voice": "음성 AI",
       "plugins": "플러그인"
+    },
+    "groups": {
+      "general": "일반",
+      "ai": "AI 설정",
+      "extensions": "확장"
+    },
+    "tabDesc": {
+      "image": "문서에서 업로드한 이미지를 호스팅할 클라우드 스토리지 제공업체를 설정합니다.",
+      "publish": "블로그, GitHub Pages, RSS 등 게시 대상을 설정합니다."
     },
     "language": {
       "label": "언어",

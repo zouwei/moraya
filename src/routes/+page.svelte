@@ -994,7 +994,11 @@ ${tr('welcome.tip')}
   }
 
   function handleWorkflowImageGen() {
-    getCurrentContent(); // Ensure content is fresh for image prompt extraction
+    // Sync content state from visual editor before opening the dialog.
+    // documentContent={content} passes the Svelte state, which is stale in visual mode
+    // (visual editor doesn't update `content` on every keystroke). Explicitly assigning
+    // here is safe: applySyncToEditor guards against replacement when content is unchanged.
+    content = getCurrentContent();
     showWorkflow = false;
     imageGenDialogMounted = true;
     showImageGenDialog = true;

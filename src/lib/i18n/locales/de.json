@@ -25,13 +25,19 @@
       "general": "Allgemein",
       "editor": "Editor",
       "appearance": "Erscheinungsbild",
-      "ai": "KI",
+      "ai": "Chat",
+      "imageAi": "Bildmodell",
       "mcp": "MCP",
-      "image": "Bild",
+      "image": "Bildhosting",
       "publish": "Veröffentlichen",
       "permissions": "Berechtigungen",
-      "voice": "Sprache",
+      "voice": "Sprachmodell",
       "plugins": "Plugins"
+    },
+    "groups": {
+      "general": "Allgemein",
+      "ai": "KI-Einstellungen",
+      "extensions": "Erweiterungen"
     },
     "language": {
       "label": "Sprache",
@@ -65,6 +71,10 @@
       "lineWidth": "Editor-Zeilenbreite",
       "tabSize": "Tabulatorgröße",
       "showLineNumbers": "Zeilennummern im Quellmodus anzeigen"
+    },
+    "tabDesc": {
+      "image": "Konfigurieren Sie Cloud-Speicheranbieter für Bild-Uploads. Bilder werden beim Einfügen in Dokumente automatisch hochgeladen.",
+      "publish": "Konfigurieren Sie Veröffentlichungsziele für Ihre Dokumente. Senden Sie Markdown-Dateien an GitHub Pages, generieren Sie RSS-Feeds oder posten Sie an benutzerdefinierte API-Endpunkte."
     },
     "version": "Moraya v{version}",
     "permissions": {

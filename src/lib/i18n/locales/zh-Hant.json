@@ -25,13 +25,19 @@
       "general": "一般",
       "editor": "編輯器",
       "appearance": "外觀",
-      "ai": "AI",
+      "ai": "對話模型",
+      "imageAi": "圖片模型",
       "mcp": "MCP",
-      "image": "圖片",
+      "image": "圖床",
       "publish": "發佈",
       "permissions": "權限",
-      "voice": "語音",
+      "voice": "語音模型",
       "plugins": "外掛"
+    },
+    "groups": {
+      "general": "通用",
+      "ai": "AI 設定",
+      "extensions": "擴充"
     },
     "language": {
       "label": "語言",
@@ -65,6 +71,10 @@
       "lineWidth": "編輯器行寬",
       "tabSize": "定位字元大小",
       "showLineNumbers": "原始碼模式顯示行號"
+    },
+    "tabDesc": {
+      "image": "設定圖床雲端儲存服務。在文件中插入圖片時，自動上傳至圖床並替換為雲端外部連結。",
+      "publish": "設定文章發布目標，將 Markdown 文件一鍵發布到 GitHub Pages、生成 RSS 訂閱源或推送至自訂 API。"
     },
     "version": "Moraya v{version}",
     "permissions": {

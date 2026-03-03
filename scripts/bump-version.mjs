@@ -15,7 +15,7 @@
  *   - src-tauri/Cargo.toml
  */
 
-import { readFileSync, writeFileSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
@@ -71,6 +71,18 @@ const next = bumpVersion(current, input);
 validateVersion(next);
 
 console.log(`Bumping version: ${current} → ${next}\n`);
+
+// 0. Sync renderer plugin versions (if feature exists)
+const syncScript = resolve(__dirname, 'sync-renderer-plugins.mjs');
+if (existsSync(syncScript)) {
+  console.log('Syncing renderer plugin versions...');
+  try {
+    execSync(`node ${syncScript}`, { stdio: 'inherit' });
+    console.log('  ✓ renderer-versions.json\n');
+  } catch {
+    console.warn('  ⚠ Plugin sync failed (non-fatal), continuing...\n');
+  }
+}
 
 // 1. package.json
 const pkg = readJSON(files.package);

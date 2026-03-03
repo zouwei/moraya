@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
+  import { isMacOS } from '$lib/utils/platform';
   import { openUrl } from '@tauri-apps/plugin-opener';
   import {
     updateStore,
@@ -63,13 +64,23 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="dialog-panel" onclick={(e) => e.stopPropagation()}>
     <div class="dialog-header">
+      {#if isMacOS}
+        <!-- svelte-ignore a11y_consider_explicit_label -->
+        <button class="close-btn" onclick={onClose} title={tr('common.close')}>
+          <svg width="14" height="14" viewBox="0 0 10 10">
+            <path fill="currentColor" d="M1 0L0 1l4 4-4 4 1 1 4-4 4 4 1-1-4-4 4-4-1-1-4 4z"/>
+          </svg>
+        </button>
+      {/if}
       <h3>{tr('update.title')}</h3>
-      <!-- svelte-ignore a11y_consider_explicit_label -->
-      <button class="close-btn" onclick={onClose}>
-        <svg width="10" height="10" viewBox="0 0 10 10">
-          <path fill="currentColor" d="M1 0L0 1l4 4-4 4 1 1 4-4 4 4 1-1-4-4 4-4-1-1-4 4z"/>
-        </svg>
-      </button>
+      {#if !isMacOS}
+        <!-- svelte-ignore a11y_consider_explicit_label -->
+        <button class="close-btn close-btn-win" onclick={onClose} title={tr('common.close')}>
+          <svg width="14" height="14" viewBox="0 0 10 10">
+            <path fill="currentColor" d="M1 0L0 1l4 4-4 4 1 1 4-4 4 4 1-1-4-4 4-4-1-1-4 4z"/>
+          </svg>
+        </button>
+      {/if}
     </div>
 
     <div class="dialog-body">
@@ -193,8 +204,10 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 1rem 1.25rem;
+    padding: 0.45rem 1rem;
     border-bottom: 1px solid var(--border-light);
+    flex-shrink: 0;
+    min-height: 36px;
   }
 
   .dialog-header h3 {
@@ -204,16 +217,23 @@
     color: var(--text-primary);
   }
 
+  /* macOS: close btn on left */
+  :global(.platform-macos) .dialog-header {
+    justify-content: flex-start;
+    gap: 0.5rem;
+  }
+
   .close-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
     background: none;
     border: none;
     cursor: pointer;
     color: var(--text-muted);
     padding: 4px;
     border-radius: 4px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    flex-shrink: 0;
   }
 
   .close-btn:hover {
@@ -221,13 +241,31 @@
     color: var(--text-primary);
   }
 
-  /* macOS: close button on the left, consistent with macOS window controls */
-  :global(.platform-macos) .dialog-header {
-    justify-content: flex-start;
-    gap: 0.75rem;
+  /* macOS traffic light style */
+  :global(.platform-macos) .close-btn {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #FF5F57;
+    border: 1px solid #E0443E;
+    padding: 0;
+    color: transparent;
   }
-  :global(.platform-macos) .dialog-header .close-btn {
-    order: -1;
+
+  :global(.platform-macos) .close-btn:hover {
+    background: #FF5F57 !important;
+    color: rgba(0, 0, 0, 0.45);
+  }
+
+  :global(.platform-macos) .close-btn svg {
+    width: 6px;
+    height: 6px;
+  }
+
+  /* Windows close button: red hover (scoped class, avoids :not() parent selector bug) */
+  .close-btn-win:hover {
+    background: #C42B1C;
+    color: #fff;
   }
 
   .dialog-body {

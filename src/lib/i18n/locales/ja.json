@@ -25,13 +25,23 @@
       "general": "一般",
       "editor": "エディター",
       "appearance": "外観",
-      "ai": "AI",
+      "ai": "チャット",
+      "imageAi": "画像AI",
       "mcp": "MCP",
-      "image": "画像",
+      "image": "ホスティング",
       "publish": "公開",
       "permissions": "権限",
-      "voice": "音声",
+      "voice": "音声AI",
       "plugins": "プラグイン"
+    },
+    "groups": {
+      "general": "一般",
+      "ai": "AI 設定",
+      "extensions": "拡張"
+    },
+    "tabDesc": {
+      "image": "ドキュメントからアップロードした画像をホストするクラウドストレージプロバイダーを設定します。",
+      "publish": "ブログ、GitHub Pages、RSS などの公開先を設定します。"
     },
     "language": {
       "label": "言語",

@@ -6,13 +6,14 @@
   import { isMacOS } from '$lib/utils/platform';
   import { builtinThemes, getLightThemes, getDarkThemes } from '$lib/styles/themes';
   import AISettings from './ai/AISettings.svelte';
+  import ImageAISettings from './ai/ImageAISettings.svelte';
   import MCPPanel from './ai/MCPPanel.svelte';
   import ImageHostingSettings from './ImageHostingSettings.svelte';
   import PublishSettings from './PublishSettings.svelte';
   import VoiceSettings from './VoiceSettings.svelte';
   import PluginsPanel from './PluginsPanel.svelte';
 
-  type Tab = 'general' | 'editor' | 'appearance' | 'ai' | 'mcp' | 'image' | 'publish' | 'permissions' | 'voice' | 'plugins';
+  type Tab = 'general' | 'editor' | 'appearance' | 'ai' | 'image-ai' | 'mcp' | 'image' | 'publish' | 'permissions' | 'voice' | 'plugins';
 
   let {
     onClose,
@@ -129,17 +130,33 @@
     }
   }
 
-  const tabs: { key: Tab; icon: string; labelKey: string }[] = [
-    { key: 'general', icon: '⚙', labelKey: 'settings.tabs.general' },
-    { key: 'editor', icon: '✎', labelKey: 'settings.tabs.editor' },
-    { key: 'appearance', icon: '◐', labelKey: 'settings.tabs.appearance' },
-    { key: 'permissions', icon: '🔒', labelKey: 'settings.tabs.permissions' },
-    { key: 'ai', icon: '✦', labelKey: 'settings.tabs.ai' },
-    { key: 'mcp', icon: '⇌', labelKey: 'settings.tabs.mcp' },
-    { key: 'image', icon: '▣', labelKey: 'settings.tabs.image' },
-    { key: 'publish', icon: '📤', labelKey: 'settings.tabs.publish' },
-    { key: 'voice', icon: '🎤', labelKey: 'settings.tabs.voice' },
-    { key: 'plugins', icon: '⊞', labelKey: 'settings.tabs.plugins' },
+  const tabGroups: { groupKey: string; items: { key: Tab; icon: string; labelKey: string }[] }[] = [
+    {
+      groupKey: 'settings.groups.general',
+      items: [
+        { key: 'general', icon: '⚙', labelKey: 'settings.tabs.general' },
+        { key: 'editor', icon: '✎', labelKey: 'settings.tabs.editor' },
+        { key: 'appearance', icon: '◐', labelKey: 'settings.tabs.appearance' },
+        { key: 'permissions', icon: '🔒', labelKey: 'settings.tabs.permissions' },
+      ],
+    },
+    {
+      groupKey: 'settings.groups.ai',
+      items: [
+        { key: 'ai', icon: '✦', labelKey: 'settings.tabs.ai' },
+        { key: 'image-ai', icon: '🖼', labelKey: 'settings.tabs.imageAi' },
+        { key: 'voice', icon: '🎤', labelKey: 'settings.tabs.voice' },
+        { key: 'mcp', icon: '⇌', labelKey: 'settings.tabs.mcp' },
+      ],
+    },
+    {
+      groupKey: 'settings.groups.extensions',
+      items: [
+        { key: 'image', icon: '▣', labelKey: 'settings.tabs.image' },
+        { key: 'publish', icon: '📤', labelKey: 'settings.tabs.publish' },
+        { key: 'plugins', icon: '⊞', labelKey: 'settings.tabs.plugins' },
+      ],
+    },
   ];
 </script>
 
@@ -160,7 +177,7 @@
       {/if}
       <h2 class="panel-title">{$t('settings.title')}</h2>
       {#if !isMacOS}
-        <button class="close-btn" onclick={onClose} title={$t('common.close')}>
+        <button class="close-btn close-btn-win" onclick={onClose} title={$t('common.close')}>
           <svg width="14" height="14" viewBox="0 0 10 10">
             <path fill="currentColor" d="M1 0L0 1l4 4-4 4 1 1 4-4 4 4 1-1-4-4 4-4-1-1-4 4z"/>
           </svg>
@@ -173,15 +190,18 @@
       <!-- Left sidebar -->
       <div class="settings-sidebar">
         <nav class="sidebar-nav">
-          {#each tabs as tab}
-            <button
-              class="nav-item"
-              class:active={activeTab === tab.key}
-              onclick={() => activeTab = tab.key}
-            >
-              <span class="nav-icon">{tab.icon}</span>
-              <span class="nav-label">{$t(tab.labelKey)}</span>
-            </button>
+          {#each tabGroups as group}
+            <div class="nav-group-label">{$t(group.groupKey)}</div>
+            {#each group.items as tab}
+              <button
+                class="nav-item"
+                class:active={activeTab === tab.key}
+                onclick={() => activeTab = tab.key}
+              >
+                <span class="nav-icon">{tab.icon}</span>
+                <span class="nav-label">{$t(tab.labelKey)}</span>
+              </button>
+            {/each}
           {/each}
         </nav>
         <div class="sidebar-footer">
@@ -192,9 +212,16 @@
       <!-- Right content -->
       <div class="settings-content">
         <div class="content-body">
-          <h3 class="content-title">{$t(tabs.find(t => t.key === activeTab)?.labelKey ?? '')}</h3>
+          <!-- Tab descriptions for select tabs -->
+          {#if activeTab === 'image'}
+            <p class="tab-desc">{$t('settings.tabDesc.image')}</p>
+          {:else if activeTab === 'publish'}
+            <p class="tab-desc">{$t('settings.tabDesc.publish')}</p>
+          {/if}
+
           <!-- Heavy components: always mounted, shown/hidden via CSS to avoid remount lag -->
           <div class="tab-pane" class:active={activeTab === 'ai'}><AISettings /></div>
+          <div class="tab-pane" class:active={activeTab === 'image-ai'}><ImageAISettings /></div>
         <div class="tab-pane" class:active={activeTab === 'mcp'}><MCPPanel /></div>
         <div class="tab-pane" class:active={activeTab === 'image'}><ImageHostingSettings /></div>
         <div class="tab-pane" class:active={activeTab === 'publish'}><PublishSettings /></div>
@@ -512,9 +539,10 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0.75rem 1.25rem;
+    padding: 0.45rem 1rem;
     border-bottom: 1px solid var(--border-light);
     flex-shrink: 0;
+    min-height: 36px;
   }
 
   .panel-title {
@@ -554,6 +582,19 @@
     flex-direction: column;
     padding: 0.25rem 0.5rem;
     gap: 0.125rem;
+  }
+
+  .nav-group-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-muted);
+    padding: 0.6rem 0.6rem 0.2rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .nav-group-label:first-child {
+    padding-top: 0.25rem;
   }
 
   .nav-item {
@@ -624,16 +665,31 @@
     flex-shrink: 0;
   }
 
-  .close-btn:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
+  /* macOS traffic light style */
+  :global(.platform-macos) .close-btn {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #FF5F57;
+    border: 1px solid #E0443E;
+    padding: 0;
+    color: transparent;
   }
 
-  .content-title {
-    font-size: var(--font-size-base);
-    font-weight: 600;
-    color: var(--text-primary);
-    margin: 0 0 0.25rem;
+  :global(.platform-macos) .close-btn:hover {
+    background: #FF5F57 !important;
+    color: rgba(0, 0, 0, 0.45);
+  }
+
+  :global(.platform-macos) .close-btn svg {
+    width: 6px;
+    height: 6px;
+  }
+
+  /* Windows close button: red hover (scoped class, avoids :not() parent selector bug) */
+  .close-btn-win:hover {
+    background: #C42B1C;
+    color: #fff;
   }
 
   .content-body {
@@ -643,6 +699,15 @@
     display: flex;
     flex-direction: column;
     gap: 1.25rem;
+  }
+
+  .tab-desc {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted);
+    line-height: 1.6;
+    margin: 0;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border-light);
   }
 
   /* Heavy tab components stay mounted; CSS toggles visibility */

@@ -25,13 +25,19 @@
       "general": "General",
       "editor": "Editor",
       "appearance": "Appearance",
-      "ai": "AI",
+      "ai": "Chat",
+      "imageAi": "Image",
       "mcp": "MCP",
-      "image": "Image",
+      "image": "Hosting",
       "publish": "Publish",
       "permissions": "Permissions",
       "voice": "Voice",
       "plugins": "Plugins"
+    },
+    "groups": {
+      "general": "General",
+      "ai": "AI",
+      "extensions": "Extensions"
     },
     "language": {
       "label": "Language",
@@ -65,6 +71,10 @@
       "lineWidth": "Editor Line Width",
       "tabSize": "Tab Size",
       "showLineNumbers": "Show Line Numbers in Source Mode"
+    },
+    "tabDesc": {
+      "image": "Configure cloud storage providers for image uploads. Images are automatically uploaded to your hosting service when inserted into documents.",
+      "publish": "Configure publishing destinations for your documents. Push Markdown files to GitHub Pages, generate RSS feeds, or post to custom API endpoints."
     },
     "version": "Moraya v{version}",
     "permissions": {

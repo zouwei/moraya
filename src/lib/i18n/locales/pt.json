@@ -25,13 +25,23 @@
       "general": "Geral",
       "editor": "Editor",
       "appearance": "Aparência",
-      "ai": "IA",
+      "ai": "Chat",
+      "imageAi": "Imagem IA",
       "mcp": "MCP",
-      "image": "Imagem",
+      "image": "Hospedagem",
       "publish": "Publicar",
       "permissions": "Permissões",
-      "voice": "Voz",
+      "voice": "Voz IA",
       "plugins": "Plugins"
+    },
+    "groups": {
+      "general": "Geral",
+      "ai": "Configurações IA",
+      "extensions": "Extensões"
+    },
+    "tabDesc": {
+      "image": "Configure provedores de armazenamento em nuvem para hospedar imagens carregadas de seus documentos.",
+      "publish": "Configure destinos de publicação como blog, GitHub Pages ou RSS."
     },
     "language": {
       "label": "Idioma",
