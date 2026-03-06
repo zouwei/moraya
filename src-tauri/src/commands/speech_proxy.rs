@@ -15,6 +15,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -443,10 +444,273 @@ fn parse_json_number(value: Option<&Value>) -> Option<f64> {
     })
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CustomWsMode {
+    RawBinary,
+    DashScopeFunAsr,
+    TencentAsrV2,
+    IflytekIatV2,
+    OpenAiRealtime,
+    VolcengineRealtime,
+}
+
+fn normalize_ws_url(url: &str) -> Option<reqwest::Url> {
+    let trimmed = url.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    reqwest::Url::parse(trimmed).ok()
+}
+
+fn ws_url_host(url: &str) -> String {
+    normalize_ws_url(url)
+        .and_then(|u| u.host_str().map(|h| h.to_lowercase()))
+        .unwrap_or_else(|| url.to_lowercase())
+}
+
+fn ws_url_path(url: &str) -> String {
+    normalize_ws_url(url)
+        .map(|u| u.path().trim_end_matches('/').to_lowercase())
+        .unwrap_or_else(|| url.to_lowercase())
+}
+
 fn is_dashscope_ws_endpoint(url: &str) -> bool {
-    let lower = url.to_lowercase();
-    lower.contains("dashscope.aliyuncs.com/api-ws/v1/inference")
-        || lower.contains("dashscope-intl.aliyuncs.com/api-ws/v1/inference")
+    let host = ws_url_host(url);
+    let path = ws_url_path(url);
+    (host.contains("dashscope") && path.ends_with("/api-ws/v1/inference"))
+        || url
+            .to_lowercase()
+            .contains("dashscope.aliyuncs.com/api-ws/v1/inference")
+        || url
+            .to_lowercase()
+            .contains("dashscope-intl.aliyuncs.com/api-ws/v1/inference")
+}
+
+fn is_tencent_asr_ws_endpoint(url: &str) -> bool {
+    let host = ws_url_host(url);
+    let path = ws_url_path(url);
+    (path.contains("/asr/v2/") && (host.contains("tencent") || host.contains("qcloud")))
+        || url.to_lowercase().contains("asr.cloud.tencent.com/asr/v2/")
+}
+
+fn is_iflytek_iat_ws_endpoint(url: &str) -> bool {
+    let host = ws_url_host(url);
+    let path = ws_url_path(url);
+    (host.contains("iat-api") && path.ends_with("/v2/iat"))
+        || (url.to_lowercase().contains("iat-api") && url.to_lowercase().contains("/v2/iat"))
+}
+
+fn is_volcengine_realtime_ws_endpoint(url: &str) -> bool {
+    let host = ws_url_host(url);
+    let path = ws_url_path(url);
+    path.ends_with("/v1/realtime")
+        && (host.contains("volces") || host.contains("volcengine") || host.contains("byteplus"))
+}
+
+fn is_openai_realtime_ws_endpoint(url: &str) -> bool {
+    let host = ws_url_host(url);
+    let path = ws_url_path(url);
+    path.ends_with("/v1/realtime") && host.contains("openai")
+}
+
+fn detect_custom_ws_mode(url: &str, model: &str) -> CustomWsMode {
+    let model_lc = model.trim().to_lowercase();
+    if is_dashscope_ws_endpoint(url) || model_lc.starts_with("fun-asr") {
+        CustomWsMode::DashScopeFunAsr
+    } else if is_tencent_asr_ws_endpoint(url) {
+        CustomWsMode::TencentAsrV2
+    } else if is_iflytek_iat_ws_endpoint(url) {
+        CustomWsMode::IflytekIatV2
+    } else if is_volcengine_realtime_ws_endpoint(url) {
+        CustomWsMode::VolcengineRealtime
+    } else if url.to_lowercase().contains("/v1/realtime") {
+        // OpenAI-compatible realtime servers typically use this path.
+        CustomWsMode::OpenAiRealtime
+    } else {
+        CustomWsMode::RawBinary
+    }
+}
+
+fn extract_url_query_param(url: &str, key: &str) -> Option<String> {
+    let parsed = reqwest::Url::parse(url).ok()?;
+    for (k, v) in parsed.query_pairs() {
+        if k.eq_ignore_ascii_case(key) {
+            return Some(v.into_owned());
+        }
+    }
+    None
+}
+
+fn resolve_iflytek_app_id(base_url: &str, model: &str) -> String {
+    extract_url_query_param(base_url, "app_id")
+        .or_else(|| extract_url_query_param(base_url, "appid"))
+        .or_else(|| {
+            let from_model = model.trim();
+            if from_model.is_empty() {
+                None
+            } else {
+                Some(from_model.to_string())
+            }
+        })
+        .unwrap_or_default()
+}
+
+fn iflytek_language_params(language: &str) -> (&'static str, &'static str) {
+    match language {
+        "en" => ("en_us", "mandarin"),
+        "ja" => ("ja_jp", "mandarin"),
+        "ko" => ("ko_kr", "mandarin"),
+        "fr" => ("fr_fr", "mandarin"),
+        "de" => ("de_de", "mandarin"),
+        "es" => ("es_es", "mandarin"),
+        "zh" | "auto" | "multi" => ("zh_cn", "mandarin"),
+        _ => ("zh_cn", "mandarin"),
+    }
+}
+
+fn build_iflytek_audio_frame(app_id: &str, language: &str, audio: &[u8], status: i32) -> String {
+    let encoded_audio = BASE64_STANDARD.encode(audio);
+    let data = serde_json::json!({
+        "status": status,
+        "format": "audio/L16;rate=16000",
+        "encoding": "raw",
+        "audio": encoded_audio
+    });
+    if status == 0 {
+        let (lang, accent) = iflytek_language_params(language);
+        serde_json::json!({
+            "common": { "app_id": app_id },
+            "business": {
+                "language": lang,
+                "domain": "iat",
+                "accent": accent
+            },
+            "data": data
+        })
+        .to_string()
+    } else {
+        serde_json::json!({ "data": data }).to_string()
+    }
+}
+
+fn build_iflytek_end_frame() -> String {
+    serde_json::json!({
+        "data": {
+            "status": 2
+        }
+    })
+    .to_string()
+}
+
+fn build_tencent_end_signal() -> String {
+    serde_json::json!({ "type": "end" }).to_string()
+}
+
+fn build_realtime_audio_append(audio: &[u8]) -> String {
+    serde_json::json!({
+        "type": "input_audio_buffer.append",
+        "audio": BASE64_STANDARD.encode(audio)
+    })
+    .to_string()
+}
+
+fn build_realtime_audio_commit() -> String {
+    serde_json::json!({ "type": "input_audio_buffer.commit" }).to_string()
+}
+
+fn build_openai_realtime_session_update(model: &str) -> String {
+    let selected_model = if model.trim().is_empty() {
+        "gpt-4o-mini-transcribe"
+    } else {
+        model.trim()
+    };
+    serde_json::json!({
+        "type": "session.update",
+        "session": {
+            "audio": {
+                "input": {
+                    "format": { "type": "audio/pcm", "rate": 16000 },
+                    "transcription": { "model": selected_model },
+                    "turn_detection": { "type": "server_vad" }
+                }
+            }
+        }
+    })
+    .to_string()
+}
+
+fn build_volcengine_realtime_session_update() -> String {
+    serde_json::json!({
+        "type": "transcription_session.update",
+        "session": {
+            "input_audio_format": "pcm",
+            "input_audio_codec": "raw",
+            "input_audio_sample_rate": 16000,
+            "input_audio_bits": 16,
+            "input_audio_channel": 1,
+            "result_type": 0,
+            "turn_detection": {
+                "type": "server_vad_text_mode",
+                "text_interval": 300
+            }
+        }
+    })
+    .to_string()
+}
+
+fn is_openai_realtime_ready(text: &str) -> bool {
+    let value: Value = match serde_json::from_str(text) {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    matches!(
+        value.get("type").and_then(|t| t.as_str()),
+        Some("session.updated") | Some("session.created") | Some("transcription_session.updated")
+    )
+}
+
+fn is_volcengine_realtime_ready(text: &str) -> bool {
+    let value: Value = match serde_json::from_str(text) {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    value.get("type").and_then(|t| t.as_str()) == Some("transcription_session.updated")
+}
+
+fn parse_generic_custom_error(text: &str) -> Option<String> {
+    let value: Value = serde_json::from_str(text).ok()?;
+    let msg_type = value
+        .get("type")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_lowercase();
+    if !msg_type.contains("error") && value.get("error").is_none() {
+        return None;
+    }
+    Some(
+        value
+            .get("error")
+            .and_then(|e| {
+                e.get("message")
+                    .and_then(|m| m.as_str())
+                    .or_else(|| e.as_str())
+            })
+            .or_else(|| value.get("message").and_then(|m| m.as_str()))
+            .or_else(|| {
+                value
+                    .get("data")
+                    .and_then(|d| d.get("error"))
+                    .and_then(|e| e.get("message").and_then(|m| m.as_str()).or_else(|| e.as_str()))
+            })
+            .or_else(|| {
+                value
+                    .get("data")
+                    .and_then(|d| d.get("message"))
+                    .and_then(|m| m.as_str())
+            })
+            .unwrap_or("Custom STT server error")
+            .to_string(),
+    )
 }
 
 fn dashscope_task_id() -> String {
@@ -541,6 +805,120 @@ fn parse_dashscope_task_failed(text: &str) -> Option<String> {
     )
 }
 
+fn parse_tencent_asr(session_id: &str, text: &str) -> Option<SpeechEvent> {
+    let value: Value = serde_json::from_str(text).ok()?;
+    let code = parse_json_number(value.get("code")).unwrap_or(0.0) as i64;
+    if code != 0 {
+        let err = value
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("Tencent ASR server error");
+        return Some(SpeechEvent::Error {
+            session_id: session_id.to_string(),
+            error: err.to_string(),
+        });
+    }
+
+    // Final completion marker may carry no transcript payload.
+    if value
+        .get("final")
+        .and_then(|v| v.as_i64())
+        .map(|v| v == 1)
+        .unwrap_or(false)
+    {
+        return None;
+    }
+
+    let result = value.get("result")?;
+    let transcript = result
+        .get("voice_text_str")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if transcript.is_empty() {
+        return None;
+    }
+
+    let start_ms = parse_json_number(result.get("start_time")).unwrap_or(0.0) as u64;
+    let end_ms = parse_json_number(result.get("end_time")).unwrap_or(0.0) as u64;
+    let is_final = result
+        .get("slice_type")
+        .and_then(|v| v.as_i64())
+        .map(|v| v == 2)
+        .unwrap_or(false);
+
+    Some(SpeechEvent::Transcript {
+        session_id: session_id.to_string(),
+        segment: SpeechSegmentData {
+            speaker_id: "SPEAKER_0".to_string(),
+            text: transcript,
+            start_ms,
+            end_ms,
+            confidence: 0.0,
+            is_final,
+            speech_final: is_final,
+        },
+    })
+}
+
+fn parse_iflytek_iat(session_id: &str, text: &str) -> Option<SpeechEvent> {
+    let value: Value = serde_json::from_str(text).ok()?;
+    let code = parse_json_number(value.get("code")).unwrap_or(0.0) as i64;
+    if code != 0 {
+        let err = value
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("iFLYTEK server error");
+        return Some(SpeechEvent::Error {
+            session_id: session_id.to_string(),
+            error: err.to_string(),
+        });
+    }
+
+    let data = value.get("data")?;
+    let result = data.get("result")?;
+    let ws = result.get("ws").and_then(|v| v.as_array())?;
+
+    let mut transcript = String::new();
+    for token in ws {
+        if let Some(word) = token
+            .get("cw")
+            .and_then(|v| v.as_array())
+            .and_then(|cw| cw.first())
+            .and_then(|best| best.get("w"))
+            .and_then(|w| w.as_str())
+        {
+            transcript.push_str(word);
+        }
+    }
+
+    let transcript = transcript.trim().to_string();
+    if transcript.is_empty() {
+        return None;
+    }
+
+    let is_final = data
+        .get("status")
+        .and_then(|v| v.as_i64())
+        .map(|v| v == 2)
+        .or_else(|| result.get("ls").and_then(|v| v.as_bool()))
+        .unwrap_or(false);
+
+    Some(SpeechEvent::Transcript {
+        session_id: session_id.to_string(),
+        segment: SpeechSegmentData {
+            speaker_id: "SPEAKER_0".to_string(),
+            text: transcript,
+            start_ms: 0,
+            end_ms: 0,
+            confidence: 0.0,
+            is_final,
+            speech_final: is_final,
+        },
+    })
+}
+
 fn parse_custom(session_id: &str, text: &str) -> Option<SpeechEvent> {
     let value: Value = serde_json::from_str(text).ok()?;
     let msg_type = value
@@ -608,31 +986,10 @@ fn parse_custom(session_id: &str, text: &str) -> Option<SpeechEvent> {
     }
 
     // Surface flexible error payloads commonly used by custom STT servers.
-    if msg_type.contains("error") || value.get("error").is_some() {
-        let err = value
-            .get("error")
-            .and_then(|e| {
-                e.get("message")
-                    .and_then(|m| m.as_str())
-                    .or_else(|| e.as_str())
-            })
-            .or_else(|| value.get("message").and_then(|m| m.as_str()))
-            .or_else(|| {
-                value
-                    .get("data")
-                    .and_then(|d| d.get("error"))
-                    .and_then(|e| e.get("message").and_then(|m| m.as_str()).or_else(|| e.as_str()))
-            })
-            .or_else(|| {
-                value
-                    .get("data")
-                    .and_then(|d| d.get("message"))
-                    .and_then(|m| m.as_str())
-            })
-            .unwrap_or("Custom STT server error");
+    if let Some(err) = parse_generic_custom_error(text) {
         return Some(SpeechEvent::Error {
             session_id: session_id.to_string(),
-            error: err.to_string(),
+            error: err,
         });
     }
 
@@ -647,6 +1004,12 @@ fn parse_custom(session_id: &str, text: &str) -> Option<SpeechEvent> {
         .or_else(|| value.get("transcript").and_then(|v| v.as_str()))
         .or_else(|| value.get("transcription").and_then(|v| v.as_str()))
         .or_else(|| value.get("delta").and_then(|v| v.as_str()))
+        .or_else(|| {
+            value
+                .get("result")
+                .and_then(|r| r.get("voice_text_str"))
+                .and_then(|v| v.as_str())
+        })
         .or_else(|| {
             value
                 .get("segment")
@@ -676,6 +1039,13 @@ fn parse_custom(session_id: &str, text: &str) -> Option<SpeechEvent> {
                 .get("data")
                 .and_then(|d| d.get("utterance"))
                 .and_then(|u| u.get("text"))
+                .and_then(|v| v.as_str())
+        })
+        .or_else(|| {
+            value
+                .get("data")
+                .and_then(|d| d.get("result"))
+                .and_then(|r| r.get("text"))
                 .and_then(|v| v.as_str())
         })
         .unwrap_or_default()
@@ -708,6 +1078,7 @@ fn parse_custom(session_id: &str, text: &str) -> Option<SpeechEvent> {
         value
             .get("start_ms")
             .or_else(|| value.get("startMs"))
+            .or_else(|| value.get("result").and_then(|r| r.get("start_time")))
             .or_else(|| value.get("data").and_then(|d| d.get("start_ms")))
             .or_else(|| value.get("data").and_then(|d| d.get("startMs"))),
     )
@@ -734,6 +1105,7 @@ fn parse_custom(session_id: &str, text: &str) -> Option<SpeechEvent> {
         value
             .get("end_ms")
             .or_else(|| value.get("endMs"))
+            .or_else(|| value.get("result").and_then(|r| r.get("end_time")))
             .or_else(|| value.get("data").and_then(|d| d.get("end_ms")))
             .or_else(|| value.get("data").and_then(|d| d.get("endMs"))),
     )
@@ -771,11 +1143,22 @@ fn parse_custom(session_id: &str, text: &str) -> Option<SpeechEvent> {
         .or_else(|| value.get("final").and_then(|v| v.as_bool()))
         .or_else(|| value.get("speech_final").and_then(|v| v.as_bool()))
         .or_else(|| value.get("end_of_turn").and_then(|v| v.as_bool()))
+        .or_else(|| {
+            value
+                .get("result")
+                .and_then(|r| r.get("slice_type"))
+                .and_then(|v| v.as_i64())
+                .map(|slice| slice == 2)
+        })
         .or_else(|| value.get("data").and_then(|d| d.get("is_final")).and_then(|v| v.as_bool()))
         .or_else(|| value.get("data").and_then(|d| d.get("isFinal")).and_then(|v| v.as_bool()))
         .or_else(|| value.get("data").and_then(|d| d.get("final")).and_then(|v| v.as_bool()))
         .unwrap_or_else(|| {
-            if msg_type.contains(".delta") || msg_type.contains("partial") || msg_type.contains("interim") {
+            if msg_type.contains(".delta")
+                || msg_type.ends_with(".result")
+                || msg_type.contains("partial")
+                || msg_type.contains("interim")
+            {
                 false
             } else {
                 true
@@ -1000,6 +1383,16 @@ fn custom_request(base_url: &str, api_key: &str) -> Result<WsRequest, String> {
             format!("Bearer {}", api_key).parse().map_err(|_| "Invalid API key".to_string())?,
         );
     }
+    // OpenAI Realtime historically required this beta header; harmless for
+    // compatibility with older deployments.
+    if is_openai_realtime_ws_endpoint(base_url) {
+        req.headers_mut().insert(
+            "OpenAI-Beta",
+            "realtime=v1"
+                .parse()
+                .map_err(|_| "Invalid OpenAI beta header".to_string())?,
+        );
+    }
     Ok(req)
 }
 
@@ -1010,7 +1403,9 @@ fn dispatch_message(provider: &str, session_id: &str, text: &str) -> Option<Spee
         "deepgram" => parse_deepgram(session_id, text),
         "assemblyai" => parse_assemblyai(session_id, text),
         "gladia" => parse_gladia(session_id, text),
-        "custom" => parse_deepgram(session_id, text)
+        "custom" => parse_tencent_asr(session_id, text)
+            .or_else(|| parse_iflytek_iat(session_id, text))
+            .or_else(|| parse_deepgram(session_id, text))
             .or_else(|| parse_assemblyai(session_id, text))
             .or_else(|| parse_gladia(session_id, text))
             .or_else(|| parse_custom(session_id, text)),
@@ -1053,9 +1448,25 @@ pub async fn speech_proxy_start(
 
     let session_id = new_session_id();
     let region = region.unwrap_or_default();
-    let custom_dashscope_mode = provider == "custom" && is_dashscope_ws_endpoint(&base_url);
-    let custom_dashscope_task_id = if custom_dashscope_mode {
+    let custom_ws_mode = if provider == "custom" {
+        detect_custom_ws_mode(&base_url, &model)
+    } else {
+        CustomWsMode::RawBinary
+    };
+    let custom_dashscope_task_id = if custom_ws_mode == CustomWsMode::DashScopeFunAsr {
         Some(dashscope_task_id())
+    } else {
+        None
+    };
+    let custom_iflytek_app_id = if custom_ws_mode == CustomWsMode::IflytekIatV2 {
+        let app_id = resolve_iflytek_app_id(&base_url, &model);
+        if app_id.is_empty() {
+            return Err(
+                "iFLYTEK iat requires APPID. Set model=APPID or append ?app_id=... in base URL"
+                    .to_string(),
+            );
+        }
+        Some(app_id)
     } else {
         None
     };
@@ -1110,13 +1521,30 @@ pub async fn speech_proxy_start(
             .map_err(|e| format!("Gladia config send failed: {}", e))?;
     }
 
-    if custom_dashscope_mode {
-        if let Some(task_id) = custom_dashscope_task_id.as_deref() {
-            let run_task = build_dashscope_run_task(&model, task_id);
-            ws_write
-                .send(Message::Text(run_task))
-                .await
-                .map_err(|e| format!("DashScope run-task send failed: {}", e))?;
+    if provider == "custom" {
+        match custom_ws_mode {
+            CustomWsMode::DashScopeFunAsr => {
+                if let Some(task_id) = custom_dashscope_task_id.as_deref() {
+                    let run_task = build_dashscope_run_task(&model, task_id);
+                    ws_write
+                        .send(Message::Text(run_task))
+                        .await
+                        .map_err(|e| format!("DashScope run-task send failed: {}", e))?;
+                }
+            }
+            CustomWsMode::OpenAiRealtime => {
+                ws_write
+                    .send(Message::Text(build_openai_realtime_session_update(&model)))
+                    .await
+                    .map_err(|e| format!("OpenAI session.update send failed: {}", e))?;
+            }
+            CustomWsMode::VolcengineRealtime => {
+                ws_write
+                    .send(Message::Text(build_volcengine_realtime_session_update()))
+                    .await
+                    .map_err(|e| format!("Volcengine transcription_session.update send failed: {}", e))?;
+            }
+            _ => {}
         }
     }
 
@@ -1143,7 +1571,13 @@ pub async fn speech_proxy_start(
     }
 
     // Delay Connected for providers that expose an explicit server-ready event.
-    let wait_for_begin = provider == "assemblyai" || custom_dashscope_mode;
+    let wait_for_begin = provider == "assemblyai"
+        || matches!(
+            custom_ws_mode,
+            CustomWsMode::DashScopeFunAsr
+                | CustomWsMode::OpenAiRealtime
+                | CustomWsMode::VolcengineRealtime
+        );
     if !wait_for_begin {
         let _ = on_event.send(SpeechEvent::Connected {
             session_id: session_id.clone(),
@@ -1154,18 +1588,36 @@ pub async fn speech_proxy_start(
         .as_ref()
         .map(|task_id| build_dashscope_finish_task(task_id));
     let dashscope_finish_msg_w = dashscope_finish_msg.clone();
-    let custom_dashscope_mode_r = custom_dashscope_mode;
+    let custom_ws_mode_w = custom_ws_mode;
+    let custom_ws_mode_r = custom_ws_mode;
+    let custom_iflytek_app_id_w = custom_iflytek_app_id.clone();
+    let language_w = language.clone();
 
     // ── Writer task: audio chunks → WebSocket Binary frames ──────────────────
     tokio::spawn(async move {
         let mut stop_rx = stop_rx;
         let mut reader_done_rx = reader_done_rx;
+        let mut iflytek_first_frame_sent = false;
         loop {
             tokio::select! {
                 biased;
                 _ = &mut stop_rx => {
-                    if let Some(msg) = dashscope_finish_msg_w.as_ref() {
-                        let _ = ws_write.send(Message::Text(msg.clone())).await;
+                    match custom_ws_mode_w {
+                        CustomWsMode::DashScopeFunAsr => {
+                            if let Some(msg) = dashscope_finish_msg_w.as_ref() {
+                                let _ = ws_write.send(Message::Text(msg.clone())).await;
+                            }
+                        }
+                        CustomWsMode::TencentAsrV2 => {
+                            let _ = ws_write.send(Message::Text(build_tencent_end_signal())).await;
+                        }
+                        CustomWsMode::IflytekIatV2 => {
+                            let _ = ws_write.send(Message::Text(build_iflytek_end_frame())).await;
+                        }
+                        CustomWsMode::OpenAiRealtime | CustomWsMode::VolcengineRealtime => {
+                            let _ = ws_write.send(Message::Text(build_realtime_audio_commit())).await;
+                        }
+                        CustomWsMode::RawBinary => {}
                     }
                     let _ = ws_write.send(Message::Close(None)).await;
                     break;
@@ -1175,14 +1627,46 @@ pub async fn speech_proxy_start(
                 chunk = audio_rx.recv() => {
                     match chunk {
                         Some(data) => {
-                            if ws_write.send(Message::Binary(data)).await.is_err() {
+                            let send_result = match custom_ws_mode_w {
+                                CustomWsMode::IflytekIatV2 => {
+                                    let app_id = custom_iflytek_app_id_w.as_deref().unwrap_or_default();
+                                    let frame = if !iflytek_first_frame_sent {
+                                        iflytek_first_frame_sent = true;
+                                        build_iflytek_audio_frame(app_id, &language_w, &data, 0)
+                                    } else {
+                                        build_iflytek_audio_frame(app_id, &language_w, &data, 1)
+                                    };
+                                    ws_write.send(Message::Text(frame)).await
+                                }
+                                CustomWsMode::OpenAiRealtime | CustomWsMode::VolcengineRealtime => {
+                                    ws_write
+                                        .send(Message::Text(build_realtime_audio_append(&data)))
+                                        .await
+                                }
+                                _ => ws_write.send(Message::Binary(data)).await,
+                            };
+                            if send_result.is_err() {
                                 break;
                             }
                         }
                         None => {
                             // Channel closed — send graceful close
-                            if let Some(msg) = dashscope_finish_msg_w.as_ref() {
-                                let _ = ws_write.send(Message::Text(msg.clone())).await;
+                            match custom_ws_mode_w {
+                                CustomWsMode::DashScopeFunAsr => {
+                                    if let Some(msg) = dashscope_finish_msg_w.as_ref() {
+                                        let _ = ws_write.send(Message::Text(msg.clone())).await;
+                                    }
+                                }
+                                CustomWsMode::TencentAsrV2 => {
+                                    let _ = ws_write.send(Message::Text(build_tencent_end_signal())).await;
+                                }
+                                CustomWsMode::IflytekIatV2 => {
+                                    let _ = ws_write.send(Message::Text(build_iflytek_end_frame())).await;
+                                }
+                                CustomWsMode::OpenAiRealtime | CustomWsMode::VolcengineRealtime => {
+                                    let _ = ws_write.send(Message::Text(build_realtime_audio_commit())).await;
+                                }
+                                CustomWsMode::RawBinary => {}
                             }
                             let _ = ws_write.send(Message::Close(None)).await;
                             break;
@@ -1224,22 +1708,56 @@ pub async fn speech_proxy_start(
                                 }
                             }
                         }
-                        // DashScope custom ASR handshake
-                        if custom_dashscope_mode_r {
-                            if let Some(err) = parse_dashscope_task_failed(&text) {
-                                let _ = on_event.send(SpeechEvent::Error {
-                                    session_id: sid_r.clone(),
-                                    error: err,
-                                });
-                                break;
+                        match custom_ws_mode_r {
+                            CustomWsMode::DashScopeFunAsr => {
+                                if let Some(err) = parse_dashscope_task_failed(&text) {
+                                    let _ = on_event.send(SpeechEvent::Error {
+                                        session_id: sid_r.clone(),
+                                        error: err,
+                                    });
+                                    break;
+                                }
+                                if is_dashscope_task_started(&text) {
+                                    let _ = on_event.send(SpeechEvent::Connected {
+                                        session_id: sid_r.clone(),
+                                    });
+                                    connected_emitted = true;
+                                    continue; // handshake message, not transcript
+                                }
                             }
-                            if is_dashscope_task_started(&text) {
-                                let _ = on_event.send(SpeechEvent::Connected {
-                                    session_id: sid_r.clone(),
-                                });
-                                connected_emitted = true;
-                                continue; // handshake message, not transcript
+                            CustomWsMode::OpenAiRealtime => {
+                                if let Some(err) = parse_generic_custom_error(&text) {
+                                    let _ = on_event.send(SpeechEvent::Error {
+                                        session_id: sid_r.clone(),
+                                        error: err,
+                                    });
+                                    break;
+                                }
+                                if is_openai_realtime_ready(&text) {
+                                    let _ = on_event.send(SpeechEvent::Connected {
+                                        session_id: sid_r.clone(),
+                                    });
+                                    connected_emitted = true;
+                                    continue; // handshake message, not transcript
+                                }
                             }
+                            CustomWsMode::VolcengineRealtime => {
+                                if let Some(err) = parse_generic_custom_error(&text) {
+                                    let _ = on_event.send(SpeechEvent::Error {
+                                        session_id: sid_r.clone(),
+                                        error: err,
+                                    });
+                                    break;
+                                }
+                                if is_volcengine_realtime_ready(&text) {
+                                    let _ = on_event.send(SpeechEvent::Connected {
+                                        session_id: sid_r.clone(),
+                                    });
+                                    connected_emitted = true;
+                                    continue; // handshake message, not transcript
+                                }
+                            }
+                            _ => {}
                         }
                         // Not ready yet — keep waiting (don't parse as transcript)
                         last_server_text = Some(text.chars().take(300).collect());
@@ -1503,6 +2021,9 @@ mod tests {
         assert!(is_dashscope_ws_endpoint(
             "wss://dashscope-intl.aliyuncs.com/api-ws/v1/inference"
         ));
+        assert!(is_dashscope_ws_endpoint(
+            "wss://dashscope-cn-beijing.aliyuncs.com/api-ws/v1/inference"
+        ));
         assert!(!is_dashscope_ws_endpoint("wss://example.com/realtime"));
     }
 
@@ -1548,5 +2069,158 @@ mod tests {
             _ => panic!("expected error event"),
         };
         assert_eq!(err, "invalid appkey");
+    }
+
+    #[test]
+    fn should_detect_custom_ws_modes() {
+        assert_eq!(
+            detect_custom_ws_mode(
+                "wss://dashscope.aliyuncs.com/api-ws/v1/inference",
+                "fun-asr-realtime"
+            ),
+            CustomWsMode::DashScopeFunAsr
+        );
+        assert_eq!(
+            detect_custom_ws_mode(
+                "wss://asr.cloud.tencent.com/asr/v2/123?secretid=a",
+                ""
+            ),
+            CustomWsMode::TencentAsrV2
+        );
+        assert_eq!(
+            detect_custom_ws_mode("wss://iat-api-sg.xf-yun.com/v2/iat", ""),
+            CustomWsMode::IflytekIatV2
+        );
+        assert_eq!(
+            detect_custom_ws_mode(
+                "wss://api.openai.com/v1/realtime?model=gpt-4o-mini-transcribe",
+                "gpt-4o-mini-transcribe"
+            ),
+            CustomWsMode::OpenAiRealtime
+        );
+        assert_eq!(
+            detect_custom_ws_mode("wss://ai-gateway.vei.volces.com/v1/realtime", ""),
+            CustomWsMode::VolcengineRealtime
+        );
+        // Model-based fallback: DashScope regional/custom gateway with same protocol.
+        assert_eq!(
+            detect_custom_ws_mode("wss://dashscope-cn-beijing.aliyuncs.com/api-ws/v1/inference", ""),
+            CustomWsMode::DashScopeFunAsr
+        );
+        assert_eq!(
+            detect_custom_ws_mode("wss://proxy.example.com/asr", "fun-asr-realtime"),
+            CustomWsMode::DashScopeFunAsr
+        );
+    }
+
+    #[test]
+    fn should_parse_tencent_asr_transcript() {
+        let json = r#"{
+            "code": 0,
+            "message": "success",
+            "result": {
+                "slice_type": 2,
+                "start_time": 120,
+                "end_time": 820,
+                "voice_text_str": "hello world"
+            }
+        }"#;
+
+        let event = parse_tencent_asr("test-session", json);
+        let segment = match event {
+            Some(SpeechEvent::Transcript { segment, .. }) => segment,
+            _ => panic!("expected transcript event"),
+        };
+        assert_eq!(segment.text, "hello world");
+        assert_eq!(segment.start_ms, 120);
+        assert_eq!(segment.end_ms, 820);
+        assert!(segment.is_final);
+    }
+
+    #[test]
+    fn should_parse_tencent_asr_error() {
+        let json = r#"{"code":4001,"message":"signature invalid"}"#;
+        let event = parse_tencent_asr("test-session", json);
+        let err = match event {
+            Some(SpeechEvent::Error { error, .. }) => error,
+            _ => panic!("expected error event"),
+        };
+        assert_eq!(err, "signature invalid");
+    }
+
+    #[test]
+    fn should_parse_iflytek_iat_transcript() {
+        let json = r#"{
+            "code": 0,
+            "data": {
+                "status": 1,
+                "result": {
+                    "ws": [
+                        { "cw": [ { "w": "hello " } ] },
+                        { "cw": [ { "w": "world" } ] }
+                    ]
+                }
+            }
+        }"#;
+
+        let event = parse_iflytek_iat("test-session", json);
+        let segment = match event {
+            Some(SpeechEvent::Transcript { segment, .. }) => segment,
+            _ => panic!("expected transcript event"),
+        };
+        assert_eq!(segment.text, "hello world");
+        assert!(!segment.is_final);
+    }
+
+    #[test]
+    fn should_parse_iflytek_iat_error() {
+        let json = r#"{"code":10005,"message":"auth fail"}"#;
+        let event = parse_iflytek_iat("test-session", json);
+        let err = match event {
+            Some(SpeechEvent::Error { error, .. }) => error,
+            _ => panic!("expected error event"),
+        };
+        assert_eq!(err, "auth fail");
+    }
+
+    #[test]
+    fn should_treat_realtime_result_event_as_non_final() {
+        let json = r#"{
+            "type": "conversation.item.input_audio_transcription.result",
+            "transcript": "partial phrase"
+        }"#;
+
+        let event = parse_custom("test-session", json);
+        let segment = match event {
+            Some(SpeechEvent::Transcript { segment, .. }) => segment,
+            _ => panic!("expected transcript event"),
+        };
+        assert_eq!(segment.text, "partial phrase");
+        assert!(!segment.is_final);
+        assert!(!segment.speech_final);
+    }
+
+    #[test]
+    fn should_build_iflytek_first_frame_with_common_and_business() {
+        let frame = build_iflytek_audio_frame("appid123", "zh", &[1, 2, 3, 4], 0);
+        let json: Value = serde_json::from_str(&frame).expect("iflytek frame should be json");
+        assert_eq!(
+            json.get("common")
+                .and_then(|c| c.get("app_id"))
+                .and_then(|v| v.as_str()),
+            Some("appid123")
+        );
+        assert_eq!(
+            json.get("business")
+                .and_then(|b| b.get("language"))
+                .and_then(|v| v.as_str()),
+            Some("zh_cn")
+        );
+        assert_eq!(
+            json.get("data")
+                .and_then(|d| d.get("status"))
+                .and_then(|v| v.as_i64()),
+            Some(0)
+        );
     }
 }

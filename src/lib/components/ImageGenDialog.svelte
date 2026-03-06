@@ -104,8 +104,20 @@
   });
 
   // Detect pre-defined image prompts in the document (reactive on content changes)
+  function getEffectiveDocumentContent(): string {
+    // `documentContent` is passed from +page after an explicit getCurrentContent() sync.
+    // In visual mode, editorStore.content can lag behind; keep the longer non-empty
+    // candidate to avoid false "content too short" checks.
+    const fromProp = (documentContent ?? '').trim();
+    const fromStore = (editorStore.getState().content ?? '').trim();
+    return fromProp.length >= fromStore.length ? fromProp : fromStore;
+  }
+
   let preDefinedPrompts = $derived(
-    documentContent ? extractImagePrompts(documentContent) : null
+    (() => {
+      const content = getEffectiveDocumentContent();
+      return content ? extractImagePrompts(content) : null;
+    })()
   );
 
   function usePredefinedPrompts() {
@@ -122,7 +134,7 @@
       return;
     }
 
-    const content = editorStore.getState().content;
+    const content = getEffectiveDocumentContent();
     if (!content || content.trim().length < 50) {
       promptError = tr('imageGen.contentTooShort');
       return;

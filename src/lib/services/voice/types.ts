@@ -2,6 +2,12 @@
  * Voice / Transcription type definitions for Moraya v0.15.0
  */
 
+/** Input source mode for realtime transcription capture. */
+export type VoiceInputSourceMode = 'mic' | 'system' | 'mixed';
+
+/** Voice panel runtime mode. */
+export type VoiceSessionMode = 'transcription' | 'interview';
+
 /** A speaker profile that persists across transcription sessions */
 export interface VoiceProfile {
   id: string;

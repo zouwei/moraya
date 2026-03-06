@@ -7,6 +7,7 @@ import { load } from '@tauri-apps/plugin-store';
 import { sendAIRequest, streamAIRequest, streamAIRequestWithTools } from './providers';
 import type {
   AIProviderConfig,
+  RealtimeVoiceAIConfig,
   AICommand,
   ChatMessage,
   ImageAttachment,
@@ -31,6 +32,10 @@ import { rendererManager } from '$lib/services/plugin/renderer-manager';
 
 const AI_STORE_FILE = 'ai-config.json';
 const KEYCHAIN_AI_PREFIX = 'ai-key:';
+const KEYCHAIN_AI_RT_PREFIX = 'ai-rt-key:';
+const KEYCHAIN_AI_RT_AK_PREFIX = 'ai-rt-ak:';
+const KEYCHAIN_AI_RT_SK_PREFIX = 'ai-rt-sk:';
+const KEYCHAIN_AI_RT_ST_PREFIX = 'ai-rt-st:';
 
 // ── Locale-driven detection patterns for incomplete AI responses ──
 // Built once from all locale files so detection works regardless of AI language.
@@ -95,7 +100,90 @@ async function deleteKeyFromKeychain(configId: string): Promise<void> {
   } catch { /* ignore */ }
 }
 
-async function persistAIConfigs(configs: AIProviderConfig[], activeConfigId: string | null) {
+async function saveRealtimeSecretsToKeychain(config: RealtimeVoiceAIConfig): Promise<RealtimeVoiceAIConfig> {
+  const sanitized = { ...config };
+  if (config.apiKey && config.apiKey !== '***') {
+    try {
+      await invoke('keychain_set', { key: `${KEYCHAIN_AI_RT_PREFIX}${config.id}`, value: config.apiKey });
+      sanitized.apiKey = '***';
+    } catch { /* fallback: keep plaintext */ }
+  }
+  if (config.accessKeyId && config.accessKeyId !== '***') {
+    try {
+      await invoke('keychain_set', { key: `${KEYCHAIN_AI_RT_AK_PREFIX}${config.id}`, value: config.accessKeyId });
+      sanitized.accessKeyId = '***';
+    } catch { /* fallback */ }
+  }
+  if (config.secretAccessKey && config.secretAccessKey !== '***') {
+    try {
+      await invoke('keychain_set', { key: `${KEYCHAIN_AI_RT_SK_PREFIX}${config.id}`, value: config.secretAccessKey });
+      sanitized.secretAccessKey = '***';
+    } catch { /* fallback */ }
+  }
+  if (config.sessionToken && config.sessionToken !== '***') {
+    try {
+      await invoke('keychain_set', { key: `${KEYCHAIN_AI_RT_ST_PREFIX}${config.id}`, value: config.sessionToken });
+      sanitized.sessionToken = '***';
+    } catch { /* fallback */ }
+  }
+  return sanitized;
+}
+
+async function restoreRealtimeSecretsFromKeychain(config: RealtimeVoiceAIConfig): Promise<RealtimeVoiceAIConfig> {
+  const restored = { ...config };
+  if (config.apiKey === '***') {
+    try {
+      restored.apiKey = await invoke<string | null>('keychain_get', { key: `${KEYCHAIN_AI_RT_PREFIX}${config.id}` }) ?? '';
+    } catch {
+      restored.apiKey = '';
+    }
+  }
+  if (config.accessKeyId === '***') {
+    try {
+      restored.accessKeyId = await invoke<string | null>('keychain_get', { key: `${KEYCHAIN_AI_RT_AK_PREFIX}${config.id}` }) ?? '';
+    } catch {
+      restored.accessKeyId = '';
+    }
+  }
+  if (config.secretAccessKey === '***') {
+    try {
+      restored.secretAccessKey = await invoke<string | null>('keychain_get', { key: `${KEYCHAIN_AI_RT_SK_PREFIX}${config.id}` }) ?? '';
+    } catch {
+      restored.secretAccessKey = '';
+    }
+  }
+  if (config.sessionToken === '***') {
+    try {
+      restored.sessionToken = await invoke<string | null>('keychain_get', { key: `${KEYCHAIN_AI_RT_ST_PREFIX}${config.id}` }) ?? '';
+    } catch {
+      restored.sessionToken = '';
+    }
+  }
+  return restored;
+}
+
+async function deleteRealtimeSecretsFromKeychain(configId: string): Promise<void> {
+  await Promise.allSettled([
+    invoke('keychain_delete', { key: `${KEYCHAIN_AI_RT_PREFIX}${configId}` }),
+    invoke('keychain_delete', { key: `${KEYCHAIN_AI_RT_AK_PREFIX}${configId}` }),
+    invoke('keychain_delete', { key: `${KEYCHAIN_AI_RT_SK_PREFIX}${configId}` }),
+    invoke('keychain_delete', { key: `${KEYCHAIN_AI_RT_ST_PREFIX}${configId}` }),
+  ]);
+}
+
+function hasRealtimeCredential(config: RealtimeVoiceAIConfig): boolean {
+  return !!(
+    config.apiKey
+    || (config.accessKeyId && config.secretAccessKey)
+  );
+}
+
+async function persistAIConfigs(
+  configs: AIProviderConfig[],
+  activeConfigId: string | null,
+  realtimeVoiceConfigs: RealtimeVoiceAIConfig[],
+  activeRealtimeVoiceConfigId: string | null,
+) {
   try {
     // Save API keys to OS keychain, store "***" placeholder on disk
     const diskConfigs = [];
@@ -108,9 +196,16 @@ async function persistAIConfigs(configs: AIProviderConfig[], activeConfigId: str
       }
     }
 
+    const diskRealtimeConfigs: RealtimeVoiceAIConfig[] = [];
+    for (const c of realtimeVoiceConfigs) {
+      diskRealtimeConfigs.push(await saveRealtimeSecretsToKeychain(c));
+    }
+
     const store = await load(AI_STORE_FILE);
     await store.set('providerConfigs', diskConfigs);
     await store.set('activeConfigId', activeConfigId);
+    await store.set('realtimeVoiceConfigs', diskRealtimeConfigs);
+    await store.set('activeRealtimeVoiceConfigId', activeRealtimeVoiceConfigId);
     await store.save();
   } catch { /* ignore */ }
 }
@@ -127,6 +222,8 @@ interface AIState {
   streamingContent: string;
   providerConfigs: AIProviderConfig[];
   activeConfigId: string | null;
+  realtimeVoiceConfigs: RealtimeVoiceAIConfig[];
+  activeRealtimeVoiceConfigId: string | null;
 }
 
 function computeIsConfigured(configs: AIProviderConfig[], activeId: string | null): boolean {
@@ -145,17 +242,26 @@ function createAIStore() {
     streamingContent: '',
     providerConfigs: [],
     activeConfigId: null,
+    realtimeVoiceConfigs: [],
+    activeRealtimeVoiceConfigId: null,
   });
 
   return {
     subscribe,
 
     /** Load configs from disk without re-persisting */
-    _load(configs: AIProviderConfig[], activeId: string | null) {
+    _load(
+      configs: AIProviderConfig[],
+      activeId: string | null,
+      realtimeVoiceConfigs: RealtimeVoiceAIConfig[] = [],
+      activeRealtimeVoiceConfigId: string | null = null,
+    ) {
       update(state => ({
         ...state,
         providerConfigs: configs,
         activeConfigId: activeId,
+        realtimeVoiceConfigs,
+        activeRealtimeVoiceConfigId,
         isConfigured: computeIsConfigured(configs, activeId),
         error: null,
       }));
@@ -165,7 +271,12 @@ function createAIStore() {
       update(state => {
         const configs = [...state.providerConfigs, config];
         const activeId = state.activeConfigId || config.id;
-        persistAIConfigs(configs, activeId);
+        persistAIConfigs(
+          configs,
+          activeId,
+          state.realtimeVoiceConfigs,
+          state.activeRealtimeVoiceConfigId,
+        );
         return {
           ...state,
           providerConfigs: configs,
@@ -178,7 +289,12 @@ function createAIStore() {
     updateProviderConfig(config: AIProviderConfig) {
       update(state => {
         const configs = state.providerConfigs.map(c => c.id === config.id ? config : c);
-        persistAIConfigs(configs, state.activeConfigId);
+        persistAIConfigs(
+          configs,
+          state.activeConfigId,
+          state.realtimeVoiceConfigs,
+          state.activeRealtimeVoiceConfigId,
+        );
         return {
           ...state,
           providerConfigs: configs,
@@ -196,7 +312,12 @@ function createAIStore() {
           activeId = configs[0]?.id || null;
         }
         deleteKeyFromKeychain(id);
-        persistAIConfigs(configs, activeId);
+        persistAIConfigs(
+          configs,
+          activeId,
+          state.realtimeVoiceConfigs,
+          state.activeRealtimeVoiceConfigId,
+        );
         return {
           ...state,
           providerConfigs: configs,
@@ -208,7 +329,12 @@ function createAIStore() {
 
     setActiveConfig(id: string) {
       update(state => {
-        persistAIConfigs(state.providerConfigs, id);
+        persistAIConfigs(
+          state.providerConfigs,
+          id,
+          state.realtimeVoiceConfigs,
+          state.activeRealtimeVoiceConfigId,
+        );
         return {
           ...state,
           activeConfigId: id,
@@ -220,6 +346,88 @@ function createAIStore() {
     getActiveConfig(): AIProviderConfig | null {
       const state = get({ subscribe });
       return state.providerConfigs.find(c => c.id === state.activeConfigId) || null;
+    },
+
+    addRealtimeVoiceConfig(config: RealtimeVoiceAIConfig) {
+      update(state => {
+        const configs = [...state.realtimeVoiceConfigs, config];
+        const activeId = state.activeRealtimeVoiceConfigId || config.id;
+        persistAIConfigs(
+          state.providerConfigs,
+          state.activeConfigId,
+          configs,
+          activeId,
+        );
+        return {
+          ...state,
+          realtimeVoiceConfigs: configs,
+          activeRealtimeVoiceConfigId: activeId,
+        };
+      });
+    },
+
+    updateRealtimeVoiceConfig(config: RealtimeVoiceAIConfig) {
+      update(state => {
+        const configs = state.realtimeVoiceConfigs.map(c => c.id === config.id ? config : c);
+        persistAIConfigs(
+          state.providerConfigs,
+          state.activeConfigId,
+          configs,
+          state.activeRealtimeVoiceConfigId,
+        );
+        return {
+          ...state,
+          realtimeVoiceConfigs: configs,
+        };
+      });
+    },
+
+    removeRealtimeVoiceConfig(id: string) {
+      update(state => {
+        const configs = state.realtimeVoiceConfigs.filter(c => c.id !== id);
+        let activeId = state.activeRealtimeVoiceConfigId;
+        if (activeId === id) {
+          activeId = configs[0]?.id || null;
+        }
+        deleteRealtimeSecretsFromKeychain(id);
+        persistAIConfigs(
+          state.providerConfigs,
+          state.activeConfigId,
+          configs,
+          activeId,
+        );
+        return {
+          ...state,
+          realtimeVoiceConfigs: configs,
+          activeRealtimeVoiceConfigId: activeId,
+        };
+      });
+    },
+
+    setActiveRealtimeVoiceConfig(id: string) {
+      update(state => {
+        persistAIConfigs(
+          state.providerConfigs,
+          state.activeConfigId,
+          state.realtimeVoiceConfigs,
+          id,
+        );
+        return {
+          ...state,
+          activeRealtimeVoiceConfigId: id,
+        };
+      });
+    },
+
+    getActiveRealtimeVoiceConfig(): RealtimeVoiceAIConfig | null {
+      const state = get({ subscribe });
+      return state.realtimeVoiceConfigs.find(c => c.id === state.activeRealtimeVoiceConfigId) || null;
+    },
+
+    hasRealtimeVoiceConfig(): boolean {
+      const state = get({ subscribe });
+      const active = state.realtimeVoiceConfigs.find(c => c.id === state.activeRealtimeVoiceConfigId);
+      return !!active && hasRealtimeCredential(active);
     },
 
     setLoading(loading: boolean) {
@@ -1274,6 +1482,8 @@ export async function initAIStore() {
     // Try new format first
     const configs = await store.get<AIProviderConfig[]>('providerConfigs');
     const activeId = await store.get<string>('activeConfigId');
+    const realtimeConfigs = await store.get<RealtimeVoiceAIConfig[]>('realtimeVoiceConfigs');
+    const activeRealtimeId = await store.get<string>('activeRealtimeVoiceConfigId');
 
     if (configs && configs.length > 0) {
       // Ensure all configs have ids
@@ -1295,11 +1505,38 @@ export async function initAIStore() {
         }
       }
 
-      aiStore._load(configs, activeId || configs[0].id);
+      let restoredRealtime: RealtimeVoiceAIConfig[] = [];
+      let needsRealtimeMigration = false;
+      if (realtimeConfigs && realtimeConfigs.length > 0) {
+        for (const c of realtimeConfigs) {
+          if (!c.id) c.id = crypto.randomUUID();
+          const restored = await restoreRealtimeSecretsFromKeychain(c);
+          restoredRealtime.push(restored);
+
+          if ((c.apiKey && c.apiKey !== '***')
+            || (c.accessKeyId && c.accessKeyId !== '***')
+            || (c.secretAccessKey && c.secretAccessKey !== '***')
+            || (c.sessionToken && c.sessionToken !== '***')) {
+            needsRealtimeMigration = true;
+          }
+        }
+      }
+
+      aiStore._load(
+        configs,
+        activeId || configs[0].id,
+        restoredRealtime,
+        activeRealtimeId || restoredRealtime[0]?.id || null,
+      );
 
       // Persist migration (replace plaintext keys with "***" on disk)
-      if (needsMigration) {
-        persistAIConfigs(configs, activeId || configs[0].id);
+      if (needsMigration || needsRealtimeMigration) {
+        persistAIConfigs(
+          configs,
+          activeId || configs[0].id,
+          restoredRealtime,
+          activeRealtimeId || restoredRealtime[0]?.id || null,
+        );
       }
     } else {
       // Try old single-config format (migration)
@@ -1310,12 +1547,34 @@ export async function initAIStore() {
         if (saved.apiKey && saved.apiKey !== '***') {
           await saveKeyToKeychain(saved.id, saved.apiKey);
         }
-        aiStore._load([saved], saved.id);
+        const restoredRealtime: RealtimeVoiceAIConfig[] = [];
+        if (realtimeConfigs && realtimeConfigs.length > 0) {
+          for (const c of realtimeConfigs) {
+            if (!c.id) c.id = crypto.randomUUID();
+            restoredRealtime.push(await restoreRealtimeSecretsFromKeychain(c));
+          }
+        }
+        aiStore._load([saved], saved.id, restoredRealtime, activeRealtimeId || restoredRealtime[0]?.id || null);
         // Persist in new format with key placeholder
         await store.set('providerConfigs', [{ ...saved, apiKey: saved.apiKey ? '***' : '' }]);
         await store.set('activeConfigId', saved.id);
+        if (restoredRealtime.length > 0) {
+          const diskRealtime: RealtimeVoiceAIConfig[] = [];
+          for (const c of restoredRealtime) {
+            diskRealtime.push(await saveRealtimeSecretsToKeychain(c));
+          }
+          await store.set('realtimeVoiceConfigs', diskRealtime);
+          await store.set('activeRealtimeVoiceConfigId', activeRealtimeId || restoredRealtime[0]?.id || null);
+        }
         await store.delete('providerConfig');
         await store.save();
+      } else if (realtimeConfigs && realtimeConfigs.length > 0) {
+        const restoredRealtime: RealtimeVoiceAIConfig[] = [];
+        for (const c of realtimeConfigs) {
+          if (!c.id) c.id = crypto.randomUUID();
+          restoredRealtime.push(await restoreRealtimeSecretsFromKeychain(c));
+        }
+        aiStore._load([], null, restoredRealtime, activeRealtimeId || restoredRealtime[0]?.id || null);
       }
     }
   } catch { /* first launch */ }

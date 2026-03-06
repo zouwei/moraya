@@ -15,6 +15,29 @@ export interface AIProviderConfig {
   temperature?: number;
 }
 
+export type RealtimeVoiceProvider =
+  | 'gemini-live'
+  | 'openai-realtime'
+  | 'doubao-realtime'
+  | 'qwen-realtime'
+  | 'stepfun-realtime'
+  | 'tongyi-bailing'
+  | 'amazon-nova-sonic';
+
+export interface RealtimeVoiceAIConfig {
+  id: string;
+  provider: RealtimeVoiceProvider;
+  apiKey?: string;
+  baseUrl?: string;
+  model: string;
+  voice?: string;
+  region?: string;
+  accessKeyId?: string;
+  secretAccessKey?: string;
+  sessionToken?: string;
+  extra?: Record<string, string>;
+}
+
 export const DEFAULT_MODELS: Record<AIProvider, string[]> = {
   claude:  ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'],
   openai:  ['gpt-5.2', 'gpt-5.2-pro', 'gpt-5', 'gpt-5-mini', 'o4-mini', 'gpt-4o', 'gpt-4o-mini', 'o3', 'o3-mini'],
@@ -27,6 +50,16 @@ export const DEFAULT_MODELS: Record<AIProvider, string[]> = {
   minimax: ['MiniMax-M2.5', 'MiniMax-M2.5-highspeed', 'MiniMax-Text-01'],
   doubao:  [],
   custom:  [],
+};
+
+export const REALTIME_VOICE_DEFAULT_MODELS: Record<RealtimeVoiceProvider, string[]> = {
+  'gemini-live': ['gemini-live-2.5-flash-preview-native-audio'],
+  'openai-realtime': ['gpt-realtime'],
+  'doubao-realtime': ['doubao-realtime'],
+  'qwen-realtime': ['qwen-realtime'],
+  'stepfun-realtime': ['step-audio-chat'],
+  'tongyi-bailing': ['tongyi-bailing-realtime'],
+  'amazon-nova-sonic': ['amazon.nova-sonic-v1'],
 };
 
 export const PROVIDER_BASE_URLS: Record<AIProvider, string> = {
@@ -43,11 +76,49 @@ export const PROVIDER_BASE_URLS: Record<AIProvider, string> = {
   custom:   '',
 };
 
+export const REALTIME_VOICE_BASE_URLS: Record<RealtimeVoiceProvider, string> = {
+  'gemini-live': 'wss://generativelanguage.googleapis.com/ws',
+  'openai-realtime': 'wss://api.openai.com/v1/realtime',
+  'doubao-realtime': 'wss://ark.cn-beijing.volces.com',
+  'qwen-realtime': 'wss://dashscope.aliyuncs.com/api-ws/v1/inference',
+  'stepfun-realtime': 'wss://api.stepfun.com/v1/realtime',
+  'tongyi-bailing': 'wss://dashscope.aliyuncs.com/api-ws/v1/inference',
+  'amazon-nova-sonic': 'wss://transcribestreaming.{region}.amazonaws.com:8443',
+};
+
+export const REALTIME_VOICE_PROVIDER_NAMES: Record<RealtimeVoiceProvider, string> = {
+  'gemini-live': 'Gemini Live',
+  'openai-realtime': 'OpenAI Realtime',
+  'doubao-realtime': 'Doubao Realtime',
+  'qwen-realtime': 'Qwen Realtime',
+  'stepfun-realtime': 'StepFun Realtime',
+  'tongyi-bailing': 'Tongyi Bailing',
+  'amazon-nova-sonic': 'Amazon Nova Sonic',
+};
+
+export const REALTIME_VOICE_ENDPOINT_PRESETS: Partial<
+  Record<RealtimeVoiceProvider, { value: string; label: string }[]>
+> = {
+  'qwen-realtime': [
+    { value: 'wss://dashscope.aliyuncs.com/api-ws/v1/inference', label: 'DashScope - Beijing' },
+    { value: 'wss://dashscope-intl.aliyuncs.com/api-ws/v1/inference', label: 'DashScope - Singapore' },
+  ],
+  'tongyi-bailing': [
+    { value: 'wss://dashscope.aliyuncs.com/api-ws/v1/inference', label: 'Tongyi Bailing - Beijing' },
+    { value: 'wss://dashscope-intl.aliyuncs.com/api-ws/v1/inference', label: 'Tongyi Bailing - Singapore' },
+  ],
+  'doubao-realtime': [
+    { value: 'wss://ark.cn-beijing.volces.com', label: 'VolcEngine - Beijing' },
+    { value: 'wss://ark.ap-southeast-1.volces.com', label: 'VolcEngine - Singapore' },
+  ],
+};
+
 export interface ImageAttachment {
   id: string;           // crypto.randomUUID()
   mimeType: string;     // "image/jpeg", "image/png", etc.
   base64: string;       // base64-encoded data (no data: prefix)
   previewUrl?: string;  // blob URL for UI preview only
+  fileName?: string;    // original file name for compact attachment chips
 }
 
 export interface ChatMessage {

@@ -3,6 +3,8 @@ export { sendAIRequest, streamAIRequest, streamAIRequestWithTools } from './prov
 export type {
   AIProvider,
   AIProviderConfig,
+  RealtimeVoiceProvider,
+  RealtimeVoiceAIConfig,
   ChatMessage,
   ImageAttachment,
   AICommand,
@@ -22,8 +24,12 @@ export { INTERNAL_TOOLS, isInternalTool, executeInternalTool } from './internal-
 export {
   AI_COMMANDS,
   DEFAULT_MODELS,
+  REALTIME_VOICE_DEFAULT_MODELS,
   DEFAULT_IMAGE_MODELS,
   PROVIDER_BASE_URLS,
+  REALTIME_VOICE_BASE_URLS,
+  REALTIME_VOICE_PROVIDER_NAMES,
+  REALTIME_VOICE_ENDPOINT_PRESETS,
   IMAGE_PROVIDER_PRESETS,
   DEFAULT_IMAGE_PROVIDER_CONFIG,
   IMAGE_SIZE_MAP,

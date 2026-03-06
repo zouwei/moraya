@@ -6,7 +6,6 @@
   import {
     SPEECH_PROVIDER_MODELS,
     SPEECH_PROVIDER_NAMES,
-    SPEECH_PROVIDER_BASE_URLS,
     type SpeechProvider,
     type SpeechProviderConfig,
   } from '$lib/services/ai/types';
@@ -117,6 +116,19 @@
     { value: 'custom', label: $t('settings.voice.custom') },
   ];
 
+  const SPEECH_BASE_URL_PRESETS: Partial<Record<SpeechProvider, { value: string; label: string }[]>> = {
+    custom: [
+      { value: 'wss://dashscope.aliyuncs.com/api-ws/v1/inference', label: 'DashScope - Beijing' },
+      { value: 'wss://dashscope-intl.aliyuncs.com/api-ws/v1/inference', label: 'DashScope - Singapore' },
+      { value: 'wss://api.deepgram.com', label: 'Deepgram' },
+      { value: 'wss://api.gladia.io', label: 'Gladia' },
+    ],
+  };
+
+  function getBaseUrlPresets(provider: SpeechProvider): { value: string; label: string }[] {
+    return SPEECH_BASE_URL_PRESETS[provider] ?? [];
+  }
+
   const LANGUAGES = [
     { value: 'zh', label: '中文' },
     { value: 'en', label: 'English' },
@@ -223,7 +235,7 @@
   // ── Test connection ────────────────────────────────────────────────────────
 
   async function testConnection() {
-    if (!form.apiKey.trim()) return;
+    if (!form.apiKey.trim() && form.provider !== 'custom') return;
     testStatus = 'testing';
     testError = '';
 
@@ -381,7 +393,14 @@
           {#if form.provider === 'custom'}
             <div class="field">
               <label>{$t('settings.voice.baseUrl')}</label>
-              <input type="text" bind:value={form.baseUrl} placeholder="wss://..." />
+              <input type="text" bind:value={form.baseUrl} list="speech-baseurl-edit" placeholder="wss://..." />
+              {#if getBaseUrlPresets(form.provider).length > 0}
+                <datalist id="speech-baseurl-edit">
+                  {#each getBaseUrlPresets(form.provider) as opt (opt.value)}
+                    <option value={opt.value}>{opt.label}</option>
+                  {/each}
+                </datalist>
+              {/if}
             </div>
           {/if}
           <div class="form-footer">
@@ -491,7 +510,14 @@
         {#if form.provider === 'custom'}
           <div class="field">
             <label>{$t('settings.voice.baseUrl')}</label>
-            <input type="text" bind:value={form.baseUrl} placeholder="wss://..." />
+            <input type="text" bind:value={form.baseUrl} list="speech-baseurl-add" placeholder="wss://..." />
+            {#if getBaseUrlPresets(form.provider).length > 0}
+              <datalist id="speech-baseurl-add">
+                {#each getBaseUrlPresets(form.provider) as opt (opt.value)}
+                  <option value={opt.value}>{opt.label}</option>
+                {/each}
+              </datalist>
+            {/if}
           </div>
         {/if}
         <div class="form-footer">

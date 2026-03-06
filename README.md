@@ -300,6 +300,16 @@ Open Settings (`Cmd+,` / `Ctrl+,`) and select the **AI** and **Voice** tab. Conf
 | AWS Transcribe | Yes (AWS credentials) | general, medical, call-center (region required) |
 | Custom | Optional | Custom WebSocket endpoint |
 
+Built-in `Custom` WebSocket protocol adapters:
+
+| Endpoint Pattern | Protocol | Audio Transport | Notes |
+| ---------------- | -------- | --------------- | ----- |
+| `*.dashscope*.aliyuncs.com/api-ws/v1/inference` | DashScope FunASR | Binary PCM | Supports same-protocol regional nodes (e.g. Beijing/Singapore), auto `run-task` / `finish-task` |
+| `asr.cloud.tencent.com/asr/v2/` | Tencent Cloud ASR v2 | Binary PCM | Sends `{"type":"end"}` on stop, parses `result.voice_text_str` |
+| `iat-api*.xf-yun.com/v2/iat` | iFLYTEK IAT v2 | JSON base64 frames | First/middle/last frame protocol (`status` 0/1/2); set APPID in `model` or URL `app_id` |
+| `api.openai.com/v1/realtime` | OpenAI Realtime | `input_audio_buffer.append` | Auto `session.update`, commits on stop, parses transcription delta/completed |
+| `ai-gateway.vei.volces.com/v1/realtime` | Volcengine Realtime (VEI Gateway) | `input_audio_buffer.append` | Auto `transcription_session.update`, parses delta/result/completed |
+
 All API keys are stored exclusively in your OS Keychain — never in plaintext. Click **Test Connection** in each section to verify before use.
 
 ## Development Roadmap

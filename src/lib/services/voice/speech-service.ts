@@ -21,6 +21,7 @@ import type {
   SpeechEvent,
   VoiceProfile,
   NewProfileProposal,
+  VoiceInputSourceMode,
 } from './types';
 
 // ---------------------------------------------------------------------------
@@ -89,7 +90,7 @@ interface SessionState {
   /** Running total of buffered PCM bytes */
   pcmBufferBytes: number;
   audioContext: AudioContext | null;
-  mediaStream: MediaStream | null;
+  mediaStreams: MediaStream[];
   workletNode: AudioWorkletNode | null;
   analyserNode: AnalyserNode | null;
 }
@@ -109,7 +110,17 @@ export async function startTranscription(
   voiceProfiles: VoiceProfile[],
   onSegment: (seg: TranscriptSegment) => void,
   onError: (msg: string) => void,
+  opts?: { sourceMode?: VoiceInputSourceMode },
 ): Promise<string> {
+  const sourceMode: VoiceInputSourceMode = opts?.sourceMode ?? 'mic';
+  let preparedSystemStream: MediaStream | null = null;
+  if (sourceMode === 'system' || sourceMode === 'mixed') {
+    // Important: call getDisplayMedia in the user-gesture chain before any
+    // unrelated async work, otherwise some engines reject with:
+    // "getDisplayMedia must be called from a user gesture handler."
+    preparedSystemStream = await getSystemAudioStream();
+  }
+
   const channel = new Channel<SpeechEvent>();
 
   // Buffer any early events before session state is ready — Rust may emit
@@ -117,47 +128,67 @@ export async function startTranscription(
   const pendingEvents: SpeechEvent[] = [];
   channel.onmessage = (event: SpeechEvent) => pendingEvents.push(event);
 
-  const sessionId = await invoke<string>('speech_proxy_start', {
-    configId: config.id,
-    provider: config.provider,
-    baseUrl: config.baseUrl ?? SPEECH_PROVIDER_BASE_URLS[config.provider] ?? '',
-    language: config.language,
-    model: config.model,
-    region: config.region ?? null,
-    onEvent: channel,
-  });
+  let sessionId = '';
+  try {
+    sessionId = await invoke<string>('speech_proxy_start', {
+      configId: config.id,
+      provider: config.provider,
+      baseUrl: config.baseUrl ?? SPEECH_PROVIDER_BASE_URLS[config.provider] ?? '',
+      language: config.language,
+      model: config.model,
+      region: config.region ?? null,
+      onEvent: channel,
+    });
 
-  const state: SessionState = {
-    configId: config.id,
-    speakers: new Map(),
-    segments: [],
-    maleCount: 0,
-    femaleCount: 0,
-    bystanderSuffix: Math.floor(Math.random() * 900) + 100, // start offset
-    onSegment,
-    onError,
-    mergeTimers: new Map(),
-    pendingCommit: new Map(),
-    pcmBuffer: [],
-    pcmBufferBytes: 0,
-    audioContext: null,
-    mediaStream: null,
-    workletNode: null,
-    analyserNode: null,
-  };
-  sessions.set(sessionId, state);
+    const state: SessionState = {
+      configId: config.id,
+      speakers: new Map(),
+      segments: [],
+      maleCount: 0,
+      femaleCount: 0,
+      bystanderSuffix: Math.floor(Math.random() * 900) + 100, // start offset
+      onSegment,
+      onError,
+      mergeTimers: new Map(),
+      pendingCommit: new Map(),
+      pcmBuffer: [],
+      pcmBufferBytes: 0,
+      audioContext: null,
+      mediaStreams: [],
+      workletNode: null,
+      analyserNode: null,
+    };
+    sessions.set(sessionId, state);
 
-  // Switch to real handler and drain any buffered events
-  channel.onmessage = (event: SpeechEvent) =>
-    handleSpeechEvent(sessionId, event, voiceProfiles);
-  for (const event of pendingEvents) {
-    handleSpeechEvent(sessionId, event, voiceProfiles);
+    // Switch to real handler and drain any buffered events
+    channel.onmessage = (event: SpeechEvent) =>
+      handleSpeechEvent(sessionId, event, voiceProfiles);
+    for (const event of pendingEvents) {
+      handleSpeechEvent(sessionId, event, voiceProfiles);
+    }
+
+    // Start audio capture
+    await startAudioCapture(sessionId, sourceMode, preparedSystemStream);
+    preparedSystemStream = null; // ownership transferred to session
+
+    return sessionId;
+  } catch (e) {
+    if (sessionId) {
+      const state = sessions.get(sessionId);
+      if (state) {
+        stopAudioCapture(state);
+        sessions.delete(sessionId);
+      }
+      try {
+        await invoke('speech_proxy_stop', { sessionId });
+      } catch { /* ignore */ }
+    }
+    if (preparedSystemStream) {
+      preparedSystemStream.getTracks().forEach(t => t.stop());
+      preparedSystemStream = null;
+    }
+    throw e;
   }
-
-  // Start mic capture
-  await startMicCapture(sessionId);
-
-  return sessionId;
 }
 
 /** Send a raw PCM chunk to the Rust proxy (called by the AudioWorklet) */
@@ -201,7 +232,7 @@ export async function stopTranscription(
   if (!state) return { segments: [], profiles: [] };
 
   // Stop mic
-  stopMicCapture(state);
+  stopAudioCapture(state);
 
   // Tell Rust proxy to close the WebSocket
   try {
@@ -296,20 +327,16 @@ export async function stopTranscription(
 }
 
 // ---------------------------------------------------------------------------
-// Mic capture
+// Audio capture (mic / system / mixed)
 // ---------------------------------------------------------------------------
 
-async function startMicCapture(sessionId: string): Promise<void> {
-  const state = sessions.get(sessionId);
-  if (!state) return;
-
+async function getMicStream(): Promise<MediaStream> {
   if (!navigator.mediaDevices?.getUserMedia) {
     throw new Error(
       'Microphone access is unavailable. On macOS, please allow microphone access in System Settings → Privacy & Security → Microphone.',
     );
   }
-
-  const stream = await navigator.mediaDevices.getUserMedia({
+  return navigator.mediaDevices.getUserMedia({
     audio: {
       channelCount: 1,
       sampleRate: 16000,
@@ -317,21 +344,117 @@ async function startMicCapture(sessionId: string): Promise<void> {
       noiseSuppression: true,
     },
   });
+}
+
+async function getSystemAudioStream(): Promise<MediaStream> {
+  if (!navigator.mediaDevices?.getDisplayMedia) {
+    throw new Error(
+      'System audio capture is unavailable in this environment.',
+    );
+  }
+
+  const waitForAudioTrack = async (
+    captured: MediaStream,
+    timeoutMs = 1800,
+  ): Promise<MediaStreamTrack | null> => {
+    const immediate = captured.getAudioTracks()[0];
+    if (immediate) return immediate;
+    const STEP_MS = 120;
+    const rounds = Math.ceil(timeoutMs / STEP_MS);
+    for (let i = 0; i < rounds; i++) {
+      await new Promise(resolve => setTimeout(resolve, STEP_MS));
+      const track = captured.getAudioTracks()[0];
+      if (track) return track;
+    }
+    return captured.getAudioTracks()[0] ?? null;
+  };
+
+  const extractAudioOnlyStream = async (captured: MediaStream): Promise<MediaStream> => {
+    // Some engines attach audio track slightly after stream creation.
+    const audioTrack = await waitForAudioTrack(captured);
+    if (!audioTrack || audioTrack.readyState === 'ended') {
+      captured.getTracks().forEach(t => t.stop());
+      throw new Error('SYSTEM_AUDIO_TRACK_MISSING');
+    }
+    // Keep only system audio; stop video tracks immediately.
+    captured.getVideoTracks().forEach(t => t.stop());
+    return new MediaStream([audioTrack]);
+  };
+
+  // Use a single getDisplayMedia call to preserve the user-gesture chain.
+  // Some engines reject a second fallback call with:
+  // "getDisplayMedia must be called from a user gesture handler."
+  const stream = await navigator.mediaDevices.getDisplayMedia({
+    video: true,
+    // Use extended audio constraints when available. Unsupported fields are ignored.
+    audio: {
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+      suppressLocalAudioPlayback: false,
+      // Chromium-style hint: prefer including system audio in picker.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ...( { systemAudio: 'include' } as any ),
+    },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any);
+  return await extractAudioOnlyStream(stream);
+}
+
+async function startAudioCapture(
+  sessionId: string,
+  sourceMode: VoiceInputSourceMode,
+  preparedSystemStream: MediaStream | null = null,
+): Promise<void> {
+  const state = sessions.get(sessionId);
+  if (!state) return;
+
+  const streams: MediaStream[] = [];
+  if (sourceMode === 'mic') {
+    streams.push(await getMicStream());
+  } else if (sourceMode === 'system') {
+    streams.push(preparedSystemStream ?? await getSystemAudioStream());
+  } else {
+    let micStream: MediaStream | null = null;
+    let systemStream: MediaStream | null = null;
+    try {
+      systemStream = preparedSystemStream ?? await getSystemAudioStream();
+      micStream = await getMicStream();
+      streams.push(micStream, systemStream);
+    } catch (e) {
+      micStream?.getTracks().forEach(t => t.stop());
+      systemStream?.getTracks().forEach(t => t.stop());
+      throw e;
+    }
+  }
+
+  // Assign early so startTranscription cleanup can stop partially-open streams.
+  state.mediaStreams = streams;
 
   const audioCtx = new AudioContext({ sampleRate: 16000 });
-  const source = audioCtx.createMediaStreamSource(stream);
-
-  // Analyser for pitch detection
-  const analyser = audioCtx.createAnalyser();
-  analyser.fftSize = 2048;
-  source.connect(analyser);
 
   // PCM worklet for sending audio chunks to Rust
   await audioCtx.audioWorklet.addModule(
     new URL('./pcm-worklet.js', import.meta.url),
   );
   const worklet = new AudioWorkletNode(audioCtx, 'pcm-sender');
-  source.connect(worklet);
+
+  // Mix all selected inputs into one mono chain.
+  const mixNode = audioCtx.createGain();
+  mixNode.gain.value = 1;
+  for (const stream of streams) {
+    const source = audioCtx.createMediaStreamSource(stream);
+    const gain = audioCtx.createGain();
+    gain.gain.value = 1;
+    source.connect(gain);
+    gain.connect(mixNode);
+  }
+
+  // Analyser for pitch detection
+  const analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 2048;
+  mixNode.connect(analyser);
+  mixNode.connect(worklet);
 
   // Rate-limit IPC: only one sendAudioChunk in flight at a time.
   // If the Tauri IPC round-trip takes longer than the worklet interval (~250 ms),
@@ -354,19 +477,21 @@ async function startMicCapture(sessionId: string): Promise<void> {
   };
 
   state.audioContext = audioCtx;
-  state.mediaStream = stream;
+  state.mediaStreams = streams;
   state.workletNode = worklet;
   state.analyserNode = analyser;
 }
 
-function stopMicCapture(state: SessionState): void {
+function stopAudioCapture(state: SessionState): void {
   state.workletNode?.disconnect();
   state.analyserNode?.disconnect();
-  state.mediaStream?.getTracks().forEach(t => t.stop());
+  for (const stream of state.mediaStreams) {
+    stream.getTracks().forEach(t => t.stop());
+  }
   state.audioContext?.close().catch(() => { /* ignore */ });
   state.workletNode = null;
   state.analyserNode = null;
-  state.mediaStream = null;
+  state.mediaStreams = [];
   state.audioContext = null;
 }
 
@@ -384,7 +509,7 @@ function handleSpeechEvent(
 
   if (event.type === 'error') {
     // Stop mic capture immediately and remove session so audio sends stop
-    stopMicCapture(state);
+    stopAudioCapture(state);
     sessions.delete(sessionId);
     state.onError(event.error ?? 'Unknown STT error');
     return;

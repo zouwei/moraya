@@ -1,8 +1,15 @@
 <script lang="ts">
   import { settingsStore } from '$lib/stores/settings-store';
   import { startTranscription, stopTranscription } from '$lib/services/voice/speech-service';
+  import { aiStore, sendAIRequest } from '$lib/services/ai';
   import { t, resolveAllLocales } from '$lib/i18n';
-  import type { TranscriptSegment, NewProfileProposal, VoiceProfile } from '$lib/services/voice/types';
+  import type {
+    TranscriptSegment,
+    NewProfileProposal,
+    VoiceProfile,
+    VoiceInputSourceMode,
+    VoiceSessionMode,
+  } from '$lib/services/voice/types';
   import type { SpeechProviderConfig } from '$lib/services/ai/types';
 
   let {
@@ -20,17 +27,51 @@
   // ── State ──────────────────────────────────────────────────────────────────
 
   type RecordingState = 'idle' | 'connecting' | 'recording' | 'paused' | 'stopping';
+  type InterviewRow =
+    | {
+      id: string;
+      side: 'left';
+      speaker: string;
+      text: string;
+      timestamp: number;
+    }
+    | {
+      id: string;
+      side: 'right';
+      text: string;
+      timestamp: number;
+      status: 'pending' | 'done' | 'failed';
+    };
 
   let recordingState = $state<RecordingState>('idle');
   let sessionId = $state<string | null>(null);
   let segments = $state<TranscriptSegment[]>([]);
+  let sourceMode = $state<VoiceInputSourceMode>('mic');
+  let sessionMode = $state<VoiceSessionMode>('transcription');
+  let interviewRows = $state<InterviewRow[]>([]);
+  let interviewBusy = $state(false);
+  let interviewCursor = $state(0); // final segment cursor for delta forwarding
+  let interviewPendingContext = $state('');
+  let interviewLastQuestionKey = $state('');
+  let systemSourceUnsupported = $state(false);
   let elapsedMs = $state(0);
   let error = $state<string | null>(null);
   let transcriptEl = $state<HTMLDivElement | undefined>(undefined);
   let autoScroll = $state(true);
 
   let timerInterval: ReturnType<typeof setInterval> | null = null;
+  let interviewSilenceTimer: ReturnType<typeof setTimeout> | null = null;
   let startTime = 0;
+  const INTERVIEW_SILENCE_MS = 3000;
+  const INTERVIEW_MIN_DELTA_CHARS = 10;
+  const INTERVIEW_MIN_SEGMENT_CHARS = 4;
+  const INTERVIEW_MIN_CONFIDENCE = 0.55;
+  const INTERVIEW_MAX_BUFFER_CHARS = 900;
+  const INTERVIEW_CONTEXT_WINDOW_CHARS = 520;
+  const INTERVIEW_QUESTION_WINDOW_CHARS = 220;
+  const INTERVIEW_FORCE_ANSWER_CHARS = 180;
+  const QUESTION_CUE_RE = /[?？]|(什么|为何|为什么|怎么|如何|请问|是否|能否|可否|哪(里|个|些)?|多少|几|吗|呢|么|原理|区别|步骤|原因|方案|怎么做|介绍(?:一下|下)?|讲(?:一下|下)?|说(?:一下|下)?|请解释|帮我|给我|总结|分析)|\b(what|why|how|when|where|which|who|whom|whose|can|could|would|should|is|are|do|does|did|explain|tell me|walk me through|compare)\b/i;
+  const FILLER_ONLY_RE = /^(嗯+|呃+|啊+|额+|噢+|哦+|唉+|呀+|诶+|uh+|um+|er+|ah+|eh+|hmm+|mm+)([，。！？?!、~…\s]*)$/i;
 
   // Active speech config from settings
   let speechConfig = $derived.by((): SpeechProviderConfig | null => {
@@ -94,19 +135,140 @@
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   }
 
+  function scrollTranscriptToBottom(force = false) {
+    if (!transcriptEl) return;
+    if (!force && !autoScroll) return;
+    requestAnimationFrame(() => {
+      if (!transcriptEl) return;
+      transcriptEl.scrollTop = transcriptEl.scrollHeight;
+    });
+  }
+
+  function lineKey(text: string): string {
+    return text
+      .toLowerCase()
+      .replace(/[\s\.,!?，。！？:：;；'"`~\-_/\\()[\]{}<>]/g, '');
+  }
+
+  function sanitizeInterviewLine(text: string): string {
+    return text
+      .replace(/^[\s【\[]?(?:speaker\s*\d+|说话人\s*\d+|路人\d*|passerby\d*|unknown|user|assistant|ai|面试官|候选人)\s*[:：]\s*/i, '')
+      .replace(/\s+/g, ' ')
+      .replace(/([，。！？?!])\1+/g, '$1')
+      .trim();
+  }
+
+  function isLikelyNoiseLine(
+    line: string,
+    confidence: number,
+    hasReliableConfidence: boolean,
+  ): boolean {
+    if (!line) return true;
+    if (line.length < INTERVIEW_MIN_SEGMENT_CHARS) return true;
+    if (FILLER_ONLY_RE.test(line)) return true;
+    if (!/[A-Za-z0-9\u4e00-\u9fff]/.test(line)) return true;
+    if (hasReliableConfidence && Number.isFinite(confidence) && confidence < INTERVIEW_MIN_CONFIDENCE) {
+      return true;
+    }
+    const compact = line.replace(/\s+/g, '');
+    if (compact.length >= 6 && new Set(compact.toLowerCase()).size <= 2) return true;
+    return false;
+  }
+
+  function appendInterviewBuffer(deltaText: string) {
+    if (!deltaText.trim()) return;
+    const next = interviewPendingContext
+      ? `${interviewPendingContext}\n${deltaText}`
+      : deltaText;
+    interviewPendingContext = next.length > INTERVIEW_MAX_BUFFER_CHARS
+      ? next.slice(-INTERVIEW_MAX_BUFFER_CHARS)
+      : next;
+  }
+
+  function extractInterviewQuestion(buffer: string): { focus: string; support: string; hasCue: boolean } | null {
+    const normalized = buffer.trim();
+    if (!normalized) return null;
+
+    const parts = normalized
+      .split(/[\n。！？?!]/)
+      .map(s => s.trim())
+      .filter(Boolean);
+    if (parts.length === 0) return null;
+
+    const candidates = parts.filter(part => QUESTION_CUE_RE.test(part));
+    const focusRaw = (candidates.length > 0
+      ? candidates.slice(-2).join('；')
+      : parts[parts.length - 1]
+    ).trim();
+    if (!focusRaw) return null;
+
+    return {
+      focus: focusRaw.slice(-INTERVIEW_QUESTION_WINDOW_CHARS),
+      support: normalized.slice(-INTERVIEW_CONTEXT_WINDOW_CHARS),
+      hasCue: candidates.length > 0 || QUESTION_CUE_RE.test(focusRaw),
+    };
+  }
+
+  function questionSignature(text: string): string {
+    return lineKey(text).slice(-160);
+  }
+
   // ── Recording control ──────────────────────────────────────────────────────
 
-  async function startRecording() {
+  function clearInterviewSilenceTimer() {
+    if (interviewSilenceTimer) {
+      clearTimeout(interviewSilenceTimer);
+      interviewSilenceTimer = null;
+    }
+  }
+
+  function scheduleInterviewAnswerBySilence() {
+    if (sessionMode !== 'interview' || recordingState === 'idle' || recordingState === 'connecting') return;
+    clearInterviewSilenceTimer();
+    interviewSilenceTimer = setTimeout(() => {
+      triggerInterviewAnswer().catch((e) => {
+        console.error('[Voice] interview answer trigger failed:', e);
+      });
+    }, INTERVIEW_SILENCE_MS);
+  }
+
+  function resetInterviewContext(cursorAtEnd = false) {
+    interviewRows = [];
+    clearInterviewSilenceTimer();
+    interviewBusy = false;
+    interviewPendingContext = '';
+    interviewLastQuestionKey = '';
+    if (cursorAtEnd) {
+      interviewCursor = finalSegments.length;
+    } else {
+      interviewCursor = 0;
+    }
+  }
+
+  function requiresUserGestureSource(mode: VoiceInputSourceMode): boolean {
+    return mode === 'system' || mode === 'mixed';
+  }
+
+  async function startRecording(opts?: { preserveSegments?: boolean; preserveElapsed?: boolean }) {
     if (!speechConfig) {
       error = $t('transcription.noSpeechConfig');
       return;
     }
     error = null;
-    segments = [];
-    speakerColorMap.clear();
+    if (!opts?.preserveSegments) {
+      segments = [];
+      speakerColorMap.clear();
+      resetInterviewContext(false);
+    } else if (sessionMode === 'interview') {
+      // Preserve prior transcript but only answer on newly-added context.
+      resetInterviewContext(true);
+    } else {
+      clearInterviewSilenceTimer();
+    }
     recordingState = 'connecting';
 
     try {
+      const effectiveSourceMode: VoiceInputSourceMode = sourceMode;
       const sid = await startTranscription(
         speechConfig,
         voiceProfiles,
@@ -124,11 +286,22 @@
           } else {
             segments = [...segments, seg];
           }
-          if (autoScroll && transcriptEl) {
-            requestAnimationFrame(() => {
-              transcriptEl!.scrollTop = transcriptEl!.scrollHeight;
-            });
+
+          if (sessionMode === 'interview' && seg.isFinal) {
+            interviewRows = [
+              ...interviewRows,
+              {
+                id: crypto.randomUUID(),
+                side: 'left',
+                speaker: seg.displayName,
+                text: seg.text,
+                timestamp: Date.now(),
+              },
+            ];
+            scheduleInterviewAnswerBySilence();
           }
+
+          scrollTranscriptToBottom(sessionMode === 'interview');
         },
         (msg) => {
           // Called by the service when the server sends an error event.
@@ -137,7 +310,9 @@
           sessionId = null;
           recordingState = 'idle';
           stopTimer();
+          clearInterviewSilenceTimer();
         },
+        { sourceMode: effectiveSourceMode },
       );
 
       // If an error fired during startTranscription (e.g. during mic setup),
@@ -146,27 +321,108 @@
 
       sessionId = sid;
       recordingState = 'recording';
-      startTime = Date.now();
+      if (opts?.preserveElapsed) {
+        startTime = Date.now() - elapsedMs;
+      } else {
+        elapsedMs = 0;
+        startTime = Date.now();
+      }
       startTimer();
     } catch (e: unknown) {
-      error = e instanceof Error ? e.message : String(e);
+      const rawMsg = e instanceof Error ? e.message : String(e);
+      if (requiresUserGestureSource(sourceMode) && /user gesture|user activation|must be called from/i.test(rawMsg)) {
+        error = $t('transcription.systemSourceClickStartHint');
+      } else if (requiresUserGestureSource(sourceMode) && /notallowederror|permission denied|denied permission|permission was denied|cancelled|canceled/i.test(rawMsg)) {
+        error = $t('transcription.systemSourcePermissionDenied');
+      } else if (requiresUserGestureSource(sourceMode) && /system_audio_track_missing|no system audio track/i.test(rawMsg)) {
+        systemSourceUnsupported = true;
+        sourceMode = 'mic';
+        // Non-fatal fallback: show warning hint in panel, no red error banner.
+        error = null;
+      } else {
+        error = rawMsg;
+      }
       recordingState = 'idle';
+      clearInterviewSilenceTimer();
     }
   }
 
-  function stopRecording() {
+  async function restartRecordingForCurrentMode() {
+    if (!sessionId) return;
+    const sid = sessionId;
+    sessionId = null;
+    recordingState = 'connecting';
+    stopTimer();
+    clearInterviewSilenceTimer();
+
+    const sampleDir = $settingsStore.voiceSyncDir || defaultSyncDir || undefined;
+    const backupDir = $settingsStore.recordingBackupDir ?? null;
+    await stopTranscription(sid, { sampleDir, backupDir })
+      .then(({ profiles }) => saveNewProfiles(profiles))
+      .catch(() => { /* ignore */ });
+
+    await startRecording({ preserveSegments: true, preserveElapsed: true });
+  }
+
+  async function stopRecording() {
     if (!sessionId) return;
     const sid = sessionId;
     // Reset state immediately so UI responds at once
     sessionId = null;
     recordingState = 'idle';
     stopTimer();
+    clearInterviewSilenceTimer();
     // Cleanup + save WAV + save profiles in background (non-blocking)
     const sampleDir = $settingsStore.voiceSyncDir || defaultSyncDir || undefined;
     const backupDir = $settingsStore.recordingBackupDir ?? null;
-    stopTranscription(sid, { sampleDir, backupDir })
+    await stopTranscription(sid, { sampleDir, backupDir })
       .then(({ profiles }) => saveNewProfiles(profiles))
       .catch(() => { /* ignore */ });
+  }
+
+  async function handleModeChange(event: Event) {
+    const next = (event.target as HTMLSelectElement).value as VoiceSessionMode;
+    if (next === sessionMode) return;
+
+    const wasActive = recordingState === 'recording' || recordingState === 'paused';
+    sessionMode = next;
+
+    if (next === 'interview') {
+      // In interview mode, answer only for newly added context.
+      resetInterviewContext(true);
+    } else {
+      clearInterviewSilenceTimer();
+    }
+
+    if (wasActive && sessionId) {
+      if (requiresUserGestureSource(sourceMode)) {
+        await stopRecording();
+        error = $t('transcription.systemSourceRestartHint');
+      } else {
+        await restartRecordingForCurrentMode();
+      }
+    }
+  }
+
+  async function handleSourceModeChange(event: Event) {
+    const next = (event.target as HTMLSelectElement).value as VoiceInputSourceMode;
+    if (next === sourceMode) return;
+    if (systemSourceUnsupported && requiresUserGestureSource(next)) {
+      // Keep this as non-fatal warning state only.
+      error = null;
+      return;
+    }
+    sourceMode = next;
+
+    const wasActive = recordingState === 'recording' || recordingState === 'paused';
+    if (wasActive && sessionId) {
+      if (requiresUserGestureSource(next)) {
+        await stopRecording();
+        error = $t('transcription.systemSourceRestartHint');
+      } else {
+        await restartRecordingForCurrentMode();
+      }
+    }
   }
 
   // Speaker color palette (same as the panel display colors)
@@ -236,10 +492,12 @@
     if (recordingState === 'recording') {
       recordingState = 'paused';
       stopTimer();
+      clearInterviewSilenceTimer();
     } else if (recordingState === 'paused') {
       recordingState = 'recording';
       startTime = Date.now() - elapsedMs;
       startTimer();
+      if (sessionMode === 'interview') scheduleInterviewAnswerBySilence();
     }
   }
 
@@ -257,12 +515,122 @@
     }
   }
 
+  async function requestInterviewAnswer(questionFocus: string, supportContext: string): Promise<string> {
+    const active = aiStore.getActiveConfig();
+    if (!active || !active.apiKey) {
+      throw new Error($t('transcription.interviewNoAIConfig'));
+    }
+
+    const maxTokens = Math.min($settingsStore.aiMaxTokens || active.maxTokens || 1024, 768);
+    const config = { ...active, maxTokens, temperature: Math.min(active.temperature ?? 0.2, 0.3) };
+    const now = Date.now();
+
+    const response = await sendAIRequest(config, {
+      messages: [
+        {
+          role: 'system',
+          content: 'You are an interview copilot. Focus on the core question first, then give a concise practical answer. The ASR transcript may contain recognition errors; infer likely intent and avoid overfitting to noisy words. Use Markdown bullet points.',
+          timestamp: now,
+        },
+        {
+          role: 'user',
+          content: `Question focus:\n${questionFocus}\n\nRecent transcript snippets (may contain ASR mistakes):\n${supportContext}\n\nPlease output:\n1) Direct answer first.\n2) If key terms may be misrecognized, list 1-2 likely corrected terms.\n3) Keep total length under 8 bullets.`,
+          timestamp: now + 1,
+        },
+      ],
+    });
+
+    const text = response.content?.trim();
+    if (!text) throw new Error($t('transcription.interviewEmptyAnswer'));
+    return text;
+  }
+
+  async function triggerInterviewAnswer() {
+    if (sessionMode !== 'interview' || interviewBusy) return;
+
+    const finals = finalSegments;
+    if (finals.length <= interviewCursor) return;
+
+    const deltaSegs = finals.slice(interviewCursor);
+    const cursorEnd = finals.length;
+    interviewCursor = cursorEnd;
+
+    const hasReliableConfidence = deltaSegs.some(
+      seg => Number.isFinite(seg.confidence) && seg.confidence > 0.05,
+    );
+    const cleanedLines: string[] = [];
+    let lastLineKey = '';
+    for (const seg of deltaSegs) {
+      const line = sanitizeInterviewLine(seg.text);
+      if (isLikelyNoiseLine(line, seg.confidence, hasReliableConfidence)) continue;
+      const key = lineKey(line);
+      if (!key || key === lastLineKey) continue;
+      lastLineKey = key;
+      cleanedLines.push(line);
+    }
+    if (cleanedLines.length === 0) return;
+
+    appendInterviewBuffer(cleanedLines.join('\n'));
+    if (interviewPendingContext.length < INTERVIEW_MIN_DELTA_CHARS) return;
+
+    const extracted = extractInterviewQuestion(interviewPendingContext);
+    if (!extracted) return;
+    if (!extracted.hasCue && interviewPendingContext.length < INTERVIEW_FORCE_ANSWER_CHARS) {
+      return;
+    }
+
+    const questionKey = questionSignature(extracted.focus);
+    if (questionKey && questionKey === interviewLastQuestionKey) {
+      interviewPendingContext = '';
+      return;
+    }
+    interviewLastQuestionKey = questionKey;
+
+    const rowId = crypto.randomUUID();
+    const pendingSnapshot = interviewPendingContext;
+    interviewPendingContext = '';
+
+    interviewRows = [
+      ...interviewRows,
+      {
+        id: rowId,
+        side: 'right',
+        text: $t('transcription.interviewAnswerPending'),
+        timestamp: Date.now(),
+        status: 'pending',
+      },
+    ];
+
+    interviewBusy = true;
+    try {
+      const answer = await requestInterviewAnswer(extracted.focus, extracted.support);
+      interviewRows = interviewRows.map(row => (
+        row.id === rowId && row.side === 'right'
+          ? { ...row, text: answer, status: 'done' as const }
+          : row
+      ));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : $t('transcription.interviewAnswerFailed');
+      // Restore pending context once on failure so next silence-trigger can retry with new additions.
+      interviewPendingContext = pendingSnapshot.length > INTERVIEW_MAX_BUFFER_CHARS
+        ? pendingSnapshot.slice(-INTERVIEW_MAX_BUFFER_CHARS)
+        : pendingSnapshot;
+      interviewRows = interviewRows.map(row => (
+        row.id === rowId && row.side === 'right'
+          ? { ...row, text: msg, status: 'failed' as const }
+          : row
+      ));
+    } finally {
+      interviewBusy = false;
+    }
+  }
+
   // ── Bottom actions ─────────────────────────────────────────────────────────
 
   function handleSendToAI() {
     if (!fullTranscript.trim()) return;
     // Build a summarization request
-    const prompt = `${$t('transcription.summarizePrompt')}\n\n${fullTranscript}`;
+    const prompt = `${$t(sessionMode === 'interview' ? 'transcription.interviewSummarizePrompt' : 'transcription.summarizePrompt')}\n\n${fullTranscript}`;
     onSendToAI?.(prompt);
   }
 
@@ -270,7 +638,6 @@
     if (!fullTranscript.trim()) return;
     const md = buildMarkdown();
     onInsert?.(md);
-    onBack?.();
   }
 
   function buildMarkdown(): string {
@@ -296,6 +663,7 @@
   $effect(() => {
     return () => {
       stopTimer();
+      clearInterviewSilenceTimer();
       if (sessionId) {
         const sid = sessionId;
         stopTranscription(sid)
@@ -304,9 +672,75 @@
       }
     };
   });
+
+  // Interview mode always keeps the latest row visible.
+  $effect(() => {
+    const mode = sessionMode;
+    const rows = interviewRows;
+    if (mode !== 'interview' || rows.length === 0) return;
+    scrollTranscriptToBottom(true);
+  });
 </script>
 
 <div class="transcription-panel">
+  <div class="transcription-topbar">
+    <div class="top-status">
+      {#if recordingState === 'recording'}
+        <span class="recording-dot"></span>
+        <span class="status-text">{$t('transcription.recording')}</span>
+      {:else if recordingState === 'connecting'}
+        <span class="status-text muted">{$t('transcription.connecting')}</span>
+      {:else if recordingState === 'paused'}
+        <span class="status-text muted">{$t('transcription.paused')}</span>
+      {:else if recordingState === 'stopping'}
+        <span class="status-text muted">{$t('transcription.stopping')}</span>
+      {:else}
+        <span class="status-text muted">{$t('transcription.idle')}</span>
+      {/if}
+      {#if elapsedMs > 0}
+        <span class="elapsed">{elapsedFormatted}</span>
+      {/if}
+    </div>
+    <div class="top-controls">
+      <label class="top-field">
+        <span class="top-label">{$t('transcription.sourceLabel')}</span>
+        <select
+          class="top-select"
+          value={sourceMode}
+          onchange={handleSourceModeChange}
+          disabled={recordingState === 'connecting'}
+        >
+          <option value="mic">{$t('transcription.sourceMic')}</option>
+          <option value="system" disabled={systemSourceUnsupported}>{$t('transcription.sourceSystem')}</option>
+          <option value="mixed" disabled={systemSourceUnsupported}>{$t('transcription.sourceMixed')}</option>
+        </select>
+      </label>
+      <label class="top-field">
+        <span class="top-label">{$t('transcription.modeLabel')}</span>
+        <select
+          class="top-select"
+          value={sessionMode}
+          onchange={handleModeChange}
+          disabled={recordingState === 'connecting'}
+        >
+          <option value="transcription">{$t('transcription.modeTranscription')}</option>
+          <option value="interview">{$t('transcription.modeInterview')}</option>
+        </select>
+      </label>
+      <button class="ctrl-btn icon" onclick={onBack} title={$t('transcription.back')}>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+          <path d="M10 6H2M5 3L2 6l3 3" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+  {#if sessionMode === 'interview'}
+    <div class="mode-hint">{$t('transcription.interviewSystemShareHint')}</div>
+  {/if}
+  {#if systemSourceUnsupported}
+    <div class="mode-hint warning">{$t('transcription.systemSourceUnsupportedHint')}</div>
+  {/if}
+
   <!-- ── Transcript area ────────────────────────────────────────────────── -->
   <div
     class="transcript-body"
@@ -329,31 +763,55 @@
           </button>
         {/if}
       </div>
-    {:else if segments.length === 0}
-      <div class="transcript-empty">
-        {recordingState === 'idle' ? $t('transcription.emptyIdle') : $t('transcription.emptyWaiting')}
-      </div>
-    {/if}
-    {#each segments as seg, i (i)}
-      <div class="segment">
-        <div class="segment-header">
-          <span
-            class="speaker-dot"
-            style="background: {getSpeakerColor(seg.displayName)}"
-          ></span>
-          <span class="speaker-name">{seg.displayName}</span>
-          <span class="segment-time">{formatSegmentTime(seg.startMs)}</span>
+    {:else if sessionMode === 'interview'}
+      {#if interviewRows.length === 0}
+        <div class="transcript-empty">
+          {recordingState === 'idle' ? $t('transcription.emptyIdle') : $t('transcription.emptyWaiting')}
         </div>
-        <p class="segment-text">{seg.text}</p>
-      </div>
-    {/each}
+      {/if}
+      {#each interviewRows as row (row.id)}
+        {#if row.side === 'left'}
+          <div class="segment interview-left">
+            <div class="segment-header">
+              <span class="speaker-dot" style="background: {getSpeakerColor(row.speaker)}"></span>
+              <span class="speaker-name">{row.speaker}</span>
+            </div>
+            <p class="segment-text">{row.text}</p>
+          </div>
+        {:else}
+          <div class="interview-answer" class:failed={row.status === 'failed'}>
+            <div class="answer-label">AI</div>
+            <p class="answer-text">{row.text}</p>
+          </div>
+        {/if}
+      {/each}
+    {:else}
+      {#if segments.length === 0}
+        <div class="transcript-empty">
+          {recordingState === 'idle' ? $t('transcription.emptyIdle') : $t('transcription.emptyWaiting')}
+        </div>
+      {/if}
+      {#each segments as seg, i (i)}
+        <div class="segment">
+          <div class="segment-header">
+            <span
+              class="speaker-dot"
+              style="background: {getSpeakerColor(seg.displayName)}"
+            ></span>
+            <span class="speaker-name">{seg.displayName}</span>
+            <span class="segment-time">{formatSegmentTime(seg.startMs)}</span>
+          </div>
+          <p class="segment-text">{seg.text}</p>
+        </div>
+      {/each}
 
-    {#if recordingState === 'recording'}
-      <div class="recording-indicator">
-        <span class="dot"></span>
-        <span class="dot"></span>
-        <span class="dot"></span>
-      </div>
+      {#if recordingState === 'recording'}
+        <div class="recording-indicator">
+          <span class="dot"></span>
+          <span class="dot"></span>
+          <span class="dot"></span>
+        </div>
+      {/if}
     {/if}
   </div>
 
@@ -361,6 +819,37 @@
   {#if error}
     <div class="error-banner">{error}</div>
   {/if}
+
+  <div class="recording-main-action">
+    {#if recordingState === 'connecting'}
+      <span class="spinner"></span>
+    {:else}
+      <button
+        class="mic-main-btn"
+        onclick={recordingState === 'idle' ? () => startRecording() : togglePause}
+        disabled={!speechConfig}
+        title={
+          recordingState === 'idle'
+            ? $t('transcription.start')
+            : recordingState === 'recording'
+              ? $t('transcription.pause')
+              : $t('transcription.resume')
+        }
+      >
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <rect x="9" y="3" width="6" height="12" rx="3" stroke="currentColor" stroke-width="2"/>
+          <path d="M6 11a6 6 0 0 0 12 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <path d="M12 17v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <path d="M8 21h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </button>
+    {/if}
+    {#if recordingState === 'recording' || recordingState === 'paused'}
+      <button class="ctrl-btn danger" onclick={stopRecording}>
+        {$t('transcription.stop')}
+      </button>
+    {/if}
+  </div>
 
   <!-- ── Bottom action bar (shown when there are segments) ─────────────── -->
   {#if segments.length > 0}
@@ -370,59 +859,17 @@
         onclick={handleSendToAI}
         disabled={!fullTranscript.trim()}
       >
-        {$t('transcription.summarizeWithAI')} →
+        {sessionMode === 'interview' ? $t('transcription.summarizeInterview') : $t('transcription.summarizeWithAI')} →
       </button>
       <button
         class="footer-btn"
         onclick={handleSaveAsDoc}
         disabled={!fullTranscript.trim()}
       >
-        {$t('transcription.saveAsDoc')}
+        {$t('transcription.toDocumentAppend')}
       </button>
     </div>
   {/if}
-
-  <!-- ── Controls bar (always at bottom) ──────────────────────────────── -->
-  <div class="transcription-controls">
-    <div class="controls-left">
-      {#if recordingState === 'recording'}
-        <span class="recording-dot"></span>
-        <span class="status-text">{$t('transcription.recording')}</span>
-      {:else if recordingState === 'connecting'}
-        <span class="status-text muted">{$t('transcription.connecting')}</span>
-      {:else if recordingState === 'paused'}
-        <span class="status-text muted">{$t('transcription.paused')}</span>
-      {:else if recordingState === 'stopping'}
-        <span class="status-text muted">{$t('transcription.stopping')}</span>
-      {:else}
-        <span class="status-text muted">{$t('transcription.idle')}</span>
-      {/if}
-      {#if elapsedMs > 0}
-        <span class="elapsed">{elapsedFormatted}</span>
-      {/if}
-    </div>
-    <div class="controls-right">
-      {#if recordingState === 'idle'}
-        <button class="ctrl-btn primary" onclick={startRecording} disabled={!speechConfig}>
-          {$t('transcription.start')}
-        </button>
-      {:else if recordingState === 'connecting'}
-        <span class="spinner"></span>
-      {:else if recordingState === 'recording' || recordingState === 'paused'}
-        <button class="ctrl-btn" onclick={togglePause}>
-          {recordingState === 'recording' ? $t('transcription.pause') : $t('transcription.resume')}
-        </button>
-        <button class="ctrl-btn danger" onclick={stopRecording}>
-          {$t('transcription.stop')}
-        </button>
-      {/if}
-      <button class="ctrl-btn icon" onclick={onBack} title={$t('transcription.back')}>
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-          <path d="M10 6H2M5 3L2 6l3 3" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
-    </div>
-  </div>
 </div>
 
 <style>
@@ -433,26 +880,104 @@
     overflow: hidden;
   }
 
-  /* ── Controls bar (bottom) ───────────────────────────────────────────────── */
-  .transcription-controls {
+  .transcription-topbar {
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--border-light);
+    flex-shrink: 0;
+    gap: 0.75rem;
+  }
+
+  .top-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+
+  .top-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+
+  .mode-hint {
+    padding: 0.35rem 0.75rem 0.45rem;
+    border-bottom: 1px solid var(--border-light);
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+  }
+
+  .mode-hint.warning {
+    color: #b45309;
+    background: rgba(245, 158, 11, 0.08);
+    border-bottom: 1px solid rgba(245, 158, 11, 0.25);
+  }
+
+  .top-field {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    min-width: 0;
+  }
+
+  .top-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+
+  .top-select {
+    font-size: var(--font-size-xs);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-primary);
+    padding: 0.15rem 0.35rem;
+    min-width: 88px;
+  }
+
+  .top-select:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+  }
+
+  .recording-main-action {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    padding: 0.65rem 0.75rem;
     border-top: 1px solid var(--border-light);
     flex-shrink: 0;
   }
 
-  .controls-left {
-    display: flex;
+  .mic-main-btn {
+    width: 3.1rem;
+    height: 3.1rem;
+    border-radius: 999px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    display: inline-flex;
     align-items: center;
-    gap: 0.5rem;
+    justify-content: center;
+    cursor: pointer;
+    transition: background var(--transition-fast), color var(--transition-fast), transform var(--transition-fast);
   }
 
-  .controls-right {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
+  .mic-main-btn:hover:not(:disabled) {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    transform: translateY(-1px);
+  }
+
+  .mic-main-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
 
   .recording-dot {
@@ -507,17 +1032,6 @@
   .ctrl-btn:disabled {
     opacity: 0.4;
     cursor: not-allowed;
-  }
-
-  .ctrl-btn.primary {
-    background: var(--accent-color);
-    border-color: var(--accent-color);
-    color: white;
-  }
-
-  .ctrl-btn.primary:hover:not(:disabled) {
-    opacity: 0.85;
-    background: var(--accent-color);
   }
 
   .ctrl-btn.danger {
@@ -614,6 +1128,13 @@
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
+    -webkit-user-select: text !important;
+    user-select: text !important;
+  }
+
+  .transcript-body :global(*) {
+    -webkit-user-select: text;
+    user-select: text;
   }
 
   .transcript-empty {
@@ -627,6 +1148,10 @@
     display: flex;
     flex-direction: column;
     gap: 0.2rem;
+  }
+
+  .segment.interview-left {
+    max-width: 84%;
   }
 
   .segment-header {
@@ -660,6 +1185,39 @@
     color: var(--text-primary);
     line-height: 1.5;
     padding-left: 1rem;
+  }
+
+  .interview-answer {
+    align-self: flex-end;
+    max-width: 84%;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 0.5rem 0.65rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .interview-answer.failed {
+    border-color: rgba(229, 62, 62, 0.35);
+    background: rgba(229, 62, 62, 0.06);
+  }
+
+  .answer-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--accent-color);
+    text-align: right;
+  }
+
+  .answer-text {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    color: var(--text-primary);
+    line-height: 1.5;
+    white-space: pre-wrap;
+    text-align: left;
   }
 
   /* Recording waiting indicator */

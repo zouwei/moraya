@@ -1,4 +1,12 @@
-export type { VoiceProfile, TranscriptSegment, SessionSpeaker, SpeechEvent, NewProfileProposal } from './types';
+export type {
+  VoiceProfile,
+  TranscriptSegment,
+  SessionSpeaker,
+  SpeechEvent,
+  NewProfileProposal,
+  VoiceInputSourceMode,
+  VoiceSessionMode,
+} from './types';
 export {
   startTranscription,
   sendAudioChunk,

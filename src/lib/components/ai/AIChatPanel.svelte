@@ -6,10 +6,15 @@
     type ChatMessage,
     type ImageAttachment,
     type AIProviderConfig,
+    type RealtimeVoiceAIConfig,
     type AITemplate,
     resolveContent,
     buildTemplateMessages,
   } from '$lib/services/ai';
+  import { settingsStore } from '$lib/stores/settings-store';
+  import { startTranscription, stopTranscription } from '$lib/services/voice/speech-service';
+  import type { TranscriptSegment } from '$lib/services/voice/types';
+  import type { SpeechProviderConfig } from '$lib/services/ai/types';
   import { mcpStore } from '$lib/services/mcp';
   import { filesStore } from '$lib/stores/files-store';
   import { invoke } from '@tauri-apps/api/core';
@@ -64,6 +69,10 @@
   let mcpToolCount = $state(0);
   let providerConfigs = $state<AIProviderConfig[]>([]);
   let activeConfigId = $state<string | null>(null);
+  let realtimeVoiceConfigs = $state<RealtimeVoiceAIConfig[]>([]);
+  let activeRealtimeVoiceConfigId = $state<string | null>(null);
+  let isRealtimeVoiceActive = $state(false);
+  let isRealtimeVoiceConnecting = $state(false);
 
   // Template system state
   let activeTemplate = $state<AITemplate | null>(null);
@@ -78,11 +87,27 @@
   // Transcription panel
   let showActionDrawer = $state(false);
   let showTranscription = $state(false);
+  let actionDrawerEl = $state<HTMLDivElement | undefined>(undefined);
+  let actionTriggerEl = $state<HTMLButtonElement | undefined>(undefined);
+
+  // Inline voice-to-text (input bar)
+  let inlineRecordingState = $state<'idle' | 'recording'>('idle');
+  let inlineSessionId = $state<string | null>(null);
+  let inlineCommittedTexts = $state<string[]>([]);
+  let inlineInterimText = $state('');
 
   // MORAYA.md indicator
   let morayaMdActive = $state(false);
   let rulesSectionCount = $state(0);
   let folderPath = $state<string | null>(null);
+
+  // Active speech config for inline voice input
+  let speechConfig = $derived.by((): SpeechProviderConfig | null => {
+    const s = $settingsStore;
+    if (!s.activeSpeechConfigId || !s.speechProviderConfigs?.length) return null;
+    return s.speechProviderConfigs.find(c => c.id === s.activeSpeechConfigId) ?? null;
+  });
+  let voiceProfiles = $derived($settingsStore.voiceProfiles ?? []);
 
   // Top-level store subscriptions — do NOT wrap in $effect().
   // In Svelte 5, $effect tracks reads inside subscribe callbacks, causing
@@ -214,10 +239,29 @@
   });
   // Clean up on component destroy
   onDestroy(() => {
+    if (inlineSessionId) {
+      stopTranscription(inlineSessionId).catch(() => { /* ignore */ });
+    }
     unsubFiles();
     unsubMcp();
     unsubAI();
     document.documentElement.style.removeProperty('--ai-panel-width');
+  });
+
+  onMount(() => {
+    const handleGlobalPointerDown = (event: PointerEvent) => {
+      if (!showActionDrawer) return;
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (actionDrawerEl?.contains(target)) return;
+      if (actionTriggerEl?.contains(target)) return;
+      showActionDrawer = false;
+    };
+
+    document.addEventListener('pointerdown', handleGlobalPointerDown, true);
+    return () => {
+      document.removeEventListener('pointerdown', handleGlobalPointerDown, true);
+    };
   });
 
   // Auto-scroll: track whether user is near bottom
@@ -236,6 +280,14 @@
     if (isConfigured !== state.isConfigured) isConfigured = state.isConfigured;
     if (providerConfigs !== state.providerConfigs) providerConfigs = state.providerConfigs;
     if (activeConfigId !== state.activeConfigId) activeConfigId = state.activeConfigId;
+    if (realtimeVoiceConfigs !== state.realtimeVoiceConfigs) realtimeVoiceConfigs = state.realtimeVoiceConfigs;
+    if (activeRealtimeVoiceConfigId !== state.activeRealtimeVoiceConfigId) activeRealtimeVoiceConfigId = state.activeRealtimeVoiceConfigId;
+  });
+
+  $effect(() => {
+    if (!hasRealtimeConfig() && isRealtimeVoiceActive) {
+      stopRealtimeVoiceSession();
+    }
   });
 
   function handleModelSwitch(e: Event) {
@@ -263,7 +315,12 @@
     userAtBottom = scrollHeight - scrollTop - clientHeight < threshold;
   }
 
-  async function addImageFromBlob(blob: Blob) {
+  function basename(path: string): string {
+    const normalized = path.replace(/\\/g, '/');
+    return normalized.split('/').pop() || path;
+  }
+
+  async function addImageFromBlob(blob: Blob, fileName?: string) {
     if (pendingImages.length >= MAX_IMAGES) return;
     try {
       const { blob: processed, mimeType } = await compressImage(blob);
@@ -274,6 +331,7 @@
         mimeType,
         base64,
         previewUrl,
+        fileName: fileName?.trim() || undefined,
       }];
     } catch (e) {
       console.error('[AI] Failed to process image:', e);
@@ -292,7 +350,7 @@
       };
       const mime = mimeMap[ext] || 'image/png';
       const blob = new Blob([data], { type: mime });
-      await addImageFromBlob(blob);
+      await addImageFromBlob(blob, basename(filePath));
     } catch (e) {
       console.error('[AI] Failed to read image file:', e);
     }
@@ -324,7 +382,7 @@
       if (items[i].type.startsWith('image/')) {
         e.preventDefault();
         const file = items[i].getAsFile();
-        if (file) addImageFromBlob(file);
+        if (file) addImageFromBlob(file, file.name);
         return;
       }
     }
@@ -336,7 +394,7 @@
     const files = e.dataTransfer.files;
     for (let i = 0; i < files.length; i++) {
       if (files[i].type.startsWith('image/') && pendingImages.length < MAX_IMAGES) {
-        addImageFromBlob(files[i]);
+        addImageFromBlob(files[i], files[i].name);
       }
     }
   }
@@ -347,6 +405,12 @@
 
   function getImageSrc(img: ImageAttachment): string {
     return img.previewUrl || `data:${img.mimeType};base64,${img.base64}`;
+  }
+
+  function getAttachmentDisplayName(img: ImageAttachment): string {
+    if (img.fileName?.trim()) return img.fileName.trim();
+    const ext = img.mimeType.split('/')[1] || 'img';
+    return `image.${ext.replace('+xml', '')}`;
   }
 
   function openLightbox(img: ImageAttachment) {
@@ -391,6 +455,174 @@
     } catch {
       // Error is handled by store
     }
+  }
+
+  function hasDraftContent(): boolean {
+    return !!inputText.trim() || pendingImages.length > 0;
+  }
+
+  function getPreferredRealtimeConfig(): RealtimeVoiceAIConfig | null {
+    return realtimeVoiceConfigs.find(c => c.id === activeRealtimeVoiceConfigId)
+      || realtimeVoiceConfigs[0]
+      || null;
+  }
+
+  function hasRealtimeCredential(config: RealtimeVoiceAIConfig): boolean {
+    const apiKey = (config.apiKey || '').trim();
+    const ak = (config.accessKeyId || '').trim();
+    const sk = (config.secretAccessKey || '').trim();
+    return apiKey.length > 0 || (ak.length > 0 && sk.length > 0);
+  }
+
+  function hasRealtimeConfig(): boolean {
+    return realtimeVoiceConfigs.length > 0;
+  }
+
+  function shouldShowWaveAction(): boolean {
+    return !hasDraftContent() && hasRealtimeConfig();
+  }
+
+  function canShowInlineRecordButton(): boolean {
+    return !!speechConfig;
+  }
+
+  function stopRealtimeVoiceSession() {
+    isRealtimeVoiceActive = false;
+    isRealtimeVoiceConnecting = false;
+  }
+
+  async function startRealtimeVoiceSession() {
+    if (isRealtimeVoiceActive || isRealtimeVoiceConnecting) return;
+    const cfg = getPreferredRealtimeConfig();
+    if (!cfg) {
+      aiStore.setError($t('ai.realtime.missingConfig'));
+      return;
+    }
+    if (!hasRealtimeCredential(cfg)) {
+      aiStore.setError($t('ai.realtime.config.missingCredential'));
+      return;
+    }
+    showActionDrawer = false;
+    isRealtimeVoiceConnecting = true;
+    await Promise.resolve();
+    isRealtimeVoiceConnecting = false;
+    isRealtimeVoiceActive = true;
+  }
+
+  async function handlePrimaryAction() {
+    if (isLoading) {
+      abortAIRequest();
+      return;
+    }
+    if (shouldShowWaveAction()) {
+      await startRealtimeVoiceSession();
+      return;
+    }
+    await handleSend();
+  }
+
+  function buildInlineTranscript(includeInterim = false): string {
+    const rows = [...inlineCommittedTexts];
+    if (includeInterim && inlineInterimText.trim()) rows.push(inlineInterimText.trim());
+    return rows.join('\n');
+  }
+
+  function resetInlineRecordingState() {
+    inlineRecordingState = 'idle';
+    inlineSessionId = null;
+    inlineCommittedTexts = [];
+    inlineInterimText = '';
+  }
+
+  function insertTranscriptAtCursor(text: string) {
+    const normalized = text.trim();
+    if (!normalized) return;
+
+    if (!inputEl) {
+      inputText = inputText ? `${inputText}\n${normalized}` : normalized;
+      autoResizeInput();
+      return;
+    }
+
+    const start = inputEl.selectionStart ?? inputText.length;
+    const end = inputEl.selectionEnd ?? inputText.length;
+    inputText = inputText.slice(0, start) + normalized + inputText.slice(end);
+
+    const caretPos = start + normalized.length;
+    requestAnimationFrame(() => {
+      if (!inputEl) return;
+      inputEl.focus();
+      inputEl.setSelectionRange(caretPos, caretPos);
+      autoResizeInput();
+    });
+  }
+
+  async function startInlineRecording() {
+    if (inlineRecordingState === 'recording') return;
+    if (!speechConfig) {
+      aiStore.setError($t('transcription.noSpeechConfig'));
+      onOpenVoiceSettings?.();
+      return;
+    }
+
+    inlineRecordingState = 'recording';
+    inlineCommittedTexts = [];
+    inlineInterimText = '';
+
+    try {
+      const sid = await startTranscription(
+        speechConfig,
+        voiceProfiles,
+        (seg: TranscriptSegment) => {
+          const line = seg.text.trim();
+          if (!line) return;
+          if (seg.isFinal) {
+            inlineCommittedTexts = [...inlineCommittedTexts, line];
+            inlineInterimText = '';
+          } else {
+            inlineInterimText = line;
+          }
+        },
+        (msg) => {
+          aiStore.setError(msg);
+          resetInlineRecordingState();
+        },
+        { sourceMode: 'mic' },
+      );
+      inlineSessionId = sid;
+    } catch (e) {
+      aiStore.setError(e instanceof Error ? e.message : String(e));
+      resetInlineRecordingState();
+    }
+  }
+
+  async function stopInlineRecordingSession(): Promise<string> {
+    if (!inlineSessionId) return buildInlineTranscript(true);
+    const sid = inlineSessionId;
+    inlineSessionId = null;
+    try {
+      const { segments: finalSegments } = await stopTranscription(sid);
+      if (finalSegments.length > 0) {
+        return finalSegments
+          .map(seg => seg.text.trim())
+          .filter(Boolean)
+          .join('\n');
+      }
+      return buildInlineTranscript(true);
+    } catch {
+      return buildInlineTranscript(true);
+    }
+  }
+
+  async function cancelInlineRecording() {
+    await stopInlineRecordingSession();
+    resetInlineRecordingState();
+  }
+
+  async function commitInlineRecording() {
+    const transcript = await stopInlineRecordingSession();
+    resetInlineRecordingState();
+    if (transcript.trim()) insertTranscriptAtCursor(transcript);
   }
 
   async function handleTemplateSelect(template: AITemplate) {
@@ -480,6 +712,7 @@
 
   function handleKeydown(event: KeyboardEvent) {
     if (event.isComposing) return;
+    if (inlineRecordingState === 'recording') return;
     // Ctrl+Enter (Windows/Linux) or Cmd+Enter (macOS) to send.
     // Plain Enter inserts a newline (default textarea behavior).
     if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
@@ -551,11 +784,11 @@
     inputEl.style.overflowY = 'hidden';
   }
 
-  // Compute max height for 5 lines based on line-height
+  // Compute max height for 7 lines based on line-height
   const lineHeight = 1.4; // matches CSS line-height
   const fontSize = 14; // --font-size-sm approx
   const paddingY = 16; // 0.5rem * 2
-  const maxInputHeight = Math.round(fontSize * lineHeight * 5 + paddingY);
+  const maxInputHeight = Math.round(fontSize * lineHeight * 7 + paddingY);
 
   function formatTime(timestamp: number): string {
     return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -748,14 +981,20 @@
       {#if showActionDrawer}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <div class="action-drawer" onclick={() => showActionDrawer = false}>
+        <div class="action-drawer" bind:this={actionDrawerEl} onclick={() => showActionDrawer = false}>
           <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <button
             class="drawer-item"
             onclick={(e) => { e.stopPropagation(); showTranscription = true; showActionDrawer = false; }}
           >
-            🎤 {$t('ai.voiceTranscription')}
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <rect x="9" y="3" width="6" height="12" rx="3" stroke="currentColor" stroke-width="2"/>
+              <path d="M6 11a6 6 0 0 0 12 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              <path d="M12 17v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              <path d="M8 21h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            {$t('ai.voiceTranscription')}
           </button>
         </div>
       {/if}
@@ -787,45 +1026,26 @@
         </div>
       {/if}
 
-      {#if pendingImages.length > 0}
-        <div class="image-preview-strip">
-          {#each pendingImages as img (img.id)}
-            <div class="image-preview-item">
-              <img src={getImageSrc(img)} alt="" class="image-preview-thumb" />
-              <button class="image-remove-btn" onclick={() => removeImage(img.id)} title={$t('ai.removeImage')}>
-                <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor">
-                  <path d="M6 2L2 6m0-4l4 4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-                </svg>
-              </button>
-            </div>
-          {/each}
-          {#if pendingImages.length >= MAX_IMAGES}
-            <span class="image-max-hint">{$t('ai.attachImageMax', { max: String(MAX_IMAGES) })}</span>
-          {/if}
-        </div>
-      {/if}
+      <div class="input-shell">
+        {#if pendingImages.length > 0}
+          <div class="image-preview-strip">
+            {#each pendingImages as img (img.id)}
+              <div class="image-preview-item">
+                <img src={getImageSrc(img)} alt="" class="image-preview-thumb" />
+                <span class="image-preview-name" title={getAttachmentDisplayName(img)}>
+                  {getAttachmentDisplayName(img)}
+                </span>
+                <button class="image-remove-btn" onclick={() => removeImage(img.id)} title={$t('ai.removeImage')}>
+                  <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                    <path d="M9 3L3 9m0-6l6 6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+                  </svg>
+                </button>
+              </div>
+            {/each}
+          </div>
+        {/if}
 
-      <div class="input-row">
-        <button
-          class="plus-btn"
-          onclick={() => showActionDrawer = !showActionDrawer}
-          title={$t('ai.moreActions')}
-        >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-            <path d="M6 0v12M0 6h12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>
-          </svg>
-        </button>
-        <div class="input-wrapper">
-          <button
-            class="attach-btn"
-            onclick={handleAttachImage}
-            title={$t('ai.attachImage')}
-            disabled={isLoading}
-          >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M14 8.5a5.5 5.5 0 01-11 0V4a3.5 3.5 0 017 0v4.5a1.5 1.5 0 01-3 0V5h1v3.5a.5.5 0 001 0V4a2.5 2.5 0 00-5 0v4.5a4.5 4.5 0 009 0V5h1v3.5z"/>
-            </svg>
-          </button>
+        <div class="input-text-layer">
           <textarea
             class="ai-input"
             bind:this={inputEl}
@@ -839,28 +1059,103 @@
             rows={1}
           ></textarea>
         </div>
-        {#if isLoading}
-          <button
-            class="send-btn stop"
-            onclick={abortAIRequest}
-            title={$t('ai.stop')}
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-              <rect x="2" y="2" width="10" height="10" rx="1.5"/>
-            </svg>
-          </button>
-        {:else}
-          <button
-            class="send-btn"
-            onclick={handleSend}
-            disabled={!inputText.trim() && pendingImages.length === 0}
-            title={$t('ai.send')}
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M1 1l14 7-14 7V9l10-1-10-1V1z"/>
-            </svg>
-          </button>
-        {/if}
+
+        <div class="input-action-row">
+          <div class="input-action-left">
+            {#if !isRealtimeVoiceActive}
+              <button
+                class="icon-btn plus-btn"
+                bind:this={actionTriggerEl}
+                onclick={() => showActionDrawer = !showActionDrawer}
+                title={$t('ai.moreActions')}
+              >
+                <svg width="14" height="14" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                  <path d="M6 0v12M0 6h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+              </button>
+            {/if}
+            <button
+              class="icon-btn attach-btn"
+              onclick={handleAttachImage}
+              title={$t('ai.attachImage')}
+              disabled={isLoading}
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                <path d="M14 8.5a5.5 5.5 0 01-11 0V4a3.5 3.5 0 017 0v4.5a1.5 1.5 0 01-3 0V5h1v3.5a.5.5 0 001 0V4a2.5 2.5 0 00-5 0v4.5a4.5 4.5 0 009 0V5h1v3.5z"/>
+              </svg>
+            </button>
+          </div>
+
+          <div class="input-action-right">
+            {#if isLoading}
+              <button class="icon-btn primary-btn stop-btn" onclick={abortAIRequest} title={$t('ai.stop')}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <rect x="6" y="6" width="12" height="12" rx="2" stroke="currentColor" stroke-width="2"/>
+                </svg>
+              </button>
+            {:else if isRealtimeVoiceActive}
+              {#if hasDraftContent()}
+                <button class="icon-btn primary-btn" onclick={handleSend} title={$t('ai.send')}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M3 11.5L21 3 13 21l-2.5-7L3 11.5Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                  </svg>
+                </button>
+              {/if}
+              <button class="icon-btn primary-btn stop-btn" onclick={stopRealtimeVoiceSession} title={$t('ai.realtime.stopVoice')}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <rect x="6" y="6" width="12" height="12" rx="2" stroke="currentColor" stroke-width="2"/>
+                </svg>
+              </button>
+            {:else if inlineRecordingState === 'recording'}
+              <span class="recording-wave" aria-hidden="true">
+                <svg viewBox="0 0 24 16" fill="none">
+                  <rect class="wave-bar wave-bar-1" x="1" y="5" width="3" height="6" rx="1.5" fill="currentColor"></rect>
+                  <rect class="wave-bar wave-bar-2" x="6" y="2" width="3" height="12" rx="1.5" fill="currentColor"></rect>
+                  <rect class="wave-bar wave-bar-3" x="11" y="4" width="3" height="8" rx="1.5" fill="currentColor"></rect>
+                  <rect class="wave-bar wave-bar-4" x="16" y="1" width="3" height="14" rx="1.5" fill="currentColor"></rect>
+                  <rect class="wave-bar wave-bar-5" x="21" y="5" width="3" height="6" rx="1.5" fill="currentColor"></rect>
+                </svg>
+              </span>
+              <button class="icon-btn ghost-btn" onclick={cancelInlineRecording} title={$t('ai.voice.cancel')}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M18 6 6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+              </button>
+              <button class="icon-btn primary-btn" onclick={commitInlineRecording} title={$t('ai.voice.commit')}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="m5 13 4 4L19 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+            {:else}
+              {#if canShowInlineRecordButton()}
+                <button class="icon-btn ghost-btn voice-input-btn" onclick={startInlineRecording} title={$t('ai.voice.record')}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <rect x="9" y="3" width="6" height="12" rx="3" stroke="currentColor" stroke-width="2"/>
+                    <path d="M6 11a6 6 0 0 0 12 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    <path d="M12 17v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    <path d="M8 21h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                  </svg>
+                </button>
+              {/if}
+              <button
+                class="icon-btn primary-btn"
+                onclick={handlePrimaryAction}
+                disabled={!shouldShowWaveAction() && !hasDraftContent() && !isRealtimeVoiceConnecting}
+                title={shouldShowWaveAction() ? $t('ai.realtime.startVoice') : $t('ai.send')}
+              >
+                {#if shouldShowWaveAction()}
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M3 12h2l2-4 3 8 3-12 2 8h4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                {:else}
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M3 11.5L21 3 13 21l-2.5-7L3 11.5Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                  </svg>
+                {/if}
+              </button>
+            {/if}
+          </div>
+        </div>
       </div>
     </div>
     {/if}
@@ -883,6 +1178,8 @@
 <svelte:window onkeydown={(e) => {
   if (e.key === 'Escape') {
     if (lightboxSrc) { closeLightbox(); return; }
+    if (inlineRecordingState === 'recording') { cancelInlineRecording(); return; }
+    if (isRealtimeVoiceActive || isRealtimeVoiceConnecting) { stopRealtimeVoiceSession(); return; }
     if (isLoading) { abortAIRequest(); return; }
   }
 }} />
@@ -1435,14 +1732,17 @@
   /* Action drawer (appears above input area) */
   .action-drawer {
     position: absolute;
-    bottom: 100%;
-    left: 0;
-    right: 0;
+    bottom: 0.58rem;
+    left: 0.5rem;
+    transform: translateY(calc(-100% - 0.22rem));
+    right: auto;
+    min-width: 10.5rem;
+    max-width: 14rem;
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
     border-radius: 8px;
-    margin: 0 0.5rem 0.25rem;
-    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.1);
+    margin: 0;
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.14);
     z-index: 10;
     overflow: hidden;
   }
@@ -1464,27 +1764,6 @@
 
   .drawer-item:hover {
     background: var(--bg-hover);
-  }
-
-  /* "+" action button (leftmost in input row) */
-  .plus-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 2rem;
-    height: 2rem;
-    flex-shrink: 0;
-    border: 1px solid var(--border-color);
-    border-radius: 50%;
-    background: var(--bg-primary);
-    color: var(--text-secondary);
-    cursor: pointer;
-    transition: background var(--transition-fast), color var(--transition-fast);
-  }
-
-  .plus-btn:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
   }
 
   .commands-dropdown {
@@ -1541,32 +1820,28 @@
     color: var(--text-primary);
   }
 
-  .input-row {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-  }
-
-  .input-wrapper {
-    flex: 1;
-    display: flex;
-    align-items: flex-end;
+  .input-shell {
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: 10px;
     background: var(--bg-primary);
     transition: border-color var(--transition-fast);
+    overflow: hidden;
   }
 
-  .input-wrapper:focus-within {
+  .input-shell:focus-within {
     border-color: var(--accent-color);
   }
 
+  .input-text-layer {
+    padding: 0.5rem 0.65rem 0.2rem;
+  }
+
   .ai-input {
-    flex: 1;
+    width: 100%;
     resize: none;
     border: none;
-    border-radius: 0 8px 8px 0;
-    padding: 0.5rem 0.75rem 0.5rem 0;
+    border-radius: 0;
+    padding: 0;
     font-size: var(--font-size-sm);
     font-family: var(--font-sans);
     background: transparent;
@@ -1580,110 +1855,189 @@
     color: var(--text-muted);
   }
 
-  .send-btn {
+  .input-action-row {
     display: flex;
     align-items: center;
+    justify-content: space-between;
+    padding: 0.35rem 0.45rem 0.45rem;
+    gap: 0.35rem;
+  }
+
+  .input-action-left,
+  .input-action-right {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    min-height: 2rem;
+  }
+
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
     justify-content: center;
-    width: 2rem;
-    height: 2rem;
+    width: 1.95rem;
+    height: 1.95rem;
+    padding: 0;
+    line-height: 0;
     border: none;
-    background: var(--accent-color);
-    color: white;
     border-radius: 6px;
     cursor: pointer;
     flex-shrink: 0;
-    transition: opacity var(--transition-fast);
-  }
-
-  .send-btn.stop {
-    background: #dc3545;
-  }
-
-  .send-btn:disabled {
-    opacity: 0.3;
-    cursor: not-allowed;
-  }
-
-  .send-btn:not(:disabled):hover {
-    opacity: 0.85;
-  }
-
-  /* ── Image attach button ── */
-  .attach-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 2rem;
-    align-self: stretch;
-    border: none;
+    color: var(--text-secondary);
     background: transparent;
-    color: var(--text-muted);
-    border-radius: 7px 0 0 7px;
-    cursor: pointer;
-    flex-shrink: 0;
-    transition: color var(--transition-fast), background var(--transition-fast);
+    transition: opacity var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
   }
 
-  .attach-btn:hover {
+  .icon-btn:hover {
     background: var(--bg-hover);
     color: var(--text-primary);
   }
 
-  .attach-btn:disabled {
-    opacity: 0.3;
+  .icon-btn:disabled {
+    opacity: 0.35;
     cursor: not-allowed;
+  }
+
+  .primary-btn {
+    background: var(--accent-color);
+    color: #fff;
+  }
+
+  .primary-btn:hover:not(:disabled) {
+    opacity: 0.9;
+    background: var(--accent-color);
+    color: #fff;
+  }
+
+  .stop-btn {
+    background: #dc3545;
+  }
+
+  .stop-btn:hover:not(:disabled) {
+    background: #c62f3d;
+    color: #fff;
+  }
+
+  .ghost-btn {
+    border: 1px solid var(--border-color);
+    background: var(--bg-primary);
+  }
+
+  .plus-btn {
+    border: 0;
+    background: transparent;
+  }
+
+  .plus-btn:hover {
+    background: var(--bg-hover);
+  }
+
+  .attach-btn {
+    border: 0;
+    background: transparent;
+  }
+
+  .voice-input-btn {
+    border: 0;
+    background: transparent;
+  }
+
+  .recording-wave {
+    width: 1.95rem;
+    height: 1.95rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent-color);
+  }
+
+  .recording-wave svg {
+    width: 1.3rem;
+    height: 0.95rem;
+    overflow: visible;
+  }
+
+  .recording-wave .wave-bar {
+    transform-box: fill-box;
+    transform-origin: center bottom;
+    animation: wavePulse 1.05s ease-in-out infinite;
+  }
+
+  .recording-wave .wave-bar-1 { animation-delay: 0s; }
+  .recording-wave .wave-bar-2 { animation-delay: 0.12s; }
+  .recording-wave .wave-bar-3 { animation-delay: 0.24s; }
+  .recording-wave .wave-bar-4 { animation-delay: 0.36s; }
+  .recording-wave .wave-bar-5 { animation-delay: 0.48s; }
+
+  @keyframes wavePulse {
+    0%, 100% {
+      transform: scaleY(0.35);
+      opacity: 0.4;
+    }
+    50% {
+      transform: scaleY(1);
+      opacity: 1;
+    }
   }
 
   /* ── Image preview strip ── */
   .image-preview-strip {
-    display: flex;
-    gap: 0.35rem;
-    padding: 0.35rem 0;
-    overflow-x: auto;
-    align-items: center;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.32rem;
+    padding: 0.35rem 0.45rem 0.1rem;
   }
 
   .image-preview-item {
-    position: relative;
-    flex-shrink: 0;
-  }
-
-  .image-preview-thumb {
-    width: 48px;
-    height: 48px;
-    object-fit: cover;
-    border-radius: 6px;
+    min-width: 0;
+    height: 1.65rem;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0 0.35rem;
+    border-radius: 999px;
+    background: var(--bg-hover);
     border: 1px solid var(--border-light);
   }
 
-  .image-remove-btn {
-    position: absolute;
-    top: -4px;
-    right: -4px;
-    width: 16px;
-    height: 16px;
-    border: none;
-    background: var(--text-muted);
-    color: white;
+  .image-preview-thumb {
+    width: 1.1rem;
+    height: 1.1rem;
+    object-fit: cover;
     border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .image-preview-name {
+    min-width: 0;
+    flex: 1;
+    font-size: 11px;
+    line-height: 1;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .image-remove-btn {
+    width: 1rem;
+    height: 1rem;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    border-radius: 999px;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 0;
-    opacity: 0;
-    transition: opacity var(--transition-fast);
+    flex-shrink: 0;
+    transition: background var(--transition-fast), color var(--transition-fast);
   }
 
-  .image-preview-item:hover .image-remove-btn {
-    opacity: 1;
-  }
-
-  .image-max-hint {
-    font-size: 10px;
-    color: var(--text-muted);
-    white-space: nowrap;
-    padding: 0 0.25rem;
+  .image-remove-btn:hover {
+    background: var(--bg-active);
+    color: var(--text-primary);
   }
 
   /* ── Message images ── */
