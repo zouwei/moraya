@@ -10,11 +10,12 @@
 //! The frontend passes a config_id; Rust looks up the actual secret.
 //! API keys never transit the network from the frontend.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
+use super::macos_system_audio::NativeSystemAudioCapture;
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -26,6 +27,8 @@ use tokio_tungstenite::tungstenite::Message;
 // ── Session counter ──────────────────────────────────────────────────────────
 
 static SESSION_COUNTER: AtomicU64 = AtomicU64::new(0);
+const PCM_MIX_CHUNK_SAMPLES: usize = 4_000;
+const PCM_MIX_INTERVAL_MS: u64 = 250;
 
 fn new_session_id() -> String {
     let count = SESSION_COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -41,6 +44,7 @@ fn new_session_id() -> String {
 struct SpeechSession {
     audio_tx: mpsc::Sender<Vec<u8>>,
     stop_tx: Option<oneshot::Sender<()>>,
+    native_system_capture: Option<NativeSystemAudioCapture>,
 }
 
 pub struct SpeechProxyState {
@@ -53,6 +57,85 @@ impl SpeechProxyState {
             sessions: Mutex::new(HashMap::new()),
         }
     }
+}
+
+fn append_pcm16_chunk(buffer: &mut VecDeque<i16>, chunk: &[u8]) {
+    for pair in chunk.chunks_exact(2) {
+        buffer.push_back(i16::from_le_bytes([pair[0], pair[1]]));
+    }
+}
+
+fn mix_pcm16_chunk(
+    mic_buffer: &mut VecDeque<i16>,
+    system_buffer: &mut VecDeque<i16>,
+    sample_count: usize,
+) -> Option<Vec<u8>> {
+    if mic_buffer.is_empty() && system_buffer.is_empty() {
+        return None;
+    }
+
+    let mut out = Vec::with_capacity(sample_count * 2);
+    for _ in 0..sample_count {
+        let mic = mic_buffer.pop_front().unwrap_or(0) as i32;
+        let system = system_buffer.pop_front().unwrap_or(0) as i32;
+        let mixed = match (mic, system) {
+            (0, 0) => 0,
+            (0, s) => s,
+            (m, 0) => m,
+            (m, s) => ((m + s) / 2).clamp(i16::MIN as i32, i16::MAX as i32),
+        } as i16;
+        out.extend_from_slice(&mixed.to_le_bytes());
+    }
+    Some(out)
+}
+
+fn spawn_pcm_mixer(
+    mut mic_rx: mpsc::Receiver<Vec<u8>>,
+    mut system_rx: mpsc::Receiver<Vec<u8>>,
+    mixed_tx: mpsc::Sender<Vec<u8>>,
+) {
+    tokio::spawn(async move {
+        let mut mic_buffer = VecDeque::<i16>::new();
+        let mut system_buffer = VecDeque::<i16>::new();
+        let mut mic_open = true;
+        let mut system_open = true;
+        let mut tick = tokio::time::interval(Duration::from_millis(PCM_MIX_INTERVAL_MS));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        loop {
+            tokio::select! {
+                chunk = mic_rx.recv(), if mic_open => {
+                    match chunk {
+                        Some(bytes) => append_pcm16_chunk(&mut mic_buffer, &bytes),
+                        None => mic_open = false,
+                    }
+                }
+                chunk = system_rx.recv(), if system_open => {
+                    match chunk {
+                        Some(bytes) => append_pcm16_chunk(&mut system_buffer, &bytes),
+                        None => system_open = false,
+                    }
+                }
+                _ = tick.tick() => {
+                    if let Some(chunk) = mix_pcm16_chunk(
+                        &mut mic_buffer,
+                        &mut system_buffer,
+                        PCM_MIX_CHUNK_SAMPLES,
+                    ) {
+                        if mixed_tx.send(chunk).await.is_err() {
+                            break;
+                        }
+                    } else if !mic_open && !system_open {
+                        break;
+                    }
+                }
+            }
+
+            if !mic_open && !system_open && mic_buffer.is_empty() && system_buffer.is_empty() {
+                break;
+            }
+        }
+    });
 }
 
 // ── Event types (sent to frontend via Tauri Channel) ─────────────────────────
@@ -1432,6 +1515,7 @@ pub async fn speech_proxy_start(
     language: String,
     model: String,
     region: Option<String>,
+    source_mode: Option<String>,
 ) -> Result<String, String> {
     // Resolve API key from OS Keychain cache
     key_state.ensure_secrets_loaded().await;
@@ -1554,6 +1638,28 @@ pub async fn speech_proxy_start(
     let (stop_tx, stop_rx) = oneshot::channel::<()>();
     // Reader-done signal (reader → writer): tells writer to stop when server closes
     let (reader_done_tx, reader_done_rx) = oneshot::channel::<()>();
+    let normalized_source_mode = source_mode
+        .as_deref()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    let use_native_system_capture =
+        cfg!(target_os = "macos")
+            && matches!(normalized_source_mode.as_str(), "system" | "mixed");
+    let use_native_mixed_capture = cfg!(target_os = "macos") && normalized_source_mode == "mixed";
+
+    let (frontend_audio_tx, native_system_capture) = if use_native_mixed_capture {
+        let (mic_audio_tx, mic_audio_rx) = mpsc::channel::<Vec<u8>>(64);
+        let (system_audio_tx, system_audio_rx) = mpsc::channel::<Vec<u8>>(64);
+        spawn_pcm_mixer(mic_audio_rx, system_audio_rx, audio_tx.clone());
+        let capture = NativeSystemAudioCapture::start(system_audio_tx, &session_id)?;
+        (mic_audio_tx, Some(capture))
+    } else if use_native_system_capture {
+        let capture = NativeSystemAudioCapture::start(audio_tx.clone(), &session_id)?;
+        (audio_tx.clone(), Some(capture))
+    } else {
+        (audio_tx.clone(), None)
+    };
 
     // Register session
     {
@@ -1564,8 +1670,9 @@ pub async fn speech_proxy_start(
         sessions.insert(
             session_id.clone(),
             SpeechSession {
-                audio_tx,
+                audio_tx: frontend_audio_tx,
                 stop_tx: Some(stop_tx),
+                native_system_capture,
             },
         );
     }
@@ -1856,15 +1963,20 @@ pub async fn speech_proxy_stop(
     state: tauri::State<'_, SpeechProxyState>,
     session_id: String,
 ) -> Result<(), String> {
-    let stop_tx = {
+    let (stop_tx, mut native_system_capture) = {
         let mut sessions = state
             .sessions
             .lock()
             .map_err(|_| "State lock poisoned".to_string())?;
-        sessions
-            .remove(&session_id)
-            .and_then(|mut s| s.stop_tx.take())
+        match sessions.remove(&session_id) {
+            Some(mut s) => (s.stop_tx.take(), s.native_system_capture.take()),
+            None => (None, None),
+        }
     };
+
+    if let Some(capture) = native_system_capture.as_mut() {
+        capture.stop();
+    }
 
     if let Some(tx) = stop_tx {
         let _ = tx.send(());

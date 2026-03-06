@@ -14,6 +14,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { Channel } from '@tauri-apps/api/core';
 import { get } from 'svelte/store';
 import { t } from '$lib/i18n';
+import { isMacOS, isTauri } from '$lib/utils/platform';
 import { SPEECH_PROVIDER_BASE_URLS, type SpeechProviderConfig } from '$lib/services/ai/types';
 import type {
   TranscriptSegment,
@@ -60,6 +61,10 @@ const MAX_PCM_BUFFER_BYTES = 90 * 16_000 * 2;
  * firing early) from splitting one sentence into multiple rows.
  */
 const MERGE_WINDOW_MS = 1000;
+
+function shouldUseNativeMacSystemCapture(sourceMode: VoiceInputSourceMode): boolean {
+  return (sourceMode === 'system' || sourceMode === 'mixed') && isTauri && isMacOS;
+}
 
 interface PendingCommit {
   text: string;
@@ -113,8 +118,10 @@ export async function startTranscription(
   opts?: { sourceMode?: VoiceInputSourceMode },
 ): Promise<string> {
   const sourceMode: VoiceInputSourceMode = opts?.sourceMode ?? 'mic';
+  const useNativeMacSystemCapture = shouldUseNativeMacSystemCapture(sourceMode);
+  const skipWebAudioCapture = useNativeMacSystemCapture && sourceMode === 'system';
   let preparedSystemStream: MediaStream | null = null;
-  if (sourceMode === 'system' || sourceMode === 'mixed') {
+  if (!useNativeMacSystemCapture && (sourceMode === 'system' || sourceMode === 'mixed')) {
     // Important: call getDisplayMedia in the user-gesture chain before any
     // unrelated async work, otherwise some engines reject with:
     // "getDisplayMedia must be called from a user gesture handler."
@@ -137,6 +144,7 @@ export async function startTranscription(
       language: config.language,
       model: config.model,
       region: config.region ?? null,
+      sourceMode,
       onEvent: channel,
     });
 
@@ -167,9 +175,22 @@ export async function startTranscription(
       handleSpeechEvent(sessionId, event, voiceProfiles);
     }
 
-    // Start audio capture
-    await startAudioCapture(sessionId, sourceMode, preparedSystemStream);
-    preparedSystemStream = null; // ownership transferred to session
+    // Start WebAudio capture unless native macOS system-source capture fully
+    // owns the pipeline. Native mixed mode still captures the microphone here;
+    // the Rust proxy mixes it with native system audio.
+    if (!skipWebAudioCapture) {
+      await startAudioCapture(
+        sessionId,
+        sourceMode,
+        preparedSystemStream,
+        { useNativeMacSystemCapture },
+      );
+      preparedSystemStream = null; // ownership transferred to session
+    } else if (preparedSystemStream) {
+      // Defensive cleanup; should stay null on this path.
+      preparedSystemStream.getTracks().forEach(t => t.stop());
+      preparedSystemStream = null;
+    }
 
     return sessionId;
   } catch (e) {
@@ -405,6 +426,7 @@ async function startAudioCapture(
   sessionId: string,
   sourceMode: VoiceInputSourceMode,
   preparedSystemStream: MediaStream | null = null,
+  opts?: { useNativeMacSystemCapture?: boolean },
 ): Promise<void> {
   const state = sessions.get(sessionId);
   if (!state) return;
@@ -414,6 +436,8 @@ async function startAudioCapture(
     streams.push(await getMicStream());
   } else if (sourceMode === 'system') {
     streams.push(preparedSystemStream ?? await getSystemAudioStream());
+  } else if (opts?.useNativeMacSystemCapture) {
+    streams.push(await getMicStream());
   } else {
     let micStream: MediaStream | null = null;
     let systemStream: MediaStream | null = null;

@@ -1,6 +1,6 @@
 [package]
 name = "moraya"
-version = "0.22.5"
+version = "0.23.0"
 description = "A minimal, AI-ready Markdown editor"
 authors = ["Moraya Contributors"]
 edition = "2021"
@@ -22,7 +22,7 @@ tauri-plugin-http = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", features = ["stream", "multipart", "json"] }
-tokio = { version = "1", features = ["fs", "io-util", "sync", "rt"] }
+tokio = { version = "1", features = ["fs", "io-util", "sync", "rt", "time"] }
 tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 hmac = "0.12"
 sha1 = "0.10"
@@ -45,6 +45,11 @@ fix-path-env = { git = "https://github.com/tauri-apps/fix-path-env-rs" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = "0.2"
+objc2 = { version = "0.6.3", features = ["exception"] }
+objc2-core-audio = "0.3.2"
+objc2-core-audio-types = "0.3.2"
+objc2-core-foundation = "0.3.2"
+objc2-foundation = "0.3.2"
 
 [lints.rust.unexpected_cfgs]
 level = "warn"

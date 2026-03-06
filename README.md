@@ -333,7 +333,8 @@ All API keys are stored exclusively in your OS Keychain — never in plaintext. 
 | v0.19.0 | Rendering Pipeline v2 (Doc Cache, hljs Cache, Async Parse) | Complete |
 | v0.20.0 | Multi-Language Support (12 locales, RTL) | Complete |
 | v0.21.0 | AI-powered rule file automatic splitting engine | Complete |
-| v0.22.0 | Built-in plugins, 10 new mainstream plugins added |
+| v0.22.0 | Built-in plugins, 10 new mainstream plugins added | Complete |
+| v0.23.0 | AI input interaction and real-time voice dialogue upgrade | Complete |
 
 ## ⭐ Star Growth trend (updated in real time)
 

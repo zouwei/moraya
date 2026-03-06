@@ -1,6 +1,7 @@
 pub mod ai_proxy;
 pub mod file;
 pub mod keychain;
+pub mod macos_system_audio;
 pub mod mcp;
 pub mod object_storage;
 pub mod plugin_manager;

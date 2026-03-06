@@ -18,7 +18,7 @@ import { dropCursor } from 'prosemirror-dropcursor';
 // blocks where ProseMirror places the DOM selection at gap positions, causing
 // a visible native caret that cannot be hidden by CSS alone. Markdown documents
 // always have text positions (headings, paragraphs, lists) so gap cursor is unnecessary.
-import { columnResizing, tableEditing } from 'prosemirror-tables';
+import { columnResizing } from 'prosemirror-tables';
 import { schema } from './schema';
 import { parseMarkdown, serializeMarkdown } from './markdown';
 import { createEnterHandlerPlugin } from './plugins/enter-handler';
@@ -388,8 +388,10 @@ export async function createEditor(options: EditorOptions): Promise<MorayaEditor
     dropCursor(),
 
     // Table plugins
+    // Keep column resizing, but skip tableEditing. Its drag-to-select cell
+    // behavior hijacks native text selection inside tables, which prevents
+    // users from selecting text across multiple cells in visual mode.
     columnResizing(),
-    tableEditing(),
 
     // Custom plugins
     createEditorPropsPlugin(),

@@ -3,6 +3,7 @@
   import { startTranscription, stopTranscription } from '$lib/services/voice/speech-service';
   import { aiStore, sendAIRequest } from '$lib/services/ai';
   import { t, resolveAllLocales } from '$lib/i18n';
+  import { isMacOS, isTauri } from '$lib/utils/platform';
   import type {
     TranscriptSegment,
     NewProfileProposal,
@@ -27,6 +28,7 @@
   // ── State ──────────────────────────────────────────────────────────────────
 
   type RecordingState = 'idle' | 'connecting' | 'recording' | 'paused' | 'stopping';
+  type SourceStatusLevel = 'info' | 'warning';
   type InterviewRow =
     | {
       id: string;
@@ -54,6 +56,8 @@
   let interviewPendingContext = $state('');
   let interviewLastQuestionKey = $state('');
   let systemSourceUnsupported = $state(false);
+  let sourceStatusMessage = $state<string | null>(null);
+  let sourceStatusLevel = $state<SourceStatusLevel>('info');
   let elapsedMs = $state(0);
   let error = $state<string | null>(null);
   let transcriptEl = $state<HTMLDivElement | undefined>(undefined);
@@ -63,13 +67,12 @@
   let interviewSilenceTimer: ReturnType<typeof setTimeout> | null = null;
   let startTime = 0;
   const INTERVIEW_SILENCE_MS = 3000;
-  const INTERVIEW_MIN_DELTA_CHARS = 10;
+  const INTERVIEW_MIN_DELTA_CHARS = 4;
   const INTERVIEW_MIN_SEGMENT_CHARS = 4;
   const INTERVIEW_MIN_CONFIDENCE = 0.55;
   const INTERVIEW_MAX_BUFFER_CHARS = 900;
   const INTERVIEW_CONTEXT_WINDOW_CHARS = 520;
   const INTERVIEW_QUESTION_WINDOW_CHARS = 220;
-  const INTERVIEW_FORCE_ANSWER_CHARS = 180;
   const QUESTION_CUE_RE = /[?？]|(什么|为何|为什么|怎么|如何|请问|是否|能否|可否|哪(里|个|些)?|多少|几|吗|呢|么|原理|区别|步骤|原因|方案|怎么做|介绍(?:一下|下)?|讲(?:一下|下)?|说(?:一下|下)?|请解释|帮我|给我|总结|分析)|\b(what|why|how|when|where|which|who|whom|whose|can|could|would|should|is|are|do|does|did|explain|tell me|walk me through|compare)\b/i;
   const FILLER_ONLY_RE = /^(嗯+|呃+|啊+|额+|噢+|哦+|唉+|呀+|诶+|uh+|um+|er+|ah+|eh+|hmm+|mm+)([，。！？?!、~…\s]*)$/i;
 
@@ -109,6 +112,23 @@
 
   let fullTranscript = $derived(
     finalSegments.map(seg => `${seg.displayName}: ${seg.text}`).join('\n\n')
+  );
+
+  let showInformationalHints = $derived(recordingState === 'idle');
+  let interviewModeHint = $derived.by(() => (
+    usesNativeMacSystemSource(sourceMode)
+      ? $t('transcription.interviewNativeSystemHint')
+      : $t('transcription.interviewSystemShareHint')
+  ));
+  let shouldShowSourceStatusHint = $derived(
+    !!sourceStatusMessage
+      && (
+        sourceStatusLevel === 'warning'
+        || (
+          showInformationalHints
+          && !(sessionMode === 'interview' && sourceStatusLevel === 'info')
+        )
+      )
   );
 
   // Speaker color palette
@@ -185,7 +205,7 @@
       : next;
   }
 
-  function extractInterviewQuestion(buffer: string): { focus: string; support: string; hasCue: boolean } | null {
+  function extractInterviewQuestion(buffer: string): { focus: string; support: string } | null {
     const normalized = buffer.trim();
     if (!normalized) return null;
 
@@ -202,10 +222,10 @@
     ).trim();
     if (!focusRaw) return null;
 
+    const fallbackFocus = parts.slice(-2).join('；').trim() || parts[parts.length - 1];
     return {
-      focus: focusRaw.slice(-INTERVIEW_QUESTION_WINDOW_CHARS),
+      focus: (focusRaw || fallbackFocus).slice(-INTERVIEW_QUESTION_WINDOW_CHARS),
       support: normalized.slice(-INTERVIEW_CONTEXT_WINDOW_CHARS),
-      hasCue: candidates.length > 0 || QUESTION_CUE_RE.test(focusRaw),
     };
   }
 
@@ -245,8 +265,94 @@
     }
   }
 
+  function usesNativeMacSystemSource(mode: VoiceInputSourceMode): boolean {
+    return isTauri && isMacOS && (mode === 'system' || mode === 'mixed');
+  }
+
   function requiresUserGestureSource(mode: VoiceInputSourceMode): boolean {
-    return mode === 'system' || mode === 'mixed';
+    return (mode === 'system' || mode === 'mixed') && !usesNativeMacSystemSource(mode);
+  }
+
+  function setSourceStatus(message: string | null, level: SourceStatusLevel = 'info') {
+    sourceStatusMessage = message;
+    sourceStatusLevel = level;
+  }
+
+  function refreshSourceStatus() {
+    if (systemSourceUnsupported) {
+      setSourceStatus(null);
+      return;
+    }
+    if (usesNativeMacSystemSource(sourceMode)) {
+      setSourceStatus(
+        $t(
+          sourceMode === 'mixed'
+            ? 'transcription.systemSourceNativeMixedHint'
+            : 'transcription.systemSourceNativeHint',
+        ),
+        'info',
+      );
+      return;
+    }
+    setSourceStatus(null);
+  }
+
+  function applySourceError(rawMsg: string, mode: VoiceInputSourceMode): boolean {
+    const normalized = rawMsg.toLowerCase();
+
+    if (requiresUserGestureSource(mode) && /user gesture|user activation|must be called from/i.test(rawMsg)) {
+      error = null;
+      setSourceStatus($t('transcription.systemSourceClickStartHint'), 'warning');
+      return true;
+    }
+
+    if (
+      /system_audio_track_missing|no system audio track|no system audio track was captured|no audio track/i.test(rawMsg)
+    ) {
+      if (!usesNativeMacSystemSource(mode)) {
+        systemSourceUnsupported = true;
+        sourceMode = 'mic';
+        setSourceStatus(null);
+      } else {
+        setSourceStatus($t('transcription.systemSourceNoAudioTrackHint'), 'warning');
+      }
+      error = null;
+      return true;
+    }
+
+    if (
+      /notallowederror|permission denied|denied permission|permission was denied|cancelled|canceled|not permitted|privacy/i.test(normalized)
+    ) {
+      error = $t(
+        usesNativeMacSystemSource(mode)
+          ? 'transcription.systemSourceNativePermissionDenied'
+          : 'transcription.systemSourcePermissionDenied',
+      );
+      setSourceStatus(null);
+      return true;
+    }
+
+    if (
+      usesNativeMacSystemSource(mode)
+      && /objective-c exception|unrecognized selector|!obj|bad object|native system audio capture is only available|unsupported process tap|runtime/i.test(normalized)
+    ) {
+      error = $t('transcription.systemSourceRuntimeIncompatible');
+      setSourceStatus(null);
+      return true;
+    }
+
+    if (
+      !usesNativeMacSystemSource(mode)
+      && /environment does not expose|auto-fallback to mic|auto-fallen back to mic|unsupported/i.test(normalized)
+    ) {
+      systemSourceUnsupported = true;
+      sourceMode = 'mic';
+      error = null;
+      setSourceStatus(null);
+      return true;
+    }
+
+    return false;
   }
 
   async function startRecording(opts?: { preserveSegments?: boolean; preserveElapsed?: boolean }) {
@@ -255,6 +361,7 @@
       return;
     }
     error = null;
+    refreshSourceStatus();
     if (!opts?.preserveSegments) {
       segments = [];
       speakerColorMap.clear();
@@ -306,7 +413,10 @@
         (msg) => {
           // Called by the service when the server sends an error event.
           // The service already stopped the mic; just update UI state.
-          error = msg;
+          if (!applySourceError(msg, sourceMode)) {
+            setSourceStatus(null);
+            error = msg;
+          }
           sessionId = null;
           recordingState = 'idle';
           stopTimer();
@@ -321,6 +431,7 @@
 
       sessionId = sid;
       recordingState = 'recording';
+      refreshSourceStatus();
       if (opts?.preserveElapsed) {
         startTime = Date.now() - elapsedMs;
       } else {
@@ -330,16 +441,8 @@
       startTimer();
     } catch (e: unknown) {
       const rawMsg = e instanceof Error ? e.message : String(e);
-      if (requiresUserGestureSource(sourceMode) && /user gesture|user activation|must be called from/i.test(rawMsg)) {
-        error = $t('transcription.systemSourceClickStartHint');
-      } else if (requiresUserGestureSource(sourceMode) && /notallowederror|permission denied|denied permission|permission was denied|cancelled|canceled/i.test(rawMsg)) {
-        error = $t('transcription.systemSourcePermissionDenied');
-      } else if (requiresUserGestureSource(sourceMode) && /system_audio_track_missing|no system audio track/i.test(rawMsg)) {
-        systemSourceUnsupported = true;
-        sourceMode = 'mic';
-        // Non-fatal fallback: show warning hint in panel, no red error banner.
-        error = null;
-      } else {
+      if (!applySourceError(rawMsg, sourceMode)) {
+        setSourceStatus(null);
         error = rawMsg;
       }
       recordingState = 'idle';
@@ -410,9 +513,12 @@
     if (systemSourceUnsupported && requiresUserGestureSource(next)) {
       // Keep this as non-fatal warning state only.
       error = null;
+      setSourceStatus(null);
       return;
     }
     sourceMode = next;
+    error = null;
+    refreshSourceStatus();
 
     const wasActive = recordingState === 'recording' || recordingState === 'paused';
     if (wasActive && sessionId) {
@@ -529,7 +635,7 @@
       messages: [
         {
           role: 'system',
-          content: 'You are an interview copilot. Focus on the core question first, then give a concise practical answer. The ASR transcript may contain recognition errors; infer likely intent and avoid overfitting to noisy words. Use Markdown bullet points.',
+          content: 'You are an interview copilot. Every request is the latest transcript delta captured after about 3 seconds of silence. Treat it as the newest interview turn and answer directly even if the wording is incomplete. The ASR transcript may contain recognition errors; infer likely intent and avoid overfitting to noisy words. Focus on the core question first, then give a concise practical answer in Markdown bullet points.',
           timestamp: now,
         },
         {
@@ -575,9 +681,6 @@
 
     const extracted = extractInterviewQuestion(interviewPendingContext);
     if (!extracted) return;
-    if (!extracted.hasCue && interviewPendingContext.length < INTERVIEW_FORCE_ANSWER_CHARS) {
-      return;
-    }
 
     const questionKey = questionSignature(extracted.focus);
     if (questionKey && questionKey === interviewLastQuestionKey) {
@@ -673,6 +776,14 @@
     };
   });
 
+  $effect(() => {
+    sourceMode;
+    systemSourceUnsupported;
+    error;
+    if (error) return;
+    refreshSourceStatus();
+  });
+
   // Interview mode always keeps the latest row visible.
   $effect(() => {
     const mode = sessionMode;
@@ -734,11 +845,16 @@
       </button>
     </div>
   </div>
-  {#if sessionMode === 'interview'}
-    <div class="mode-hint">{$t('transcription.interviewSystemShareHint')}</div>
+  {#if sessionMode === 'interview' && showInformationalHints}
+    <div class="mode-hint">{interviewModeHint}</div>
   {/if}
   {#if systemSourceUnsupported}
     <div class="mode-hint warning">{$t('transcription.systemSourceUnsupportedHint')}</div>
+  {/if}
+  {#if shouldShowSourceStatusHint}
+    <div class="mode-hint" class:warning={sourceStatusLevel === 'warning'} class:info={sourceStatusLevel === 'info'}>
+      {sourceStatusMessage}
+    </div>
   {/if}
 
   <!-- ── Transcript area ────────────────────────────────────────────────── -->
@@ -909,6 +1025,12 @@
     border-bottom: 1px solid var(--border-light);
     font-size: var(--font-size-xs);
     color: var(--text-muted);
+  }
+
+  .mode-hint.info {
+    color: #1d4ed8;
+    background: rgba(59, 130, 246, 0.08);
+    border-bottom: 1px solid rgba(59, 130, 246, 0.2);
   }
 
   .mode-hint.warning {
