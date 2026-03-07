@@ -1985,6 +1985,720 @@ pub async fn speech_proxy_stop(
     Ok(())
 }
 
+// ── Realtime Dialogue (bidirectional voice AI) ────────────────────────────────
+
+/// Events emitted to the frontend during a realtime dialogue session.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase", tag = "type")]
+pub enum RtDialogueEvent {
+    Connected {
+        #[serde(rename = "sessionId")]
+        session_id: String,
+    },
+    /// Raw JSON text message from the server (protocol-specific).
+    Message {
+        #[serde(rename = "sessionId")]
+        session_id: String,
+        data: String,
+    },
+    Error {
+        #[serde(rename = "sessionId")]
+        session_id: String,
+        error: String,
+    },
+    Disconnected {
+        #[serde(rename = "sessionId")]
+        session_id: String,
+    },
+}
+
+struct RtDialogueSession {
+    /// Send text (JSON) messages to the server.
+    text_tx: mpsc::Sender<String>,
+    /// Send raw binary audio to the server.
+    audio_tx: mpsc::Sender<Vec<u8>>,
+    stop_tx: Option<oneshot::Sender<()>>,
+}
+
+pub struct RtDialogueState {
+    sessions: Mutex<HashMap<String, RtDialogueSession>>,
+}
+
+impl RtDialogueState {
+    pub fn new() -> Self {
+        Self {
+            sessions: Mutex::new(HashMap::new()),
+        }
+    }
+}
+
+fn rt_session_id() -> String {
+    let count = SESSION_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    format!("rtd-{}-{}", ts, count)
+}
+
+// ── Doubao Binary Protocol ────────────────────────────────────────────────────
+//
+// Reference: meow2149/meow-ai volc/client.go + volc/protocol.go
+//
+// Header (4 bytes):
+//   byte 0: version(4b) | header_size(4b)  → 0x11 (v1, 4-word header)
+//   byte 1: msg_type(4b) | type_flag(4b)
+//     FullClient = 0x10, AudioOnlyClient = 0x20
+//     WithEvent  = 0x04
+//   byte 2: serialization(4b) | compression(4b)
+//     JSON = 0x10, Raw = 0x00
+//   byte 3: padding 0x00
+//
+// Body (FullClient + WithEvent + JSON):
+//   [event i32 BE][session_id_len u32 BE][session_id bytes][payload_len u32 BE][payload]
+//   Events 1 and 2 (StartConnection/FinishConnection) skip the session_id field.
+//
+// Body (AudioOnlyClient + WithEvent + Raw):
+//   [event=200 i32 BE][session_id_len u32 BE][session_id bytes][payload_len u32 BE][pcm]
+
+const DOUBAO_HEADER_V1H4: u8 = 0x11; // Version1 | HeaderSize4
+const DOUBAO_FULL_CLIENT_EVENT: u8 = 0x14; // FullClient | WithEvent
+const DOUBAO_AUDIO_CLIENT_EVENT: u8 = 0x24; // AudioOnlyClient | WithEvent
+const DOUBAO_SER_JSON: u8 = 0x10;
+const DOUBAO_SER_RAW: u8 = 0x00;
+
+const DOUBAO_EVENT_START_CONNECTION: i32 = 1;
+const DOUBAO_EVENT_FINISH_CONNECTION: i32 = 2;
+const DOUBAO_EVENT_START_SESSION: i32 = 100;
+const DOUBAO_EVENT_USER_QUERY: i32 = 200;
+const DOUBAO_EVENT_CONNECTION_STARTED: i32 = 50;
+const DOUBAO_EVENT_SESSION_STARTED: i32 = 150;
+
+// Server message type upper nibbles
+const DOUBAO_TYPE_FULL_SERVER: u8 = 0b1001;
+const DOUBAO_TYPE_AUDIO_SERVER: u8 = 0b1011;
+const DOUBAO_TYPE_ERROR: u8 = 0b1111;
+
+/// Encode a FullClient binary message with JSON payload and optional session ID.
+fn doubao_encode_full(event: i32, session_id: &str, payload: &[u8]) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(12 + session_id.len() + payload.len());
+    buf.push(DOUBAO_HEADER_V1H4);
+    buf.push(DOUBAO_FULL_CLIENT_EVENT);
+    buf.push(DOUBAO_SER_JSON);
+    buf.push(0x00);
+    buf.extend_from_slice(&event.to_be_bytes());
+    // Events 1 and 2 skip the session_id field.
+    if event != DOUBAO_EVENT_START_CONNECTION && event != DOUBAO_EVENT_FINISH_CONNECTION {
+        let sid = session_id.as_bytes();
+        buf.extend_from_slice(&(sid.len() as u32).to_be_bytes());
+        buf.extend_from_slice(sid);
+    }
+    buf.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+    buf.extend_from_slice(payload);
+    buf
+}
+
+/// Encode an AudioOnlyClient binary message (raw PCM, event 200).
+fn doubao_encode_audio(session_id: &str, pcm: &[u8]) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(12 + session_id.len() + pcm.len());
+    buf.push(DOUBAO_HEADER_V1H4);
+    buf.push(DOUBAO_AUDIO_CLIENT_EVENT);
+    buf.push(DOUBAO_SER_RAW);
+    buf.push(0x00);
+    buf.extend_from_slice(&DOUBAO_EVENT_USER_QUERY.to_be_bytes());
+    let sid = session_id.as_bytes();
+    buf.extend_from_slice(&(sid.len() as u32).to_be_bytes());
+    buf.extend_from_slice(sid);
+    buf.extend_from_slice(&(pcm.len() as u32).to_be_bytes());
+    buf.extend_from_slice(pcm);
+    buf
+}
+
+/// Decoded Doubao server message.
+struct DoubaoMsg {
+    msg_type: u8,   // upper nibble of byte[1]
+    event: i32,
+    payload: Vec<u8>,
+}
+
+/// Decode a Doubao server binary frame.
+fn doubao_decode(data: &[u8]) -> Option<DoubaoMsg> {
+    if data.len() < 4 {
+        return None;
+    }
+    let type_and_flag = data[1];
+    let msg_type = type_and_flag >> 4;
+    let type_flag = type_and_flag & 0x0f;
+    let has_sequence = (type_flag & 0b001) != 0 || (type_flag & 0b011 == 0b011);
+    let has_event = (type_flag & 0b100) != 0;
+    let header_size = ((data[0] & 0x0f) as usize) * 4;
+    let mut pos = header_size;
+
+    let mut event: i32 = 0;
+
+    if has_sequence && !has_event {
+        // Simple: [sequence i32][payload_len u32][payload]
+        if pos + 4 > data.len() {
+            return None;
+        }
+        pos += 4; // skip sequence
+    }
+
+    if has_event {
+        if pos + 4 > data.len() {
+            return None;
+        }
+        event = i32::from_be_bytes(data[pos..pos + 4].try_into().ok()?);
+        pos += 4;
+
+        // Session ID (skip for connection-level events 1, 2, 50, 51, 52)
+        match event {
+            1 | 2 | 50 | 51 | 52 => {}
+            _ => {
+                if pos + 4 > data.len() {
+                    return None;
+                }
+                let sid_len = u32::from_be_bytes(data[pos..pos + 4].try_into().ok()?) as usize;
+                pos += 4 + sid_len;
+            }
+        }
+        // Connect ID (only for events 50, 51, 52)
+        if matches!(event, 50 | 51 | 52) {
+            if pos + 4 > data.len() {
+                return None;
+            }
+            let cid_len = u32::from_be_bytes(data[pos..pos + 4].try_into().ok()?) as usize;
+            pos += 4 + cid_len;
+        }
+    }
+
+    // Error message carries a 4-byte error code before payload
+    if msg_type == DOUBAO_TYPE_ERROR {
+        pos += 4;
+    }
+
+    if pos + 4 > data.len() {
+        return None;
+    }
+    let plen = u32::from_be_bytes(data[pos..pos + 4].try_into().ok()?) as usize;
+    pos += 4;
+    if pos + plen > data.len() {
+        return None;
+    }
+    Some(DoubaoMsg {
+        msg_type,
+        event,
+        payload: data[pos..pos + plen].to_vec(),
+    })
+}
+
+/// Build a WebSocket request for a realtime dialogue provider, injecting
+/// provider-specific auth headers without exposing secrets to the frontend.
+fn build_rt_dialogue_request(
+    provider: &str,
+    base_url: &str,
+    api_key: &str,
+    app_id: &str,
+    secret_key: &str,
+    resource_id: &str,
+    connect_id: &str,
+) -> Result<WsRequest, String> {
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+
+    if base_url.is_empty() {
+        return Err("Realtime dialogue requires a base URL".to_string());
+    }
+
+    let mut req = base_url
+        .into_client_request()
+        .map_err(|e| format!("Invalid URL: {}", e))?;
+
+    match provider {
+        "doubao-realtime" => {
+            // Doubao Realtime Dialogue headers (per official docs):
+            //   X-Api-App-ID     = appId (App ID from Volcengine console, user-specific)
+            //   X-Api-Access-Key = apiKey (Access Token from console, user-specific)
+            //   X-Api-App-Key    = FIXED constant "PlgvMymc7f3tQnJ6" (same for all users)
+            //   X-Api-Resource-Id = FIXED "volc.speech.dialog"
+            if !app_id.is_empty() {
+                req.headers_mut().insert(
+                    "X-Api-App-ID",
+                    app_id.parse().map_err(|_| "Invalid App-ID header".to_string())?,
+                );
+            }
+            if !api_key.is_empty() {
+                req.headers_mut().insert(
+                    "X-Api-Access-Key",
+                    api_key.parse().map_err(|_| "Invalid Access-Key header".to_string())?,
+                );
+            }
+            // X-Api-App-Key is a fixed constant for all Doubao realtime users (per official docs)
+            req.headers_mut().insert(
+                "X-Api-App-Key",
+                "PlgvMymc7f3tQnJ6".parse().map_err(|_| "Invalid App-Key header".to_string())?,
+            );
+            let effective_resource_id = if resource_id.is_empty() {
+                "volc.speech.dialog".to_string()
+            } else {
+                resource_id.to_string()
+            };
+            req.headers_mut().insert(
+                "X-Api-Resource-Id",
+                effective_resource_id.parse().map_err(|_| "Invalid Resource-Id header".to_string())?,
+            );
+            if !connect_id.is_empty() {
+                req.headers_mut().insert(
+                    "X-Api-Connect-Id",
+                    connect_id.parse().map_err(|_| "Invalid Connect-Id header".to_string())?,
+                );
+            }
+        }
+        "openai-realtime" => {
+            if !api_key.is_empty() {
+                req.headers_mut().insert(
+                    "Authorization",
+                    format!("Bearer {}", api_key)
+                        .parse()
+                        .map_err(|_| "Invalid API key".to_string())?,
+                );
+            }
+            req.headers_mut().insert(
+                "OpenAI-Beta",
+                "realtime=v1".parse().map_err(|_| "header error".to_string())?,
+            );
+        }
+        "gemini-live" => {
+            if !api_key.is_empty() {
+                // Gemini Live uses query param auth; append if not already present
+                if !base_url.contains("key=") {
+                    // Modify URL to add the key query param
+                    let sep = if base_url.contains('?') { "&" } else { "?" };
+                    let new_url = format!("{}{}key={}", base_url, sep, api_key);
+                    req = new_url
+                        .into_client_request()
+                        .map_err(|e| format!("Invalid URL with key: {}", e))?;
+                }
+            }
+        }
+        _ => {
+            // Generic: Bearer auth
+            if !api_key.is_empty() {
+                req.headers_mut().insert(
+                    "Authorization",
+                    format!("Bearer {}", api_key)
+                        .parse()
+                        .map_err(|_| "Invalid API key".to_string())?,
+                );
+            }
+        }
+    }
+
+    Ok(req)
+}
+
+/// Start a realtime voice AI dialogue session.
+///
+/// For `doubao-realtime`: performs the Doubao binary-protocol handshake
+/// (StartConnection → ConnectionStarted → StartSession → SessionStarted)
+/// before notifying the frontend, then relays binary audio frames.
+///
+/// For other providers: connects WebSocket and relays JSON text + binary
+/// audio using the OpenAI-compatible realtime protocol.
+#[tauri::command]
+pub async fn rt_dialogue_start(
+    state: tauri::State<'_, RtDialogueState>,
+    key_state: tauri::State<'_, super::ai_proxy::AIProxyState>,
+    on_event: Channel<RtDialogueEvent>,
+    config_id: String,
+    provider: String,
+    base_url: String,
+    model: String,
+    resource_id: Option<String>,
+) -> Result<String, String> {
+    // Look up secrets from OS Keychain
+    key_state.ensure_secrets_loaded().await;
+    let (api_key, app_id, secret_key) = {
+        let cache = key_state
+            .key_cache
+            .lock()
+            .map_err(|_| "Keychain lock poisoned".to_string())?;
+        let key = cache.get(&format!("ai-rt-key:{}", config_id)).cloned().unwrap_or_default();
+        let id = cache.get(&format!("ai-rt-appid:{}", config_id)).cloned().unwrap_or_default();
+        let sk = cache.get(&format!("ai-rt-sk:{}", config_id)).cloned().unwrap_or_default();
+        (key, id, sk)
+    };
+    let resource_id = resource_id.unwrap_or_default();
+    let session_id = rt_session_id();
+
+    // Generate a per-connection UUID-like ID for Doubao X-Api-Connect-Id
+    let connect_id = {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as u64;
+        let cnt = SESSION_COUNTER.fetch_add(1, Ordering::SeqCst);
+        format!("{:016x}-{:016x}", ts, cnt)
+    };
+
+    let ws_request = build_rt_dialogue_request(
+        &provider, &base_url, &api_key, &app_id, &secret_key, &resource_id, &connect_id,
+    )?;
+
+    // Connect WebSocket
+    let (ws_stream, _response) = tokio_tungstenite::connect_async(ws_request)
+        .await
+        .map_err(|e| format!("WebSocket connection failed: {}", e))?;
+
+    let (mut ws_write, mut ws_read) = ws_stream.split();
+
+    // ── Doubao binary-protocol path ───────────────────────────────────────────
+    if provider == "doubao-realtime" {
+        // 1. StartConnection (event 1)
+        let start_conn = doubao_encode_full(DOUBAO_EVENT_START_CONNECTION, "", b"{}");
+        ws_write
+            .send(Message::Binary(start_conn))
+            .await
+            .map_err(|e| format!("StartConnection send failed: {}", e))?;
+
+        // Wait for ConnectionStarted (event 50)
+        loop {
+            match ws_read.next().await {
+                Some(Ok(Message::Binary(data))) => {
+                    if let Some(msg) = doubao_decode(&data) {
+                        if msg.event == DOUBAO_EVENT_CONNECTION_STARTED {
+                            break;
+                        } else if msg.event == 51 {
+                            return Err("Doubao: connection rejected".to_string());
+                        }
+                    }
+                }
+                Some(Err(e)) => return Err(format!("WS error during connect: {}", e)),
+                None => return Err("WS closed before ConnectionStarted".to_string()),
+                _ => {}
+            }
+        }
+
+        // 2. StartSession (event 100)
+        // ws_session_id is the Doubao-level session UUID (distinct from our app session_id)
+        let ws_session_id = {
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos() as u64;
+            format!("{:032x}", ts)
+        };
+
+        // Official Doubao O-version speaker IDs (default: vv):
+        //   zh_female_vv_jupiter_bigtts, zh_female_xiaohe_jupiter_bigtts,
+        //   zh_male_yunzhou_jupiter_bigtts, zh_male_xiaotian_jupiter_bigtts
+        // Audio format: pcm_s16le @ 24000 Hz (per official docs)
+        let start_sess_payload = serde_json::json!({
+            "asr": { "extra": {} },
+            "tts": {
+                "speaker": "zh_female_vv_jupiter_bigtts",
+                "audio_config": { "channel": 1, "format": "pcm_s16le", "sample_rate": 24000 }
+            },
+            "dialog": {
+                "extra": {
+                    "model": model,
+                    "input_mod": "audio"
+                }
+            }
+        });
+        let payload_bytes = serde_json::to_vec(&start_sess_payload)
+            .map_err(|e| format!("Serialize StartSession payload: {}", e))?;
+        let start_sess = doubao_encode_full(DOUBAO_EVENT_START_SESSION, &ws_session_id, &payload_bytes);
+        ws_write
+            .send(Message::Binary(start_sess))
+            .await
+            .map_err(|e| format!("StartSession send failed: {}", e))?;
+
+        // Wait for SessionStarted (event 150)
+        loop {
+            match ws_read.next().await {
+                Some(Ok(Message::Binary(data))) => {
+                    if let Some(msg) = doubao_decode(&data) {
+                        if msg.event == DOUBAO_EVENT_SESSION_STARTED {
+                            break;
+                        } else if msg.msg_type == DOUBAO_TYPE_ERROR {
+                            let err = String::from_utf8_lossy(&msg.payload).to_string();
+                            return Err(format!("Doubao session error: {}", err));
+                        }
+                    }
+                }
+                Some(Err(e)) => return Err(format!("WS error during session start: {}", e)),
+                None => return Err("WS closed before SessionStarted".to_string()),
+                _ => {}
+            }
+        }
+
+        // Session established — register channels and notify frontend
+        let (text_tx, mut _text_rx) = mpsc::channel::<String>(64);
+        let (audio_tx, mut audio_rx) = mpsc::channel::<Vec<u8>>(64);
+        let (stop_tx, stop_rx) = oneshot::channel::<()>();
+        let (reader_done_tx, reader_done_rx) = oneshot::channel::<()>();
+
+        {
+            let mut sessions = state
+                .sessions
+                .lock()
+                .map_err(|_| "State lock poisoned".to_string())?;
+            sessions.insert(
+                session_id.clone(),
+                RtDialogueSession { text_tx, audio_tx, stop_tx: Some(stop_tx) },
+            );
+        }
+
+        let _ = on_event.send(RtDialogueEvent::Connected { session_id: session_id.clone() });
+
+        let sid_w = session_id.clone();
+        let on_event_w = on_event.clone();
+        let ws_sid_w = ws_session_id.clone();
+
+        // Writer task: encode PCM as Doubao binary AudioOnlyClient frames
+        tokio::spawn(async move {
+            let mut stop = stop_rx;
+            let mut reader_done = reader_done_rx;
+            loop {
+                tokio::select! {
+                    biased;
+                    _ = &mut stop => break,
+                    _ = &mut reader_done => break,
+                    audio = audio_rx.recv() => {
+                        match audio {
+                            Some(pcm) => {
+                                let frame = doubao_encode_audio(&ws_sid_w, &pcm);
+                                if ws_write.send(Message::Binary(frame)).await.is_err() {
+                                    break;
+                                }
+                            }
+                            None => break,
+                        }
+                    }
+                }
+            }
+            let _ = ws_write.close().await;
+            let _ = on_event_w.send(RtDialogueEvent::Disconnected { session_id: sid_w });
+        });
+
+        let sid_r = session_id.clone();
+
+        // Reader task: decode Doubao binary frames and relay to frontend
+        tokio::spawn(async move {
+            while let Some(msg_result) = ws_read.next().await {
+                match msg_result {
+                    Ok(Message::Binary(data)) => {
+                        if let Some(msg) = doubao_decode(&data) {
+                            match msg.msg_type {
+                                DOUBAO_TYPE_AUDIO_SERVER => {
+                                    // TTS audio from AI → relay as base64
+                                    let b64 = BASE64_STANDARD.encode(&msg.payload);
+                                    let json = serde_json::json!({
+                                        "type": "binary",
+                                        "data": b64,
+                                    })
+                                    .to_string();
+                                    let _ = on_event.send(RtDialogueEvent::Message {
+                                        session_id: sid_r.clone(),
+                                        data: json,
+                                    });
+                                }
+                                DOUBAO_TYPE_ERROR => {
+                                    let err = String::from_utf8_lossy(&msg.payload).to_string();
+                                    let _ = on_event.send(RtDialogueEvent::Error {
+                                        session_id: sid_r.clone(),
+                                        error: err,
+                                    });
+                                }
+                                _ => {
+                                    // FullServer events (ASR, LLM text, etc.)
+                                    if !msg.payload.is_empty() {
+                                        let payload_val = serde_json::from_slice::<serde_json::Value>(&msg.payload)
+                                            .unwrap_or(serde_json::Value::Null);
+                                        let json = serde_json::json!({
+                                            "doubaoEvent": msg.event,
+                                            "payload": payload_val,
+                                        })
+                                        .to_string();
+                                        let _ = on_event.send(RtDialogueEvent::Message {
+                                            session_id: sid_r.clone(),
+                                            data: json,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Ok(Message::Close(_)) | Err(_) => break,
+                    _ => {}
+                }
+            }
+            let _ = reader_done_tx.send(());
+        });
+
+        return Ok(session_id);
+    }
+
+    // ── OpenAI-compatible path (openai-realtime, gemini-live, etc.) ───────────
+
+    // Channels for frontend → server messages
+    let (text_tx, mut text_rx) = mpsc::channel::<String>(64);
+    let (audio_tx, mut audio_rx) = mpsc::channel::<Vec<u8>>(64);
+    let (stop_tx, stop_rx) = oneshot::channel::<()>();
+    let (reader_done_tx, reader_done_rx) = oneshot::channel::<()>();
+
+    // Store session
+    {
+        let mut sessions = state
+            .sessions
+            .lock()
+            .map_err(|_| "State lock poisoned".to_string())?;
+        sessions.insert(
+            session_id.clone(),
+            RtDialogueSession {
+                text_tx,
+                audio_tx,
+                stop_tx: Some(stop_tx),
+            },
+        );
+    }
+
+    // Notify frontend: connected
+    let _ = on_event.send(RtDialogueEvent::Connected { session_id: session_id.clone() });
+
+    let sid_w = session_id.clone();
+    let sid_r = session_id.clone();
+    let on_event_clone = on_event.clone();
+
+    // Writer task: relay text/audio from frontend to WS
+    tokio::spawn(async move {
+        let mut stop = stop_rx;
+        let mut reader_done = reader_done_rx;
+        loop {
+            tokio::select! {
+                biased;
+                _ = &mut stop => break,
+                _ = &mut reader_done => break,
+                msg = text_rx.recv() => {
+                    match msg {
+                        Some(json) => {
+                            if ws_write.send(Message::Text(json)).await.is_err() {
+                                break;
+                            }
+                        }
+                        None => break,
+                    }
+                }
+                audio = audio_rx.recv() => {
+                    match audio {
+                        Some(data) => {
+                            if ws_write.send(Message::Binary(data)).await.is_err() {
+                                break;
+                            }
+                        }
+                        None => break,
+                    }
+                }
+            }
+        }
+        let _ = ws_write.close().await;
+        let _ = on_event_clone.send(RtDialogueEvent::Disconnected { session_id: sid_w });
+    });
+
+    // Reader task: relay WS messages to frontend
+    tokio::spawn(async move {
+        while let Some(msg_result) = ws_read.next().await {
+            match msg_result {
+                Ok(Message::Text(text)) => {
+                    let _ = on_event.send(RtDialogueEvent::Message {
+                        session_id: sid_r.clone(),
+                        data: text,
+                    });
+                }
+                Ok(Message::Binary(data)) => {
+                    let b64 = BASE64_STANDARD.encode(&data);
+                    let json = serde_json::json!({
+                        "type": "binary",
+                        "data": b64,
+                    })
+                    .to_string();
+                    let _ = on_event.send(RtDialogueEvent::Message {
+                        session_id: sid_r.clone(),
+                        data: json,
+                    });
+                }
+                Ok(Message::Close(_)) | Err(_) => break,
+                _ => {}
+            }
+        }
+        let _ = reader_done_tx.send(());
+    });
+
+    Ok(session_id)
+}
+
+/// Send a JSON text message to the server within an active realtime dialogue session.
+#[tauri::command]
+pub async fn rt_dialogue_send_text(
+    state: tauri::State<'_, RtDialogueState>,
+    session_id: String,
+    data: String,
+) -> Result<(), String> {
+    let tx = {
+        let sessions = state
+            .sessions
+            .lock()
+            .map_err(|_| "State lock poisoned".to_string())?;
+        sessions.get(&session_id).map(|s| s.text_tx.clone())
+    };
+    match tx {
+        Some(tx) => tx.send(data).await.map_err(|_| "Session closed".to_string()),
+        None => Err(format!("No active rt_dialogue session: {}", session_id)),
+    }
+}
+
+/// Send a PCM audio chunk (base64-encoded) to the server.
+#[tauri::command]
+pub async fn rt_dialogue_send_audio(
+    state: tauri::State<'_, RtDialogueState>,
+    session_id: String,
+    audio_b64: String,
+) -> Result<(), String> {
+    let data = BASE64_STANDARD
+        .decode(&audio_b64)
+        .map_err(|e| format!("Base64 decode error: {}", e))?;
+    let tx = {
+        let sessions = state
+            .sessions
+            .lock()
+            .map_err(|_| "State lock poisoned".to_string())?;
+        sessions.get(&session_id).map(|s| s.audio_tx.clone())
+    };
+    match tx {
+        Some(tx) => tx.send(data).await.map_err(|_| "Session closed".to_string()),
+        None => Err(format!("No active rt_dialogue session: {}", session_id)),
+    }
+}
+
+/// Stop a realtime dialogue session.
+#[tauri::command]
+pub async fn rt_dialogue_stop(
+    state: tauri::State<'_, RtDialogueState>,
+    session_id: String,
+) -> Result<(), String> {
+    let stop_tx = {
+        let mut sessions = state
+            .sessions
+            .lock()
+            .map_err(|_| "State lock poisoned".to_string())?;
+        sessions.remove(&session_id).and_then(|mut s| s.stop_tx.take())
+    };
+    if let Some(tx) = stop_tx {
+        let _ = tx.send(());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

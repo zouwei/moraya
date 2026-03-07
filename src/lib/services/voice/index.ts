@@ -12,4 +12,5 @@ export {
   sendAudioChunk,
   stopTranscription,
   testSpeechConnection,
+  setMicMuted,
 } from './speech-service';

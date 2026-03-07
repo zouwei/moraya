@@ -310,6 +310,7 @@ pub fn run() {
         .manage(commands::mcp::MCPProcessManager::new())
         .manage(commands::ai_proxy::AIProxyState::new())
         .manage(commands::speech_proxy::SpeechProxyState::new())
+        .manage(commands::speech_proxy::RtDialogueState::new())
         .manage(commands::plugin_manager::PluginProcessManager::new())
         .manage(OpenedFiles(Mutex::new(initial_files)))
         .manage(PendingFiles(Mutex::new(HashMap::new())))
@@ -344,6 +345,10 @@ pub fn run() {
             commands::speech_proxy::speech_proxy_start,
             commands::speech_proxy::speech_proxy_send_audio,
             commands::speech_proxy::speech_proxy_stop,
+            commands::speech_proxy::rt_dialogue_start,
+            commands::speech_proxy::rt_dialogue_send_text,
+            commands::speech_proxy::rt_dialogue_send_audio,
+            commands::speech_proxy::rt_dialogue_stop,
             commands::plugin_manager::plugin_validate_manifest,
             commands::plugin_manager::plugin_install_local,
             commands::plugin_manager::plugin_install_from_url,

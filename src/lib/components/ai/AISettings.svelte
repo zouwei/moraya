@@ -44,6 +44,7 @@
   let realtimeModel = $state('');
   let realtimeVoice = $state('');
   let realtimeRegion = $state('');
+  let realtimeAppId = $state('');
   let realtimeAccessKeyId = $state('');
   let realtimeSecretAccessKey = $state('');
   let realtimeSessionToken = $state('');
@@ -127,7 +128,8 @@
     editingChatId = config.id;
     addingChat = false;
     formProvider = config.provider;
-    formApiKey = config.apiKey;
+    // '***' means key is stored in keychain but not yet loaded — show empty field
+    formApiKey = config.apiKey === '***' ? '' : config.apiKey;
     formBaseUrl = config.baseUrl || '';
     formModel = config.model;
     formMaxTokens = config.maxTokens || 41920;
@@ -165,10 +167,17 @@
   }
 
   function saveChatConfig() {
+    // If editing and user left key field empty, preserve existing '***' placeholder
+    // so the keychain entry isn't overwritten with an empty value.
+    const existingConfig = editingChatId ? chatConfigs.find(c => c.id === editingChatId) : null;
+    const resolvedApiKey = formApiKey !== '' || !existingConfig || existingConfig.apiKey !== '***'
+      ? formApiKey
+      : '***';
+
     const config: AIProviderConfig = {
       id: editingChatId || crypto.randomUUID(),
       provider: formProvider,
-      apiKey: formApiKey,
+      apiKey: resolvedApiKey,
       baseUrl: formBaseUrl || undefined,
       model: formModel || getChatModels()[0] || '',
       maxTokens: formMaxTokens,
@@ -248,6 +257,7 @@
     realtimeModel = REALTIME_VOICE_DEFAULT_MODELS['openai-realtime']?.[0] || '';
     realtimeVoice = '';
     realtimeRegion = '';
+    realtimeAppId = '';
     realtimeAccessKeyId = '';
     realtimeSecretAccessKey = '';
     realtimeSessionToken = '';
@@ -264,6 +274,7 @@
     realtimeModel = config.model;
     realtimeVoice = config.voice || '';
     realtimeRegion = config.region || '';
+    realtimeAppId = config.appId || '';
     realtimeAccessKeyId = config.accessKeyId || '';
     realtimeSecretAccessKey = config.secretAccessKey || '';
     realtimeSessionToken = config.sessionToken || '';
@@ -284,11 +295,16 @@
     realtimeBaseUrl = REALTIME_VOICE_BASE_URLS[realtimeProvider] || '';
     realtimeVoice = '';
     realtimeRegion = '';
+    realtimeAppId = '';
     realtimeAccessKeyId = '';
     realtimeSecretAccessKey = '';
     realtimeSessionToken = '';
     realtimeTestStatus = 'idle';
     realtimeTestError = '';
+  }
+
+  function providerNeedsDoubaoCredential(provider: RealtimeVoiceProvider): boolean {
+    return provider === 'doubao-realtime';
   }
 
   function buildRealtimeConfig(id: string): RealtimeVoiceAIConfig {
@@ -300,6 +316,7 @@
       model: realtimeModel || REALTIME_VOICE_DEFAULT_MODELS[realtimeProvider]?.[0] || '',
       voice: realtimeVoice || undefined,
       region: realtimeRegion || undefined,
+      appId: realtimeAppId || undefined,
       accessKeyId: realtimeAccessKeyId || undefined,
       secretAccessKey: realtimeSecretAccessKey || undefined,
       sessionToken: realtimeSessionToken || undefined,
@@ -307,6 +324,9 @@
   }
 
   function hasRealtimeCredential(config: RealtimeVoiceAIConfig): boolean {
+    if (config.provider === 'doubao-realtime') {
+      return !!(config.appId?.trim() && config.apiKey?.trim());
+    }
     return !!(
       (config.apiKey && config.apiKey.trim())
       || ((config.accessKeyId && config.accessKeyId.trim()) && (config.secretAccessKey && config.secretAccessKey.trim()))
@@ -344,8 +364,8 @@
       return;
     }
 
-    if (providerNeedsAwsCredential(cfg.provider)) {
-      // Placeholder probe for SigV4 providers; full websocket auth test is implemented in voice runtime service.
+    if (providerNeedsAwsCredential(cfg.provider) || providerNeedsDoubaoCredential(cfg.provider)) {
+      // WebSocket-only providers cannot be tested via HTTP — mark as saved
       realtimeTestStatus = 'success';
       realtimeTestError = '';
       if (realtimeTestTimer) clearTimeout(realtimeTestTimer);
@@ -670,6 +690,15 @@
               <label class="setting-label">{$t('ai.realtime.config.sessionToken')}</label>
               <input type="password" class="setting-input" bind:value={realtimeSessionToken} placeholder={$t('ai.realtime.config.optional')} />
             </div>
+          {:else if providerNeedsDoubaoCredential(realtimeProvider)}
+            <div class="setting-group">
+              <label class="setting-label">{$t('ai.realtime.config.doubaoAppId')}</label>
+              <input type="text" class="setting-input" bind:value={realtimeAppId} placeholder="123456789" />
+            </div>
+            <div class="setting-group">
+              <label class="setting-label">{$t('ai.realtime.config.doubaoAccessKey')}</label>
+              <input type="password" class="setting-input" bind:value={realtimeApiKey} placeholder="your-access-token" />
+            </div>
           {:else}
             <div class="setting-group">
               <label class="setting-label">{$t('ai.config.apiKey')}</label>
@@ -800,6 +829,15 @@
           <div class="setting-group">
             <label class="setting-label">{$t('ai.realtime.config.sessionToken')}</label>
             <input type="password" class="setting-input" bind:value={realtimeSessionToken} placeholder={$t('ai.realtime.config.optional')} />
+          </div>
+        {:else if providerNeedsDoubaoCredential(realtimeProvider)}
+          <div class="setting-group">
+            <label class="setting-label">{$t('ai.realtime.config.doubaoAppId')}</label>
+            <input type="text" class="setting-input" bind:value={realtimeAppId} placeholder="123456789" />
+          </div>
+          <div class="setting-group">
+            <label class="setting-label">{$t('ai.realtime.config.doubaoAccessKey')}</label>
+            <input type="password" class="setting-input" bind:value={realtimeApiKey} placeholder="your-access-token" />
           </div>
         {:else}
           <div class="setting-group">

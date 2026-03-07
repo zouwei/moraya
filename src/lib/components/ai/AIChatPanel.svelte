@@ -15,9 +15,10 @@
   import { startTranscription, stopTranscription } from '$lib/services/voice/speech-service';
   import type { TranscriptSegment } from '$lib/services/voice/types';
   import type { SpeechProviderConfig } from '$lib/services/ai/types';
+  import { REALTIME_VOICE_BASE_URLS } from '$lib/services/ai/types';
   import { mcpStore } from '$lib/services/mcp';
   import { filesStore } from '$lib/stores/files-store';
-  import { invoke } from '@tauri-apps/api/core';
+  import { invoke, Channel } from '@tauri-apps/api/core';
   import { readFile } from '@tauri-apps/plugin-fs';
   import { markdownToHtmlBody } from '$lib/services/export-service';
   import { openUrl } from '@tauri-apps/plugin-opener';
@@ -74,6 +75,21 @@
   let isRealtimeVoiceActive = $state(false);
   let isRealtimeVoiceConnecting = $state(false);
 
+  // Realtime dialogue session state
+  type RtDialogueEvent =
+    | { type: 'connected'; sessionId: string }
+    | { type: 'message'; sessionId: string; data: string }
+    | { type: 'error'; sessionId: string; error: string }
+    | { type: 'disconnected'; sessionId: string };
+  let rtSessionId: string | null = null;
+  let rtAudioContext: AudioContext | null = null;   // input (mic capture)
+  let rtOutputContext: AudioContext | null = null;  // output (TTS playback)
+  let rtNextPlayTime = 0;
+  let rtMediaStream: MediaStream | null = null;
+  let rtWorkletNode: AudioWorkletNode | null = null;
+  let rtCurrentResponse = $state(''); // accumulates streaming AI text
+  let rtUserInterim = $state('');    // interim ASR text from user speech
+
   // Template system state
   let activeTemplate = $state<AITemplate | null>(null);
   let showParamPanel = $state(false);
@@ -83,6 +99,11 @@
   const MAX_IMAGES = 5;
   let pendingImages = $state<ImageAttachment[]>([]);
   let lightboxSrc = $state<string | null>(null);
+
+  // Model dropdown
+  let showModelDropdown = $state(false);
+  let modelDropdownTriggerEl = $state<HTMLElement | undefined>(undefined);
+  let modelDropdownEl = $state<HTMLElement | undefined>(undefined);
 
   // Transcription panel
   let showActionDrawer = $state(false);
@@ -242,6 +263,9 @@
     if (inlineSessionId) {
       stopTranscription(inlineSessionId).catch(() => { /* ignore */ });
     }
+    if (isRealtimeVoiceActive || rtSessionId) {
+      stopRealtimeVoiceSession();
+    }
     unsubFiles();
     unsubMcp();
     unsubAI();
@@ -250,9 +274,14 @@
 
   onMount(() => {
     const handleGlobalPointerDown = (event: PointerEvent) => {
-      if (!showActionDrawer) return;
       const target = event.target as Node | null;
       if (!target) return;
+      if (showModelDropdown) {
+        if (!modelDropdownEl?.contains(target) && !modelDropdownTriggerEl?.contains(target)) {
+          showModelDropdown = false;
+        }
+      }
+      if (!showActionDrawer) return;
       if (actionDrawerEl?.contains(target)) return;
       if (actionTriggerEl?.contains(target)) return;
       showActionDrawer = false;
@@ -291,13 +320,19 @@
   });
 
   function handleModelSwitch(e: Event) {
-    const id = (e.target as HTMLSelectElement).value;
-    aiStore.setActiveConfig(id);
+    const val = (e.target as HTMLSelectElement).value;
+    if (val.startsWith('rt:')) {
+      aiStore.setActiveRealtimeVoiceConfig(val.slice(3));
+    } else {
+      aiStore.setActiveConfig(val);
+    }
   }
 
   // Auto-scroll during streaming when user is at bottom (RAF-batched)
   $effect(() => {
     const _ = streamingContent;
+    const _rt = rtCurrentResponse;
+    const _ru = rtUserInterim;
     const __ = chatMessages.length;
     if (userAtBottom && messagesEl) {
       if (scrollRaf) return; // skip if already pending
@@ -468,6 +503,9 @@
   }
 
   function hasRealtimeCredential(config: RealtimeVoiceAIConfig): boolean {
+    if (config.provider === 'doubao-realtime') {
+      return !!(config.appId?.trim() && config.apiKey?.trim());
+    }
     const apiKey = (config.apiKey || '').trim();
     const ak = (config.accessKeyId || '').trim();
     const sk = (config.secretAccessKey || '').trim();
@@ -489,6 +527,183 @@
   function stopRealtimeVoiceSession() {
     isRealtimeVoiceActive = false;
     isRealtimeVoiceConnecting = false;
+    // Commit any pending streaming response
+    if (rtCurrentResponse.trim()) {
+      chatMessages = [...chatMessages, {
+        role: 'assistant',
+        content: rtCurrentResponse,
+        timestamp: Date.now(),
+      }];
+      rtCurrentResponse = '';
+    }
+    rtUserInterim = '';
+    // Stop audio capture
+    rtWorkletNode?.disconnect();
+    rtWorkletNode = null;
+    rtMediaStream?.getTracks().forEach(t => t.stop());
+    rtMediaStream = null;
+    rtAudioContext?.close().catch(() => {});
+    rtAudioContext = null;
+    rtOutputContext?.close().catch(() => {});
+    rtOutputContext = null;
+    rtNextPlayTime = 0;
+    // Close backend session
+    if (rtSessionId) {
+      const sid = rtSessionId;
+      rtSessionId = null;
+      invoke('rt_dialogue_stop', { sessionId: sid }).catch(() => {});
+    }
+  }
+
+  function handleRtDialogueEvent(event: RtDialogueEvent) {
+    switch (event.type) {
+      case 'error':
+        aiStore.setError(event.error);
+        stopRealtimeVoiceSession();
+        break;
+      case 'disconnected':
+        if (isRealtimeVoiceActive) stopRealtimeVoiceSession();
+        break;
+      case 'message':
+        parseRtServerMessage(event.data);
+        break;
+    }
+  }
+
+  function playRtAudioChunk(base64: string) {
+    if (!rtOutputContext) {
+      rtOutputContext = new AudioContext({ sampleRate: 24000 });
+      rtNextPlayTime = rtOutputContext.currentTime;
+    }
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const int16 = new Int16Array(bytes.buffer);
+    if (int16.length === 0) return;
+    const float32 = new Float32Array(int16.length);
+    for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768;
+    const buffer = rtOutputContext.createBuffer(1, float32.length, 24000);
+    buffer.copyToChannel(float32, 0);
+    const source = rtOutputContext.createBufferSource();
+    source.buffer = buffer;
+    source.connect(rtOutputContext.destination);
+    const now = rtOutputContext.currentTime;
+    const startTime = Math.max(now, rtNextPlayTime);
+    source.start(startTime);
+    rtNextPlayTime = startTime + buffer.duration;
+  }
+
+  function parseRtServerMessage(data: string) {
+    try {
+      const msg = JSON.parse(data);
+      // Binary audio from Doubao TTS
+      if (msg.type === 'binary' && msg.data) {
+        playRtAudioChunk(msg.data);
+        return;
+      }
+
+      // Doubao binary-protocol events (wrapped by Rust with doubaoEvent field)
+      if (msg.doubaoEvent !== undefined) {
+        const ev = msg.doubaoEvent as number;
+        const payload = msg.payload || {};
+        if (ev === 451) {
+          // ASRResponse: interim or final user speech
+          const result = payload.results?.[0];
+          const text: string = result?.text || '';
+          if (result?.is_interim) {
+            rtUserInterim = text;
+          } else {
+            // Final ASR result — commit as user message
+            const committed = text || rtUserInterim;
+            if (committed.trim()) {
+              chatMessages = [...chatMessages, {
+                role: 'user',
+                content: committed,
+                timestamp: Date.now(),
+              }];
+            }
+            rtUserInterim = '';
+          }
+        } else if (ev === 459) {
+          // ASREnded: user turn finished; commit interim if still pending
+          if (rtUserInterim.trim()) {
+            chatMessages = [...chatMessages, {
+              role: 'user',
+              content: rtUserInterim,
+              timestamp: Date.now(),
+            }];
+            rtUserInterim = '';
+          }
+        } else if (ev === 550) {
+          // ChatResponse: streaming AI text
+          const content: string = payload.content || '';
+          if (content) rtCurrentResponse += content;
+        } else if (ev === 559) {
+          // ChatEnded: AI turn finished
+          if (rtCurrentResponse.trim()) {
+            chatMessages = [...chatMessages, {
+              role: 'assistant',
+              content: rtCurrentResponse,
+              timestamp: Date.now(),
+            }];
+            rtCurrentResponse = '';
+          }
+        }
+        return;
+      }
+
+      const t = msg.type || msg.event || '';
+      // Text delta (OpenAI-style)
+      if (t === 'response.text.delta' || t === 'response.audio_transcript.delta') {
+        const delta = msg.delta || msg.text || '';
+        if (delta) rtCurrentResponse += delta;
+      } else if (t === 'response.done' || t === 'response.text.done') {
+        if (rtCurrentResponse.trim()) {
+          chatMessages = [...chatMessages, {
+            role: 'assistant',
+            content: rtCurrentResponse,
+            timestamp: Date.now(),
+          }];
+          rtCurrentResponse = '';
+        }
+      } else if (t === 'error') {
+        const errMsg = msg.error?.message || msg.message || 'Realtime dialogue error';
+        aiStore.setError(errMsg);
+        stopRealtimeVoiceSession();
+      }
+    } catch { /* ignore non-JSON messages */ }
+  }
+
+  async function sendRtAudioChunk(sessionId: string, data: ArrayBuffer) {
+    const bytes = new Uint8Array(data);
+    const PAGE = 8192;
+    let binary = '';
+    for (let i = 0; i < bytes.length; i += PAGE) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + PAGE) as unknown as number[]);
+    }
+    await invoke('rt_dialogue_send_audio', { sessionId, audioB64: btoa(binary) });
+  }
+
+  async function startRtAudioCapture(sessionId: string) {
+    try {
+      rtMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      rtAudioContext = new AudioContext({ sampleRate: 16000 });
+      await rtAudioContext.audioWorklet.addModule(new URL('../../services/voice/pcm-worklet.js', import.meta.url));
+      const source = rtAudioContext.createMediaStreamSource(rtMediaStream);
+      rtWorkletNode = new AudioWorkletNode(rtAudioContext, 'pcm-sender');
+      source.connect(rtWorkletNode);
+      let sending = false;
+      rtWorkletNode.port.onmessage = (e: MessageEvent<ArrayBuffer>) => {
+        if (sending || !rtSessionId) return;
+        sending = true;
+        sendRtAudioChunk(sessionId, e.data)
+          .catch(() => {})
+          .finally(() => { sending = false; });
+      };
+    } catch (e) {
+      // Mic access denied — continue without audio
+      console.warn('[RT Dialogue] Mic capture failed:', e);
+    }
   }
 
   async function startRealtimeVoiceSession() {
@@ -504,9 +719,57 @@
     }
     showActionDrawer = false;
     isRealtimeVoiceConnecting = true;
-    await Promise.resolve();
-    isRealtimeVoiceConnecting = false;
-    isRealtimeVoiceActive = true;
+
+    const baseUrl = cfg.baseUrl || REALTIME_VOICE_BASE_URLS[cfg.provider] || '';
+    const channel = new Channel<RtDialogueEvent>();
+    channel.onmessage = handleRtDialogueEvent;
+
+    try {
+      const sessionId = await invoke<string>('rt_dialogue_start', {
+        configId: cfg.id,
+        provider: cfg.provider,
+        baseUrl,
+        model: cfg.model,
+        resourceId: null,
+        onEvent: channel,
+      });
+      rtSessionId = sessionId;
+      isRealtimeVoiceActive = true;
+      isRealtimeVoiceConnecting = false;
+
+      // Send provider-specific session initialization
+      const initMsg = buildRtSessionInit(cfg);
+      if (initMsg) {
+        await invoke('rt_dialogue_send_text', { sessionId, data: initMsg });
+      }
+
+      // Start microphone audio capture
+      await startRtAudioCapture(sessionId);
+    } catch (e) {
+      aiStore.setError(e instanceof Error ? e.message : String(e));
+      isRealtimeVoiceConnecting = false;
+    }
+  }
+
+  function buildRtSessionInit(cfg: RealtimeVoiceAIConfig): string | null {
+    const base = {
+      modalities: ['text', 'audio'],
+      input_audio_format: 'pcm16',
+      output_audio_format: 'pcm16',
+      turn_detection: { type: 'server_vad', silence_duration_ms: 500, threshold: 0.5 },
+    };
+    switch (cfg.provider) {
+      case 'doubao-realtime':
+        // Session init handled by Rust backend (binary protocol handshake)
+        return null;
+      case 'openai-realtime':
+        return JSON.stringify({ type: 'session.update', session: { ...base, model: cfg.model } });
+      case 'qwen-realtime':
+      case 'stepfun-realtime':
+        return JSON.stringify({ type: 'session.update', session: { ...base, model: cfg.model } });
+      default:
+        return null;
+    }
   }
 
   async function handlePrimaryAction() {
@@ -765,6 +1028,13 @@
     inputPlaceholderOverride = null;
   }
 
+  function handleInput() {
+    autoResizeInput();
+    if (showCommands && !inputText.startsWith('/')) {
+      showCommands = false;
+    }
+  }
+
   function autoResizeInput() {
     if (!inputEl) return;
     if (resizeRaf) return; // RAF-throttle to avoid sync reflow per keystroke
@@ -815,13 +1085,55 @@
   <div class="ai-header">
     <div class="ai-header-left">
       <span class="ai-title">{$t('ai.title')}</span>
-      {#if providerConfigs.length > 1}
-        <select class="model-switcher" value={activeConfigId} onchange={handleModelSwitch}>
-          {#each providerConfigs as cfg}
-            <option value={cfg.id}>{cfg.model || cfg.provider}</option>
-          {/each}
-        </select>
-      {:else if providerConfigs.length === 1}
+      {#if providerConfigs.length + realtimeVoiceConfigs.length > 1}
+        <div class="model-dropdown-wrap">
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <div
+            class="model-dropdown-trigger"
+            bind:this={modelDropdownTriggerEl}
+            onclick={() => showModelDropdown = !showModelDropdown}
+          >
+            <span class="model-trigger-text">
+              {providerConfigs.find(c => c.id === activeConfigId)?.model
+                || providerConfigs.find(c => c.id === activeConfigId)?.provider
+                || providerConfigs[0]?.model || ''}
+            </span>
+            <svg width="8" height="5" viewBox="0 0 8 5" fill="none" aria-hidden="true" style="flex-shrink:0;opacity:0.5">
+              <path d={showModelDropdown ? 'M7 4L4 1 1 4' : 'M1 1l3 3 3-3'} stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </div>
+          {#if showModelDropdown}
+            <div class="model-dropdown-panel" bind:this={modelDropdownEl}>
+              {#if realtimeVoiceConfigs.length > 0}
+                <div class="model-group-label">{$t('ai.realtime.chatModelGroup')}</div>
+              {/if}
+              {#each providerConfigs as cfg}
+                <button
+                  class="model-dropdown-item"
+                  onclick={() => { aiStore.setActiveConfig(cfg.id); showModelDropdown = false; }}
+                >
+                  <span class="model-item-dot">{cfg.id === activeConfigId ? '•' : ''}</span>
+                  <span class="model-item-name">{cfg.model || cfg.provider}</span>
+                </button>
+              {/each}
+              {#if realtimeVoiceConfigs.length > 0}
+                <div class="model-group-divider"></div>
+                <div class="model-group-label">{$t('ai.realtime.realtimeModelGroup')}</div>
+                {#each realtimeVoiceConfigs as cfg}
+                  <button
+                    class="model-dropdown-item"
+                    onclick={() => { aiStore.setActiveRealtimeVoiceConfig(cfg.id); showModelDropdown = false; }}
+                  >
+                    <span class="model-item-dot">{cfg.id === activeRealtimeVoiceConfigId ? '•' : ''}</span>
+                    <span class="model-item-name">{cfg.model || cfg.provider}</span>
+                  </button>
+                {/each}
+              {/if}
+            </div>
+          {/if}
+        </div>
+      {:else if providerConfigs.length === 1 && realtimeVoiceConfigs.length === 0}
         <span class="model-name">{providerConfigs[0].model || providerConfigs[0].provider}</span>
       {/if}
       {#if mcpToolCount > 0}
@@ -860,7 +1172,7 @@
       />
     {:else}
     <div class="ai-messages" bind:this={messagesEl} onscroll={handleMessagesScroll}>
-      {#if chatMessages.length === 0 && !isLoading}
+      {#if chatMessages.length === 0 && !isLoading && !showCommands && !isRealtimeVoiceActive && !isRealtimeVoiceConnecting}
         <TemplateGallery onSelectTemplate={handleTemplateSelect} />
       {/if}
 
@@ -938,6 +1250,22 @@
         {/if}
       {/each}
 
+      {#if isRealtimeVoiceActive && rtUserInterim}
+        <div class="message user rt-interim">
+          <div class="message-content">{rtUserInterim}</div>
+        </div>
+      {/if}
+      {#if isRealtimeVoiceActive && rtCurrentResponse}
+        <div class="message assistant streaming">
+          <div class="message-header">
+            <span class="message-role">{$t('ai.assistant')}</span>
+          </div>
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div class="message-content" onclick={handleContentClick}>{@html markdownToHtmlBody(rtCurrentResponse)}</div>
+          <span class="typing-indicator">{$t('ai.typing')}</span>
+        </div>
+      {/if}
       {#if isLoading && streamingContent}
         <div class="message assistant streaming">
           <div class="message-header">
@@ -1050,7 +1378,7 @@
             class="ai-input"
             bind:this={inputEl}
             bind:value={inputText}
-            oninput={autoResizeInput}
+            oninput={handleInput}
             onkeydown={handleKeydown}
             onpaste={handleInputPaste}
             ondrop={handleInputDrop}
@@ -1094,6 +1422,15 @@
                 </svg>
               </button>
             {:else if isRealtimeVoiceActive}
+              <span class="recording-wave rt-wave" aria-hidden="true">
+                <svg viewBox="0 0 24 16" fill="none">
+                  <rect class="wave-bar wave-bar-1" x="1" y="5" width="3" height="6" rx="1.5" fill="currentColor"></rect>
+                  <rect class="wave-bar wave-bar-2" x="6" y="2" width="3" height="12" rx="1.5" fill="currentColor"></rect>
+                  <rect class="wave-bar wave-bar-3" x="11" y="4" width="3" height="8" rx="1.5" fill="currentColor"></rect>
+                  <rect class="wave-bar wave-bar-4" x="16" y="1" width="3" height="14" rx="1.5" fill="currentColor"></rect>
+                  <rect class="wave-bar wave-bar-5" x="21" y="5" width="3" height="6" rx="1.5" fill="currentColor"></rect>
+                </svg>
+              </span>
               {#if hasDraftContent()}
                 <button class="icon-btn primary-btn" onclick={handleSend} title={$t('ai.send')}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -1253,20 +1590,101 @@
     letter-spacing: 0.05em;
   }
 
-  .model-switcher {
+  .model-dropdown-wrap {
+    position: relative;
+  }
+
+  .model-dropdown-trigger {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
     font-size: 10px;
-    padding: 0.1rem 0.3rem;
+    padding: 0.15rem 0.4rem 0.15rem 0.45rem;
     border: 1px solid var(--border-color);
     border-radius: 4px;
     background: var(--bg-primary);
     color: var(--text-secondary);
-    max-width: 120px;
+    max-width: 140px;
     cursor: pointer;
+    user-select: none;
   }
 
-  .model-switcher:focus {
-    outline: none;
+  .model-dropdown-trigger:hover {
     border-color: var(--accent-color);
+    color: var(--text-primary);
+  }
+
+  .model-trigger-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .model-dropdown-panel {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 200;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.18);
+    min-width: 200px;
+    max-width: 320px;
+    padding: 0.3rem 0;
+    overflow: hidden;
+  }
+
+  .model-group-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-muted);
+    padding: 0.35rem 0.65rem 0.15rem;
+  }
+
+  .model-group-divider {
+    height: 1px;
+    background: var(--border-light);
+    margin: 0.25rem 0;
+  }
+
+  .model-dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    width: 100%;
+    text-align: left;
+    font-size: 11px;
+    padding: 0.3rem 0.65rem;
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    cursor: pointer;
+    line-height: 1.4;
+  }
+
+  .model-dropdown-item:hover {
+    background: var(--bg-hover);
+  }
+
+  .model-item-dot {
+    width: 1rem;
+    flex-shrink: 0;
+    color: var(--accent-color);
+    font-size: 16px;
+    line-height: 1;
+    text-align: center;
+  }
+
+  .model-item-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
   }
 
   .model-name {
@@ -1504,6 +1922,21 @@
     font-size: var(--font-size-xs);
     font-weight: 600;
     color: var(--text-muted);
+  }
+
+  .message.rt-interim {
+    opacity: 0.65;
+    font-style: italic;
+  }
+
+  .rt-wave {
+    color: var(--accent-color);
+  }
+
+  .rt-badge {
+    font-size: 10px;
+    color: var(--accent);
+    opacity: 0.8;
   }
 
   .message.user .message-role,

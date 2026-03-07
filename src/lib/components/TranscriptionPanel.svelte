@@ -1,6 +1,6 @@
 <script lang="ts">
   import { settingsStore } from '$lib/stores/settings-store';
-  import { startTranscription, stopTranscription } from '$lib/services/voice/speech-service';
+  import { startTranscription, stopTranscription, setMicMuted } from '$lib/services/voice/speech-service';
   import { aiStore, sendAIRequest } from '$lib/services/ai';
   import { t, resolveAllLocales } from '$lib/i18n';
   import { isMacOS, isTauri } from '$lib/utils/platform';
@@ -47,6 +47,7 @@
 
   let recordingState = $state<RecordingState>('idle');
   let sessionId = $state<string | null>(null);
+  let micMuted = $state(false);
   let segments = $state<TranscriptSegment[]>([]);
   let sourceMode = $state<VoiceInputSourceMode>('mic');
   let sessionMode = $state<VoiceSessionMode>('transcription');
@@ -467,12 +468,19 @@
     await startRecording({ preserveSegments: true, preserveElapsed: true });
   }
 
+  function toggleMicMute() {
+    if (!sessionId) return;
+    micMuted = !micMuted;
+    setMicMuted(sessionId, micMuted);
+  }
+
   async function stopRecording() {
     if (!sessionId) return;
     const sid = sessionId;
     // Reset state immediately so UI responds at once
     sessionId = null;
     recordingState = 'idle';
+    micMuted = false;
     stopTimer();
     clearInterviewSilenceTimer();
     // Cleanup + save WAV + save profiles in background (non-blocking)
@@ -940,30 +948,38 @@
     {#if recordingState === 'connecting'}
       <span class="spinner"></span>
     {:else}
-      <button
-        class="mic-main-btn"
-        onclick={recordingState === 'idle' ? () => startRecording() : togglePause}
-        disabled={!speechConfig}
-        title={
-          recordingState === 'idle'
-            ? $t('transcription.start')
-            : recordingState === 'recording'
-              ? $t('transcription.pause')
-              : $t('transcription.resume')
-        }
-      >
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <rect x="9" y="3" width="6" height="12" rx="3" stroke="currentColor" stroke-width="2"/>
-          <path d="M6 11a6 6 0 0 0 12 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          <path d="M12 17v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          <path d="M8 21h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-        </svg>
-      </button>
-    {/if}
-    {#if recordingState === 'recording' || recordingState === 'paused'}
-      <button class="ctrl-btn danger" onclick={stopRecording}>
-        {$t('transcription.stop')}
-      </button>
+      {#if recordingState === 'idle' || sourceMode !== 'mic'}
+        <button
+          class="mic-main-btn"
+          class:mic-muted={micMuted}
+          onclick={recordingState === 'idle' ? () => startRecording() : toggleMicMute}
+          disabled={!speechConfig}
+          title={
+            recordingState === 'idle'
+              ? $t('transcription.start')
+              : micMuted
+                ? $t('transcription.unmuteMic')
+                : $t('transcription.muteMic')
+          }
+        >
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <rect x="9" y="3" width="6" height="12" rx="3" stroke="currentColor" stroke-width="2"/>
+            <path d="M6 11a6 6 0 0 0 12 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <path d="M12 17v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <path d="M8 21h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            {#if micMuted}
+              <line x1="4" y1="4" x2="20" y2="20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            {/if}
+          </svg>
+        </button>
+      {/if}
+      {#if recordingState === 'recording' || recordingState === 'paused'}
+        <button class="mic-main-btn mic-stop-btn" onclick={stopRecording} title={$t('transcription.stop')}>
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/>
+          </svg>
+        </button>
+      {/if}
     {/if}
   </div>
 
@@ -1100,6 +1116,30 @@
   .mic-main-btn:disabled {
     opacity: 0.45;
     cursor: not-allowed;
+  }
+
+  .mic-muted {
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    border-color: var(--border-color);
+  }
+
+  .mic-muted:hover:not(:disabled) {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .mic-stop-btn {
+    background: #e53e3e;
+    border-color: #e53e3e;
+    color: #fff;
+  }
+
+  .mic-stop-btn:hover:not(:disabled) {
+    background: #c53030;
+    border-color: #c53030;
+    color: #fff;
+    transform: translateY(-1px);
   }
 
   .recording-dot {

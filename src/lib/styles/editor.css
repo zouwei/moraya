@@ -92,6 +92,13 @@
   outline: 2px solid var(--accent-color);
 }
 
+/* Renderer / Mermaid preview mode: no grey background strip above the preview */
+.moraya-editor .code-block-wrapper.renderer-preview-mode,
+.moraya-editor .code-block-wrapper.mermaid-preview-mode {
+  background: transparent;
+  padding-top: 0;
+}
+
 .moraya-editor .code-block-toolbar {
   position: absolute;
   top: 0;

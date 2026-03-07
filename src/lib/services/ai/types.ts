@@ -32,6 +32,8 @@ export interface RealtimeVoiceAIConfig {
   model: string;
   voice?: string;
   region?: string;
+  /** Doubao Realtime: X-Api-App-ID (App ID from Volcengine console) */
+  appId?: string;
   accessKeyId?: string;
   secretAccessKey?: string;
   sessionToken?: string;
@@ -79,7 +81,7 @@ export const PROVIDER_BASE_URLS: Record<AIProvider, string> = {
 export const REALTIME_VOICE_BASE_URLS: Record<RealtimeVoiceProvider, string> = {
   'gemini-live': 'wss://generativelanguage.googleapis.com/ws',
   'openai-realtime': 'wss://api.openai.com/v1/realtime',
-  'doubao-realtime': 'wss://ark.cn-beijing.volces.com',
+  'doubao-realtime': 'wss://openspeech.bytedance.com/api/v3/realtime/dialogue',
   'qwen-realtime': 'wss://dashscope.aliyuncs.com/api-ws/v1/inference',
   'stepfun-realtime': 'wss://api.stepfun.com/v1/realtime',
   'tongyi-bailing': 'wss://dashscope.aliyuncs.com/api-ws/v1/inference',
@@ -108,8 +110,7 @@ export const REALTIME_VOICE_ENDPOINT_PRESETS: Partial<
     { value: 'wss://dashscope-intl.aliyuncs.com/api-ws/v1/inference', label: 'Tongyi Bailing - Singapore' },
   ],
   'doubao-realtime': [
-    { value: 'wss://ark.cn-beijing.volces.com', label: 'VolcEngine - Beijing' },
-    { value: 'wss://ark.ap-southeast-1.volces.com', label: 'VolcEngine - Singapore' },
+    { value: 'wss://openspeech.bytedance.com/api/v3/realtime/dialogue', label: '豆包实时语音对话 - 全球' },
   ],
 };
 

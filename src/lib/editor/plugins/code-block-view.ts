@@ -15,7 +15,7 @@ import rendererVersions from '$lib/services/plugin/renderer-versions.json';
 
 function getRendererCdnUrl(npmPackage: string, cdnUrl: string): string {
   const ver = (rendererVersions as Record<string, string>)[npmPackage] ?? 'latest';
-  return cdnUrl.replace('{version}', ver);
+  return cdnUrl.replaceAll('{version}', ver);
 }
 
 function findRendererPlugin(lang: string) {
@@ -511,6 +511,7 @@ export function createCodeBlockNodeView(node: PmNode, view: EditorView, getPos: 
       pre.style.display = (showPreview || (isMermaid && !isEditing)) ? 'none' : '';
       rendererPreview.style.display = showPreview ? 'block' : 'none';
       toggleBtn.style.display = (isMermaid || isRenderer) ? 'inline-flex' : 'none';
+      wrapper.classList.toggle('renderer-preview-mode', showPreview);
       if (isRenderer) {
         toggleBtn.textContent = rendererEditing ? '👁 Preview' : '✏️ Edit';
         if (showPreview) triggerRendererRender();
@@ -579,6 +580,9 @@ export function createCodeBlockNodeView(node: PmNode, view: EditorView, getPos: 
       // so code.textContent is empty here. Wait one frame for content to arrive.
       requestAnimationFrame(() => syncMermaidMode());
     } else if (isRenderer) {
+      // Hide pre and show toggle button immediately (don't wait for rAF),
+      // then re-trigger after content arrives (ProseMirror fills contentDOM after factory returns).
+      syncRendererMode();
       requestAnimationFrame(() => syncRendererMode());
     } else {
       syncMermaidMode();

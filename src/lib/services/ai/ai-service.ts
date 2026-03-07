@@ -33,6 +33,7 @@ import { rendererManager } from '$lib/services/plugin/renderer-manager';
 const AI_STORE_FILE = 'ai-config.json';
 const KEYCHAIN_AI_PREFIX = 'ai-key:';
 const KEYCHAIN_AI_RT_PREFIX = 'ai-rt-key:';
+const KEYCHAIN_AI_RT_APPID_PREFIX = 'ai-rt-appid:';
 const KEYCHAIN_AI_RT_AK_PREFIX = 'ai-rt-ak:';
 const KEYCHAIN_AI_RT_SK_PREFIX = 'ai-rt-sk:';
 const KEYCHAIN_AI_RT_ST_PREFIX = 'ai-rt-st:';
@@ -108,6 +109,12 @@ async function saveRealtimeSecretsToKeychain(config: RealtimeVoiceAIConfig): Pro
       sanitized.apiKey = '***';
     } catch { /* fallback: keep plaintext */ }
   }
+  if (config.appId && config.appId !== '***') {
+    try {
+      await invoke('keychain_set', { key: `${KEYCHAIN_AI_RT_APPID_PREFIX}${config.id}`, value: config.appId });
+      sanitized.appId = '***';
+    } catch { /* fallback */ }
+  }
   if (config.accessKeyId && config.accessKeyId !== '***') {
     try {
       await invoke('keychain_set', { key: `${KEYCHAIN_AI_RT_AK_PREFIX}${config.id}`, value: config.accessKeyId });
@@ -138,6 +145,13 @@ async function restoreRealtimeSecretsFromKeychain(config: RealtimeVoiceAIConfig)
       restored.apiKey = '';
     }
   }
+  if (config.appId === '***') {
+    try {
+      restored.appId = await invoke<string | null>('keychain_get', { key: `${KEYCHAIN_AI_RT_APPID_PREFIX}${config.id}` }) ?? '';
+    } catch {
+      restored.appId = '';
+    }
+  }
   if (config.accessKeyId === '***') {
     try {
       restored.accessKeyId = await invoke<string | null>('keychain_get', { key: `${KEYCHAIN_AI_RT_AK_PREFIX}${config.id}` }) ?? '';
@@ -165,6 +179,7 @@ async function restoreRealtimeSecretsFromKeychain(config: RealtimeVoiceAIConfig)
 async function deleteRealtimeSecretsFromKeychain(configId: string): Promise<void> {
   await Promise.allSettled([
     invoke('keychain_delete', { key: `${KEYCHAIN_AI_RT_PREFIX}${configId}` }),
+    invoke('keychain_delete', { key: `${KEYCHAIN_AI_RT_APPID_PREFIX}${configId}` }),
     invoke('keychain_delete', { key: `${KEYCHAIN_AI_RT_AK_PREFIX}${configId}` }),
     invoke('keychain_delete', { key: `${KEYCHAIN_AI_RT_SK_PREFIX}${configId}` }),
     invoke('keychain_delete', { key: `${KEYCHAIN_AI_RT_ST_PREFIX}${configId}` }),
@@ -172,6 +187,9 @@ async function deleteRealtimeSecretsFromKeychain(configId: string): Promise<void
 }
 
 function hasRealtimeCredential(config: RealtimeVoiceAIConfig): boolean {
+  if (config.provider === 'doubao-realtime') {
+    return !!(config.appId && config.apiKey);
+  }
   return !!(
     config.apiKey
     || (config.accessKeyId && config.secretAccessKey)
@@ -1495,9 +1513,12 @@ export async function initAIStore() {
       let needsMigration = false;
       for (const c of configs) {
         if (c.apiKey === '***') {
-          // Restore from keychain
+          // Restore from keychain. If null (keychain temporarily unavailable after
+          // upgrade), preserve '***' in memory so the marker isn't permanently lost
+          // on the next save. The UI maps '***' → empty field for display.
           const key = await getKeyFromKeychain(c.id);
-          c.apiKey = key || '';
+          if (key !== null) c.apiKey = key;
+          // else: keep '***' — keychain will be retried on next app launch
         } else if (c.apiKey && c.apiKey !== '') {
           // Legacy plaintext key — migrate to keychain
           needsMigration = true;

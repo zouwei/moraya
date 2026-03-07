@@ -2,8 +2,7 @@
 
 > Discover Moraya, the epitome of elegant simplicity in an open-source Markdown AI agent that bridges cutting-edge AI power with unwavering user sovereignty—empowering you to create, collaborate, and innovate in total privacy.
 
-**Moraya** is a free, open-source, ultra-lightweight (~10MB) WYSIWYG Markdown editor crafted with Rust and Tauri v2, drawing inspiration from minimalist, seamless editing to deliver an unparalleled writing experience. Seamlessly integrating the most advanced local AI ecosystems and MCP (Model Context Protocol) capabilities, it transforms your editor into a robust, privacy-first AI agent platform. In a world where AI is everywhere, **Moraya serves as your secure, open "Personal Assistant", putting intelligent tools at your fingertips without compromising control**. Derived from "mora" (Latin for "a moment") and "ya" (Chinese for "elegance"), Moraya embodies privacy-first design, fully local operation, and infinitely extensible AI features.
-
+**Moraya** is a free, open-source, ultra-lightweight (\~10MB) WYSIWYG Markdown editor crafted with Rust and Tauri v2, drawing inspiration from minimalist, seamless editing to deliver an unparalleled writing experience. Seamlessly integrating the most advanced local AI ecosystems and MCP (Model Context Protocol) capabilities, it transforms your editor into a robust, privacy-first AI agent platform. In a world where AI is everywhere, **Moraya serves as your secure, open "Personal Assistant", putting intelligent tools at your fingertips without compromising control**. Derived from "mora" (Latin for "a moment") and "ya" (Chinese for "elegance"), Moraya embodies privacy-first design, fully local operation, and infinitely extensible AI features.
 
 ![](https://raw.githubusercontent.com/zouwei/resource/master/images/moraya/20260302-184554.-image.png)
 
@@ -15,7 +14,7 @@
 
 ![](https://raw.githubusercontent.com/zouwei/resource/master/images/moraya/20260223-014749.-image.png)
 
-![](https://raw.githubusercontent.com/zouwei/resource/master/images/moraya/20260223-015339.-image.png)
+![](https://raw.githubusercontent.com/zouwei/resource/master/images/moraya/20260307-051230.-image.png)
 
 **[User Manual / Wiki](https://github.com/zouwei/moraya/wiki)**
 
@@ -143,18 +142,17 @@
 
 ## Tech Stack
 
-| Layer           | Technology                                    | Version         |
-| --------------- | --------------------------------------------- | --------------- |
-| Runtime         | Tauri v2                                      | >=2.9,<2.10     |
-| Backend         | Rust                                          | 2021 edition    |
-| Frontend        | Svelte 5 + SvelteKit (SPA via adapter-static) | ^5.0.0 / ^2.9.0 |
-| Editor Engine   | Milkdown v7 (ProseMirror-based)               | ^7.18.0         |
-| Math Rendering  | KaTeX                                         | ^0.16.28        |
-| Diagrams        | Mermaid (lazy-loaded)                         | ^11.x           |
-| Build Tool      | Vite                                          | ^6.0.3          |
-| Package Manager | pnpm                                          | 10.x            |
-| Language        | TypeScript (strict mode)                      | \~5.6.2         |
-
+| Layer | Technology | Version |
+| --- | --- | --- |
+| Runtime | Tauri v2 | \>=2.9,<2.10 |
+| Backend | Rust | 2021 edition |
+| Frontend | Svelte 5 + SvelteKit (SPA via adapter-static) | ^5.0.0 / ^2.9.0 |
+| Editor Engine | Milkdown v7 (ProseMirror-based) | ^7.18.0 |
+| Math Rendering | KaTeX | ^0.16.28 |
+| Diagrams | Mermaid (lazy-loaded) | ^11.x |
+| Build Tool | Vite | ^6.0.3 |
+| Package Manager | pnpm | 10.x |
+| Language | TypeScript (strict mode) | \~5.6.2 |
 
 ## Install
 
@@ -172,7 +170,7 @@ Upgrade: `brew upgrade --cask moraya` · Uninstall: `brew uninstall --cask moray
 Download the latest release from [GitHub Releases](https://github.com/zouwei/moraya/releases).
 
 | Platform | File | Install |
-|----------|------|---------|
+| --- | --- | --- |
 | macOS (Apple Silicon) | `Moraya_x.x.x_aarch64.dmg` | Open DMG, drag to Applications |
 | macOS (Intel) | `Moraya_x.x.x_x64.dmg` | Open DMG, drag to Applications |
 | Windows | `Moraya_x.x.x_x64_en-US.msi` | Run the MSI installer |
@@ -229,32 +227,32 @@ cd src-tauri && cargo check
 
 ## Keyboard Shortcuts
 
-| Action               | macOS           | Windows/Linux    |
-| -------------------- | --------------- | ---------------- |
-| New                  | `Cmd+N`         | `Ctrl+N`         |
-| New Window           | `Cmd+Shift+N`   | `Ctrl+Shift+N`   |
-| Open                 | `Cmd+O`         | `Ctrl+O`         |
-| Save                 | `Cmd+S`         | `Ctrl+S`         |
-| Save As              | `Cmd+Shift+S`   | `Ctrl+Shift+S`   |
-| Settings             | `Cmd+,`         | `Ctrl+,`         |
-| Find                 | `Cmd+F`         | `Ctrl+F`         |
-| Replace              | `Cmd+H`         | `Ctrl+H`         |
-| Toggle Visual/Source | `Cmd+/`         | `Ctrl+/`         |
-| Toggle Split Mode    | `Cmd+Shift+/`   | `Ctrl+Shift+/`   |
-| Toggle Sidebar       | `Cmd+\`         | `Ctrl+\`         |
-| Toggle AI Panel      | `Cmd+Shift+I`   | `Ctrl+Shift+I`   |
-| Export HTML          | `Cmd+Shift+E`   | `Ctrl+Shift+E`   |
-| Heading 1–6          | `Cmd+1`–`6`     | `Ctrl+1`–`6`     |
-| Bold                 | `Cmd+B`         | `Ctrl+B`         |
-| Italic               | `Cmd+I`         | `Ctrl+I`         |
-| Strikethrough        | `Cmd+Shift+X`   | `Ctrl+Shift+X`   |
-| Inline Code          | `Cmd+E`         | `Ctrl+E`         |
-| Link                 | `Cmd+K`         | `Ctrl+K`         |
-| Insert Image         | `Cmd+Shift+G`   | `Ctrl+Shift+G`   |
-| Code Block           | `Cmd+Shift+K`   | `Ctrl+Shift+K`   |
-| Quote                | `Cmd+Shift+Q`   | `Ctrl+Shift+Q`   |
-| Zoom In/Out/Reset    | `Cmd+=`/`-`/`0` | `Ctrl+=`/`-`/`0` |
-| AI Send Message      | `Cmd+Enter`     | `Ctrl+Enter`     |
+| Action | macOS | Windows/Linux |
+| --- | --- | --- |
+| New | `Cmd+N` | `Ctrl+N` |
+| New Window | `Cmd+Shift+N` | `Ctrl+Shift+N` |
+| Open | `Cmd+O` | `Ctrl+O` |
+| Save | `Cmd+S` | `Ctrl+S` |
+| Save As | `Cmd+Shift+S` | `Ctrl+Shift+S` |
+| Settings | `Cmd+,` | `Ctrl+,` |
+| Find | `Cmd+F` | `Ctrl+F` |
+| Replace | `Cmd+H` | `Ctrl+H` |
+| Toggle Visual/Source | `Cmd+/` | `Ctrl+/` |
+| Toggle Split Mode | `Cmd+Shift+/` | `Ctrl+Shift+/` |
+| Toggle Sidebar | `Cmd+\` | `Ctrl+\` |
+| Toggle AI Panel | `Cmd+Shift+I` | `Ctrl+Shift+I` |
+| Export HTML | `Cmd+Shift+E` | `Ctrl+Shift+E` |
+| Heading 1–6 | `Cmd+1`–`6` | `Ctrl+1`–`6` |
+| Bold | `Cmd+B` | `Ctrl+B` |
+| Italic | `Cmd+I` | `Ctrl+I` |
+| Strikethrough | `Cmd+Shift+X` | `Ctrl+Shift+X` |
+| Inline Code | `Cmd+E` | `Ctrl+E` |
+| Link | `Cmd+K` | `Ctrl+K` |
+| Insert Image | `Cmd+Shift+G` | `Ctrl+Shift+G` |
+| Code Block | `Cmd+Shift+K` | `Ctrl+Shift+K` |
+| Quote | `Cmd+Shift+Q` | `Ctrl+Shift+Q` |
+| Zoom In/Out/Reset | `Cmd+=`/`-`/`0` | `Ctrl+=`/`-`/`0` |
+| AI Send Message | `Cmd+Enter` | `Ctrl+Enter` |
 
 > **AI Chat Input**: `Enter` inserts a newline; `Cmd+Enter` / `Ctrl+Enter` sends the message. This avoids conflicts with CJK IME composition.
 
@@ -265,7 +263,7 @@ Open Settings (`Cmd+,` / `Ctrl+,`) and select the **AI** and **Voice** tab. Conf
 ### Chat Providers
 
 | Provider | API Key | Default Models |
-| -------- | ------- | -------------- |
+| --- | --- | --- |
 | Anthropic Claude | Yes | claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5-20251001 |
 | OpenAI | Yes | gpt-5.2, gpt-5.2-pro, gpt-5, gpt-5-mini, o4-mini, gpt-4o, gpt-4o-mini, o3, o3-mini |
 | Google Gemini | Yes | gemini-3.1-pro-preview, gemini-3-flash-preview, gemini-2.5-flash, gemini-2.5-flash-lite |
@@ -281,7 +279,7 @@ Open Settings (`Cmd+,` / `Ctrl+,`) and select the **AI** and **Voice** tab. Conf
 ### Image Generation Providers
 
 | Provider | API Key | Models |
-| -------- | ------- | ------ |
+| --- | --- | --- |
 | OpenAI | Yes | dall-e-3, dall-e-2, gpt-image-1 |
 | Grok (xAI) | Yes | aurora |
 | Google Gemini | Yes | imagen-3.0-generate-002, imagen-3.0-fast-generate-001 |
@@ -292,7 +290,7 @@ Open Settings (`Cmd+,` / `Ctrl+,`) and select the **AI** and **Voice** tab. Conf
 ### Voice (Speech-to-Text) Providers
 
 | Provider | API Key | Models |
-| -------- | ------- | ------ |
+| --- | --- | --- |
 | Deepgram | Yes | nova-3, nova-2, nova, enhanced, base |
 | Gladia | Yes | solaria-1, fast, accurate |
 | AssemblyAI | Yes | universal-streaming |
@@ -303,7 +301,7 @@ Open Settings (`Cmd+,` / `Ctrl+,`) and select the **AI** and **Voice** tab. Conf
 Built-in `Custom` WebSocket protocol adapters:
 
 | Endpoint Pattern | Protocol | Audio Transport | Notes |
-| ---------------- | -------- | --------------- | ----- |
+| --- | --- | --- | --- |
 | `*.dashscope*.aliyuncs.com/api-ws/v1/inference` | DashScope FunASR | Binary PCM | Supports same-protocol regional nodes (e.g. Beijing/Singapore), auto `run-task` / `finish-task` |
 | `asr.cloud.tencent.com/asr/v2/` | Tencent Cloud ASR v2 | Binary PCM | Sends `{"type":"end"}` on stop, parses `result.voice_text_str` |
 | `iat-api*.xf-yun.com/v2/iat` | iFLYTEK IAT v2 | JSON base64 frames | First/middle/last frame protocol (`status` 0/1/2); set APPID in `model` or URL `app_id` |
@@ -314,9 +312,8 @@ All API keys are stored exclusively in your OS Keychain — never in plaintext. 
 
 ## Development Roadmap
 
-
 | Version | Feature | Status |
-|---------|---------|--------|
+| --- | --- | --- |
 | v0.1.0-v0.3.0 | Core Editor, AI Integration, MCP Ecosystem | Complete |
 | v0.4.0 | MCP Container & Dynamic Services | Complete |
 | v0.5.0 | Publish Workflow (SEO, AIGC, GitHub/RSS) | Complete |
@@ -338,4 +335,4 @@ All API keys are stored exclusively in your OS Keychain — never in plaintext. 
 
 ## ⭐ Star Growth trend (updated in real time)
 
-![Star History Chart](https://api.star-history.com/svg?repos=zouwei/moraya&type=Date&commit=${{github.sha}})
+![Star History Chart](https://api.star-history.com/svg?repos=zouwei/moraya&type=Date&commit=$%7B%7Bgithub.sha%7D%7D)

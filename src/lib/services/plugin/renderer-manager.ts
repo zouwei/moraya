@@ -74,7 +74,7 @@ async function savePersisted(states: RendererPluginState[]): Promise<void> {
 
 function resolvedCdnUrl(plugin: RendererPlugin): string {
   const ver = (versions as Record<string, string>)[plugin.npmPackage] ?? 'latest';
-  return plugin.cdnUrl.replace('{version}', ver);
+  return plugin.cdnUrl.replaceAll('{version}', ver);
 }
 
 function buildInitialState(

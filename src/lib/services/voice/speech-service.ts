@@ -98,6 +98,8 @@ interface SessionState {
   mediaStreams: MediaStream[];
   workletNode: AudioWorkletNode | null;
   analyserNode: AnalyserNode | null;
+  /** Gain node for the microphone stream; null in system-only mode */
+  micGainNode: GainNode | null;
 }
 
 const sessions = new Map<string, SessionState>();
@@ -165,6 +167,7 @@ export async function startTranscription(
       mediaStreams: [],
       workletNode: null,
       analyserNode: null,
+      micGainNode: null,
     };
     sessions.set(sessionId, state);
 
@@ -347,6 +350,16 @@ export async function stopTranscription(
   return { segments, profiles };
 }
 
+/**
+ * Mute or unmute the microphone input for a running session.
+ * Only applies in mixed/mic source modes; no-op for system-only sessions.
+ */
+export function setMicMuted(sessionId: string, muted: boolean): void {
+  const state = sessions.get(sessionId);
+  if (!state?.micGainNode) return;
+  state.micGainNode.gain.value = muted ? 0 : 1;
+}
+
 // ---------------------------------------------------------------------------
 // Audio capture (mic / system / mixed)
 // ---------------------------------------------------------------------------
@@ -464,15 +477,19 @@ async function startAudioCapture(
   const worklet = new AudioWorkletNode(audioCtx, 'pcm-sender');
 
   // Mix all selected inputs into one mono chain.
+  // Mic stream is always streams[0] when sourceMode !== 'system'.
   const mixNode = audioCtx.createGain();
   mixNode.gain.value = 1;
+  let firstGainNode: GainNode | null = null;
   for (const stream of streams) {
     const source = audioCtx.createMediaStreamSource(stream);
     const gain = audioCtx.createGain();
     gain.gain.value = 1;
     source.connect(gain);
     gain.connect(mixNode);
+    if (!firstGainNode) firstGainNode = gain;
   }
+  state.micGainNode = sourceMode !== 'system' ? firstGainNode : null;
 
   // Analyser for pitch detection
   const analyser = audioCtx.createAnalyser();
