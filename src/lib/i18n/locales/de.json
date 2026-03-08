@@ -149,6 +149,7 @@
     "search": "Dateien suchen...",
     "contextMenu": {
       "newFile": "Neue Datei",
+      "newFolder": "Neuer Ordner",
       "searchFiles": "Suchen",
       "refresh": "Aktualisieren",
       "rename": "Umbenennen",
@@ -166,7 +167,10 @@
       "restoreConfirm": "Diese Version wiederherstellen? Der aktuelle Inhalt von MORAYA.md wird ersetzt."
     },
     "newFilePrompt": "Dateinamen eingeben",
+    "newFolderPrompt": "Ordnernamen eingeben",
     "renamePrompt": "Neuen Namen eingeben",
+    "reservedDirTitle": "Reservierter Name",
+    "reservedDirName": "\"images\" ist ein reservierter Verzeichnisname. Bitte wählen Sie einen anderen Namen.",
     "deleteConfirm": "Möchten Sie \"{name}\" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden."
   },
   "statusbar": {

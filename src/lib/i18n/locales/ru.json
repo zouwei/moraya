@@ -149,6 +149,7 @@
     "search": "Поиск файлов...",
     "contextMenu": {
       "newFile": "Новый файл",
+      "newFolder": "Новая папка",
       "searchFiles": "Поиск",
       "refresh": "Обновить",
       "rename": "Переименовать",
@@ -166,7 +167,10 @@
       "restoreConfirm": "Восстановить эту версию? Текущее содержимое MORAYA.md будет заменено."
     },
     "newFilePrompt": "Введите имя файла",
+    "newFolderPrompt": "Введите имя папки",
     "renamePrompt": "Введите новое имя",
+    "reservedDirTitle": "Зарезервированное имя",
+    "reservedDirName": "\"images\" — зарезервированное имя каталога. Пожалуйста, выберите другое имя.",
     "deleteConfirm": "Вы уверены, что хотите удалить «{name}»? Это действие нельзя отменить."
   },
   "statusbar": {

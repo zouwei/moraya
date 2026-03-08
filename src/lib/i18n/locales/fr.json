@@ -145,6 +145,7 @@
     "search": "Rechercher des fichiers...",
     "contextMenu": {
       "newFile": "Nouveau fichier",
+      "newFolder": "Nouveau dossier",
       "searchFiles": "Rechercher",
       "refresh": "Actualiser",
       "rename": "Renommer",
@@ -162,7 +163,10 @@
       "restoreConfirm": "Restaurer cette version ? Le contenu actuel de MORAYA.md sera remplacé."
     },
     "newFilePrompt": "Entrez le nom du fichier",
+    "newFolderPrompt": "Entrez le nom du dossier",
     "renamePrompt": "Entrez le nouveau nom",
+    "reservedDirTitle": "Nom réservé",
+    "reservedDirName": "\"images\" est un nom de répertoire réservé. Veuillez choisir un autre nom.",
     "deleteConfirm": "Êtes-vous sûr de vouloir supprimer \"{name}\" ? Cette action est irréversible."
   },
   "statusbar": {

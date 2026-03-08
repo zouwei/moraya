@@ -149,6 +149,7 @@
     "search": "फ़ाइलें खोजें...",
     "contextMenu": {
       "newFile": "नई फ़ाइल",
+      "newFolder": "नया फ़ोल्डर",
       "searchFiles": "खोजें",
       "refresh": "ताज़ा करें",
       "rename": "नाम बदलें",
@@ -166,7 +167,10 @@
       "restoreConfirm": "इस संस्करण को पुनर्स्थापित करें? MORAYA.md की वर्तमान सामग्री बदल दी जाएगी।"
     },
     "newFilePrompt": "फ़ाइल का नाम दर्ज करें",
+    "newFolderPrompt": "फ़ोल्डर का नाम दर्ज करें",
     "renamePrompt": "नया नाम दर्ज करें",
+    "reservedDirTitle": "आरक्षित नाम",
+    "reservedDirName": "\"images\" एक आरक्षित निर्देशिका नाम है। कृपया कोई अन्य नाम चुनें।",
     "deleteConfirm": "क्या आप वाकई \"{name}\" को हटाना चाहते हैं? यह क्रिया पूर्ववत नहीं की जा सकती।"
   },
   "statusbar": {

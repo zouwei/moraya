@@ -227,6 +227,16 @@ pub fn create_markdown_file(dir_path: String, file_name: String) -> Result<Strin
     Ok(safe_file.to_string_lossy().to_string())
 }
 
+/// Create a new directory (including intermediate directories).
+#[tauri::command]
+pub fn create_dir(path: String) -> Result<(), String> {
+    let safe_path = validate_path(&path)?;
+    if safe_path.exists() {
+        return Err("File already exists".to_string());
+    }
+    fs::create_dir_all(&safe_path).map_err(sanitize_io_error)
+}
+
 /// Rename a file or directory.
 #[tauri::command]
 pub fn rename_file(old_path: String, new_path: String) -> Result<(), String> {

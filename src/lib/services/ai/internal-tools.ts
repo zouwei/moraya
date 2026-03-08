@@ -13,8 +13,10 @@ import {
 } from '$lib/services/mcp/container-manager';
 import { containerStore } from '$lib/services/mcp/container-store';
 import { editorStore } from '$lib/stores/editor-store';
+import { filesStore } from '$lib/stores/files-store';
 import { invoke } from '@tauri-apps/api/core';
 import { appDataDir } from '@tauri-apps/api/path';
+import { computeImageDir, computeImageRelativePath, isInsideKnowledgeBase } from './image-path-utils';
 
 /** Extract a human-readable message from unknown caught values (Error objects, strings, etc.). */
 function errMsg(e: unknown): string {
@@ -206,6 +208,31 @@ export const INTERNAL_TOOLS: ToolDefinition[] = [
       required: ['url'],
     },
   },
+  {
+    name: 'save_image_to_kb',
+    description:
+      'Download an image from a URL and save it to the knowledge base images/ directory. ' +
+      'This is the PREFERRED way to save images when working within a knowledge base — ' +
+      'it automatically places the image in the correct mirror directory structure ' +
+      '(e.g. {kbRoot}/images/blog/article/hero.jpg for an article at {kbRoot}/blog/article.md). ' +
+      'If the current article is not yet saved, the image goes to images/temp/ and will be ' +
+      'migrated automatically when the article is first saved. ' +
+      'Returns the relative path to insert into Markdown (e.g. images/blog/article/hero.jpg).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        url: {
+          type: 'string',
+          description: 'The image URL to download.',
+        },
+        filename: {
+          type: 'string',
+          description: 'Filename to save as (e.g. "hero.jpg"). If omitted, derived from URL.',
+        },
+      },
+      required: ['url'],
+    },
+  },
 ];
 
 /** Check if a tool name belongs to an internal tool. */
@@ -232,6 +259,8 @@ export async function executeInternalTool(
       return handleUpdateEditorContent(tc.arguments);
     case 'fetch_image_to_local':
       return handleFetchImageToLocal(tc.arguments);
+    case 'save_image_to_kb':
+      return handleSaveImageToKb(tc.arguments);
     default:
       return { content: `Unknown internal tool: ${tc.name}`, isError: true };
   }
@@ -529,6 +558,87 @@ async function handleFetchImageToLocal(
 
   return {
     content: `Image saved to: ${localPath} (${buffer.byteLength} bytes). Pass this local path to MCP tools that require a file path.`,
+    isError: false,
+  };
+}
+
+async function handleSaveImageToKb(
+  args: Record<string, unknown>,
+): Promise<{ content: string; isError: boolean }> {
+  const url = args.url as string;
+  if (!url) return { content: 'Error: "url" is required', isError: true };
+
+  // Resolve current article path and knowledge base root
+  const editorState = editorStore.getState();
+  const articlePath = editorState.currentFilePath ?? null;
+  const kb = filesStore.getActiveKnowledgeBase();
+  const kbRoot = kb?.path ?? null;
+
+  // Verify the article belongs to the active knowledge base
+  if (!kbRoot || !isInsideKnowledgeBase(articlePath, kbRoot)) {
+    return {
+      content: 'Error: No active knowledge base or current article is not inside a knowledge base. Use fetch_image_to_local instead.',
+      isError: true,
+    };
+  }
+
+  // Fetch image data (reuse the multi-level fetch logic)
+  let buffer: ArrayBuffer | null = null;
+  const errors: string[] = [];
+
+  const l1 = await fetchWithTimeout(url, 'force-cache', 10_000);
+  if (l1.buffer) {
+    buffer = l1.buffer;
+  } else {
+    errors.push(`cache: ${l1.error}`);
+    const l2 = await fetchWithTimeout(url, 'default', 10_000);
+    if (l2.buffer) {
+      buffer = l2.buffer;
+    } else {
+      errors.push(`network: ${l2.error}`);
+      buffer = await extractImageViaCanvas(url);
+      if (!buffer) errors.push('DOM canvas: image not rendered or cross-origin tainted');
+    }
+  }
+
+  if (!buffer) {
+    return {
+      content: `Failed to retrieve image from ${url}. Tried: ${errors.join(' | ')}.`,
+      isError: true,
+    };
+  }
+
+  // Encode to base64
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  const CHUNK = 8192;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  const base64Data = btoa(binary);
+
+  // Determine filename
+  let filename = (args.filename as string) || '';
+  if (!filename) {
+    try {
+      filename = new URL(url).pathname.split('/').pop()?.split('?')[0] || 'image';
+    } catch {
+      filename = 'image';
+    }
+  }
+  filename = filename.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 100) || 'image';
+  if (!filename.includes('.')) filename += '.jpg';
+
+  // Compute destination path using the mirror structure
+  const imageDir = computeImageDir(articlePath, kbRoot);
+  const absolutePath = `${imageDir}/${filename}`;
+  const relativePath = computeImageRelativePath(articlePath, kbRoot, filename);
+
+  await invoke('write_file_binary', { path: absolutePath, base64Data });
+
+  const status = articlePath ? 'saved to knowledge base' : 'saved to images/temp/ (will migrate on first file save)';
+  return {
+    content: `Image ${status}.\nLocal absolute path: ${absolutePath}\nMarkdown reference: ![](${relativePath})\nSize: ${buffer.byteLength} bytes.`,
     isError: false,
   };
 }

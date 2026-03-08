@@ -36,7 +36,7 @@
   import { initMCPStore, connectAllServers, type MCPTool, type MCPServerConfig } from '$lib/services/mcp';
   import { initContainerManager } from '$lib/services/mcp/container-manager';
   import { preloadEnhancementPlugins } from '$lib/editor/setup';
-  import { openFile, saveFile, saveFileAs, loadFile, getFileNameFromPath, readImageAsBlobUrl } from '$lib/services/file-service';
+  import { openFile, saveFile, saveFileAs, loadFile, getFileNameFromPath, readImageAsBlobUrl, migrateTempImages } from '$lib/services/file-service';
   import { exportDocument, type ExportFormat } from '$lib/services/export-service';
   import { checkForUpdate, shouldCheckToday, getTodayDateString } from '$lib/services/update-service';
   import { listen, type UnlistenFn } from '@tauri-apps/api/event';
@@ -327,20 +327,43 @@ ${tr('welcome.tip')}
 
   /** Save with tab sync on iPad */
   async function handleSave(asNew = false): Promise<boolean> {
+    const prevFilePath = editorStore.getState().currentFilePath;
     const latestContent = getCurrentContent();
     const saved = asNew ? await saveFileAs(latestContent) : await saveFile(latestContent);
-    if (saved && isIPadOS) {
+
+    if (saved) {
       const state = editorStore.getState();
-      if (state.currentFilePath) {
-        tabsStore.updateActiveFile(state.currentFilePath, getFileNameFromPath(state.currentFilePath));
+      const newFilePath = state.currentFilePath;
+
+      if (isIPadOS && newFilePath) {
+        tabsStore.updateActiveFile(newFilePath, getFileNameFromPath(newFilePath));
+      }
+
+      if (!asNew && newFilePath && getFileNameFromPath(newFilePath) === 'MORAYA.md') {
+        createMorayaHistory(newFilePath, latestContent);
+      }
+
+      // Migrate temp images when article is first saved (prevPath was null → now has a path)
+      if (!prevFilePath && newFilePath) {
+        const kb = filesStore.getActiveKnowledgeBase?.();
+        if (kb && newFilePath.startsWith(kb.path)) {
+          const movedPaths = await migrateTempImages(newFilePath, kb.path);
+          if (movedPaths.size > 0) {
+            // Update markdown refs: images/temp/filename → images/{mirror}/filename
+            let updatedContent = latestContent;
+            for (const [oldRel, newRel] of movedPaths) {
+              updatedContent = updatedContent.split(oldRel).join(newRel);
+            }
+            if (updatedContent !== latestContent) {
+              await invoke('write_file', { path: newFilePath, content: updatedContent });
+              editorStore.setContent(updatedContent);
+              window.dispatchEvent(new CustomEvent('moraya:file-synced', { detail: { content: updatedContent } }));
+            }
+          }
+        }
       }
     }
-    if (saved && !asNew) {
-      const filePath = editorStore.getState().currentFilePath;
-      if (filePath && getFileNameFromPath(filePath) === 'MORAYA.md') {
-        createMorayaHistory(filePath, latestContent);
-      }
-    }
+
     return saved;
   }
 

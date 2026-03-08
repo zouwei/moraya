@@ -1794,7 +1794,7 @@
     font-size: 10px;
     padding: 0.1rem 0.4rem;
     border-radius: 8px;
-    background: #34c759;
+    background: var(--accent-color);
     color: white;
     font-weight: 500;
   }

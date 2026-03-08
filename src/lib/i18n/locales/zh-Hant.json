@@ -149,6 +149,7 @@
     "search": "搜尋檔案...",
     "contextMenu": {
       "newFile": "新建檔案",
+      "newFolder": "新建資料夾",
       "searchFiles": "搜尋",
       "refresh": "重新整理",
       "rename": "重新命名",
@@ -166,7 +167,10 @@
       "restoreConfirm": "確認恢復此版本？目前 MORAYA.md 內容將被替換。"
     },
     "newFilePrompt": "輸入檔案名稱",
+    "newFolderPrompt": "輸入資料夾名稱",
     "renamePrompt": "輸入新名稱",
+    "reservedDirTitle": "保留目錄名",
+    "reservedDirName": "\"images\" 是系統保留目錄名，請使用其他名稱。",
     "deleteConfirm": "確定要刪除「{name}」嗎？此操作不可復原。"
   },
   "statusbar": {

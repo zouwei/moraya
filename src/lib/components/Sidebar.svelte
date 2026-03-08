@@ -7,6 +7,7 @@
   import { revealItemInDir } from '@tauri-apps/plugin-opener';
   import { t } from '$lib/i18n';
   import { startWatching, stopWatching, refreshFileTree } from '$lib/services/file-watcher';
+  import { load as loadStore } from '@tauri-apps/plugin-store';
   import FileContextMenu from './FileContextMenu.svelte';
 
   let {
@@ -26,6 +27,12 @@
   let showSearch = $state(false);
   let searchInputEl = $state<HTMLInputElement | null>(null);
 
+  // Drag-and-drop state (pointer-event based, bypasses HTML5 DnD for WKWebView reliability)
+  let _dragPath: string | null = null;   // plain var — always synchronously readable in handlers
+  let draggedFilePath = $state<string | null>(null); // reactive: shows drag cursor
+  let dropTargetPath = $state<string | null>(null);  // reactive: shows drop-target highlight
+  let _dragGhost: HTMLElement | null = null;
+
   // Context menu state
   let contextMenu = $state<{
     show: boolean;
@@ -43,9 +50,9 @@
 
   // Inline input dialog state (replaces window.prompt which doesn't work in WKWebView)
   let inputDialog = $state<{
-    mode: 'new-file' | 'rename';
+    mode: 'new-file' | 'new-folder' | 'rename';
     value: string;
-    targetPath: string; // new-file: parent dir; rename: original file path
+    targetPath: string; // new-file/new-folder: parent dir; rename: original file/dir path
   } | null>(null);
   let inputDialogEl = $state<HTMLInputElement | null>(null);
 
@@ -178,6 +185,49 @@
     }
   });
 
+  // Persist expanded dirs per KB folder
+  const SIDEBAR_PREFS_STORE = 'files-prefs.json';
+  let _skipExpandedDirsSave = false;
+  let _expandedDirsSaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // Restore expanded dirs when folderPath changes
+  $effect(() => {
+    const fp = folderPath;
+    if (!fp) return;
+    // Cancel any pending save to avoid overwriting restored state
+    if (_expandedDirsSaveTimer !== null) {
+      clearTimeout(_expandedDirsSaveTimer);
+      _expandedDirsSaveTimer = null;
+    }
+    _skipExpandedDirsSave = true;
+    (async () => {
+      try {
+        const store = await loadStore(SIDEBAR_PREFS_STORE);
+        const saved = await store.get<string[]>(`expandedDirs:${fp}`);
+        if (Array.isArray(saved) && saved.length > 0) {
+          expandedDirs = new Set(saved);
+        }
+      } catch { /* ignore */ }
+      _skipExpandedDirsSave = false;
+    })();
+  });
+
+  // Persist expanded dirs on change (debounced 800ms, skip during restore)
+  $effect(() => {
+    const dirs = expandedDirs;
+    const fp = folderPath;
+    if (!fp || _skipExpandedDirsSave) return;
+    if (_expandedDirsSaveTimer !== null) clearTimeout(_expandedDirsSaveTimer);
+    _expandedDirsSaveTimer = setTimeout(async () => {
+      _expandedDirsSaveTimer = null;
+      try {
+        const store = await loadStore(SIDEBAR_PREFS_STORE);
+        await store.set(`expandedDirs:${fp}`, [...dirs]);
+        await store.save();
+      } catch { /* ignore */ }
+    }, 800);
+  });
+
   // Load previews when tree changes
   $effect(() => {
     if (fileTree.length > 0) {
@@ -187,6 +237,7 @@
 
   onDestroy(() => {
     stopWatching();
+    if (_expandedDirsSaveTimer !== null) clearTimeout(_expandedDirsSaveTimer);
   });
 
   function collectFilePaths(entries: FileEntry[]): string[] {
@@ -301,9 +352,50 @@
     return previews.filter(p => p.name.toLowerCase().includes(lower));
   }
 
-  // Derived filtered data
-  let filteredTree = $derived(filterTree(fileTree, searchQuery));
-  let filteredPreviews = $derived(filterPreviews(filePreviews, searchQuery));
+  // Reserved directory names that should not appear in the sidebar
+  function isReservedDir(entry: FileEntry): boolean {
+    return entry.is_dir && entry.name === 'images';
+  }
+
+  // Filter reserved dirs from tree entries (recursively)
+  function filterReserved(entries: FileEntry[]): FileEntry[] {
+    return entries
+      .filter(e => !isReservedDir(e))
+      .map(e => e.is_dir && e.children
+        ? { ...e, children: filterReserved(e.children) }
+        : e
+      );
+  }
+
+  /**
+   * Pin MORAYA.md to the first position among root-level entries.
+   * Only affects the top level — subdirectory order is unchanged.
+   */
+  function pinMorayaMd(entries: FileEntry[]): FileEntry[] {
+    const idx = entries.findIndex(e => !e.is_dir && e.name === 'MORAYA.md');
+    if (idx <= 0) return entries; // not found or already first
+    const result = [...entries];
+    result.splice(idx, 1);
+    result.unshift(entries[idx]);
+    return result;
+  }
+
+  // Derived filtered data (search + reserved dir filter + MORAYA.md pinned to top)
+  let filteredTree = $derived(pinMorayaMd(filterTree(filterReserved(fileTree), searchQuery)));
+  // List view: filter previews whose path is inside images/ directory
+  let filteredPreviews = $derived(
+    filterPreviews(
+      filePreviews.filter(p => {
+        // Exclude files inside the reserved images/ directory
+        const rel = folderPath ? p.path.slice(folderPath.length + 1) : p.path;
+        return !rel.startsWith('images/') && rel !== 'images';
+      }),
+      searchQuery
+    )
+  );
+
+  // Preview lookup map for list view (path → preview)
+  let previewMap = $derived(new Map(filePreviews.map(p => [p.path, p])));
 
   // Context menu handlers
   function handleContextMenu(event: MouseEvent, type: 'file' | 'folder' | 'blank', path: string, name: string) {
@@ -342,6 +434,19 @@
     setTimeout(() => inputDialogEl?.focus(), 50);
   }
 
+  function handleNewFolder() {
+    const dirPath = contextMenu.targetType === 'folder'
+      ? contextMenu.targetPath
+      : contextMenu.targetType === 'file'
+        ? contextMenu.targetPath.substring(0, contextMenu.targetPath.lastIndexOf('/'))
+        : folderPath;
+
+    if (!dirPath) return;
+
+    inputDialog = { mode: 'new-folder', value: '', targetPath: dirPath };
+    setTimeout(() => inputDialogEl?.focus(), 50);
+  }
+
   function handleSearchAction() {
     toggleSearch();
   }
@@ -353,9 +458,12 @@
   }
 
   function handleRename() {
+    const name = contextMenu.targetName;
+    // Strip .md extension so the user never sees/edits it; re-appended on submit
+    const displayName = name.endsWith('.md') ? name.slice(0, -3) : name;
     inputDialog = {
       mode: 'rename',
-      value: contextMenu.targetName,
+      value: displayName,
       targetPath: contextMenu.targetPath,
     };
     setTimeout(() => {
@@ -383,12 +491,37 @@
       } catch (e) {
         console.warn('Failed to create file:', e);
       }
+    } else if (inputDialog.mode === 'new-folder') {
+      // Reject reserved directory name "images"
+      if (value.toLowerCase() === 'images') {
+        await message($t('sidebar.reservedDirName'), { title: $t('sidebar.reservedDirTitle'), kind: 'warning' });
+        inputDialog = null;
+        return;
+      }
+      const newPath = `${inputDialog.targetPath}/${value}`;
+      try {
+        await invoke('create_dir', { path: newPath });
+        if (folderPath) await refreshFileTree(folderPath);
+        // Auto-expand the parent directory
+        expandedDirs = new Set([...expandedDirs, inputDialog.targetPath]);
+      } catch (e) {
+        console.warn('Failed to create folder:', e);
+      }
     } else {
       const oldPath = inputDialog.targetPath;
+      // Re-append .md if the original file was .md (user edited without seeing the extension)
+      const finalValue = oldPath.endsWith('.md') ? `${value}.md` : value;
+      // Reject renaming a directory to the reserved name "images"
+      const isDir = !oldPath.endsWith('.md') && !oldPath.endsWith('.markdown');
+      if (isDir && finalValue.toLowerCase() === 'images') {
+        await message($t('sidebar.reservedDirName'), { title: $t('sidebar.reservedDirTitle'), kind: 'warning' });
+        inputDialog = null;
+        return;
+      }
       const oldName = getFileName(oldPath);
-      if (value !== oldName) {
+      if (finalValue !== oldName) {
         const parentDir = oldPath.substring(0, oldPath.lastIndexOf('/'));
-        const newPath = `${parentDir}/${value}`;
+        const newPath = `${parentDir}/${finalValue}`;
         try {
           await invoke('rename_file', { oldPath, newPath });
           if (folderPath) await refreshFileTree(folderPath);
@@ -458,6 +591,138 @@
     } catch {
       // May fail on some platforms
     }
+  }
+
+  // ---- Drag-and-drop to move files (pointer/mouse events — more reliable in WKWebView) ----
+
+  /** Create a floating ghost label that follows the cursor during drag. */
+  function createDragGhost(name: string, x: number, y: number) {
+    _dragGhost = document.createElement('div');
+    _dragGhost.className = 'drag-ghost';
+    _dragGhost.textContent = getDisplayName(name);
+    _dragGhost.style.cssText = `left:${x + 14}px;top:${y - 10}px`;
+    document.body.appendChild(_dragGhost);
+  }
+
+  function moveDragGhost(x: number, y: number) {
+    if (_dragGhost) {
+      _dragGhost.style.left = `${x + 14}px`;
+      _dragGhost.style.top = `${y - 10}px`;
+    }
+  }
+
+  function removeDragGhost() {
+    _dragGhost?.remove();
+    _dragGhost = null;
+  }
+
+  /**
+   * Return the target folder path for a drop at (x, y), or null if none.
+   * Priority:
+   *   1. Cursor over a folder button → that folder
+   *   2. Cursor over a file button   → that file's parent directory
+   *   3. Cursor anywhere in sidebar  → KB root (folderPath)
+   * Returns null when the target equals the dragged file's current parent (no-op).
+   */
+  function findFolderAtPoint(x: number, y: number): string | null {
+    if (!_dragPath) return null;
+    const dragParentDir = _dragPath.substring(0, _dragPath.lastIndexOf('/'));
+
+    // Hide ghost temporarily so it doesn't block elementFromPoint
+    if (_dragGhost) _dragGhost.style.display = 'none';
+    const el = document.elementFromPoint(x, y);
+    if (_dragGhost) _dragGhost.style.display = '';
+    if (!el) return null;
+
+    // 1. Cursor over a folder button
+    const folderBtn = el.closest('[data-folder-path]') as HTMLElement | null;
+    if (folderBtn?.dataset.folderPath) {
+      const target = folderBtn.dataset.folderPath;
+      if (isReservedDir({ name: target.split('/').pop()!, path: target, is_dir: true })) return null;
+      return dragParentDir === target ? null : target;
+    }
+
+    // 2. Cursor over a file row → use its parent directory
+    const fileBtn = el.closest('[data-file-path]') as HTMLElement | null;
+    if (fileBtn?.dataset.filePath) {
+      const fp = fileBtn.dataset.filePath;
+      const parentDir = fp.substring(0, fp.lastIndexOf('/'));
+      return dragParentDir === parentDir ? null : parentDir;
+    }
+
+    // 3. Cursor anywhere in the sidebar content → KB root
+    if (el.closest('.sidebar-content') && folderPath) {
+      return dragParentDir === folderPath ? null : folderPath;
+    }
+
+    return null;
+  }
+
+  /** Start a mouse-based drag when mousedown fires on a file item. */
+  function startFileDrag(event: MouseEvent, entry: FileEntry) {
+    if (event.button !== 0 || entry.is_dir) return; // left-click on files only
+    const startX = event.clientX;
+    const startY = event.clientY;
+    let started = false;
+
+    function onMove(e: MouseEvent) {
+      if (!started) {
+        // Require >5px movement before recognising as drag (allows normal clicks)
+        if (Math.hypot(e.clientX - startX, e.clientY - startY) < 5) return;
+        started = true;
+        _dragPath = entry.path;
+        draggedFilePath = entry.path;
+        createDragGhost(entry.name, e.clientX, e.clientY);
+      }
+      moveDragGhost(e.clientX, e.clientY);
+      dropTargetPath = findFolderAtPoint(e.clientX, e.clientY);
+    }
+
+    async function onUp(e: MouseEvent) {
+      cleanup();
+      if (!started) return; // was just a click — don't interfere
+
+      const target = dropTargetPath;
+      const filePath = _dragPath;
+      dropTargetPath = null;
+      _dragPath = null;
+      draggedFilePath = null;
+      removeDragGhost();
+
+      if (target && filePath) {
+        const fileName = filePath.split('/').pop()!;
+        const parentDir = filePath.substring(0, filePath.lastIndexOf('/'));
+        if (parentDir !== target) {
+          try {
+            await invoke('rename_file', { oldPath: filePath, newPath: `${target}/${fileName}` });
+            if (folderPath) await refreshFileTree(folderPath);
+            expandedDirs = new Set([...expandedDirs, target]);
+          } catch (err) {
+            console.warn('Failed to move file:', err);
+          }
+        }
+      }
+    }
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        cleanup();
+        _dragPath = null;
+        draggedFilePath = null;
+        dropTargetPath = null;
+        removeDragGhost();
+      }
+    }
+
+    function cleanup() {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('keydown', onKeyDown);
+    }
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    document.addEventListener('keydown', onKeyDown);
   }
 
   // ---- History versions (inline submenu in context menu) ----
@@ -597,7 +862,7 @@
   {#if inputDialog}
     <div class="input-dialog">
       <span class="input-dialog-label">
-        {inputDialog.mode === 'new-file' ? $t('sidebar.newFilePrompt') : $t('sidebar.renamePrompt')}
+        {inputDialog.mode === 'new-file' ? $t('sidebar.newFilePrompt') : inputDialog.mode === 'new-folder' ? $t('sidebar.newFolderPrompt') : $t('sidebar.renamePrompt')}
       </span>
       <input
         bind:this={inputDialogEl}
@@ -620,7 +885,7 @@
     </div>
   {/if}
 
-  <div class="sidebar-content">
+  <div class="sidebar-content" class:drop-root={dropTargetPath === folderPath && !!folderPath}>
     {#if fileTree.length === 0 && knowledgeBases.length === 0}
       <!-- No knowledge bases created yet -->
       <div class="sidebar-empty">
@@ -633,19 +898,10 @@
         <p>{$t('sidebar.emptyDir')}</p>
       </div>
     {:else if viewMode === 'list'}
-      <!-- List View -->
+      <!-- List View: hierarchical tree with folders and file previews -->
       <div class="list-view">
-        {#each filteredPreviews as preview}
-          <button
-            class="list-item"
-            onclick={() => onFileSelect(preview.path)}
-            oncontextmenu={(e) => handleContextMenu(e, 'file', preview.path, preview.name)}
-          >
-            <span class="list-item-title">{getDisplayName(preview.name)}</span>
-            {#if preview.preview}
-              <span class="list-item-preview">{preview.preview}</span>
-            {/if}
-          </button>
+        {#each filteredTree as entry}
+          {@render listItem(entry, 0)}
         {/each}
       </div>
     {:else}
@@ -661,9 +917,13 @@
   <button
     class="tree-item"
     class:is-dir={entry.is_dir}
+    class:drop-target={entry.is_dir && dropTargetPath === entry.path}
     style="padding-inline-start: {0.75 + depth * 1}rem"
+    data-folder-path={entry.is_dir ? entry.path : undefined}
+    data-file-path={!entry.is_dir ? entry.path : undefined}
     onclick={() => handleFileClick(entry)}
     oncontextmenu={(e) => handleContextMenu(e, entry.is_dir ? 'folder' : 'file', entry.path, entry.name)}
+    onmousedown={!entry.is_dir ? (e) => startFileDrag(e, entry) : undefined}
   >
     {#if entry.is_dir}
       <span class="tree-icon" class:expanded={expandedDirs.has(entry.path)}>
@@ -678,13 +938,57 @@
         </svg>
       </span>
     {/if}
-    <span class="tree-name">{entry.name}</span>
+    <span class="tree-name" class:moraya-rule={!entry.is_dir && entry.name === 'MORAYA.md'}>
+      {entry.is_dir ? entry.name : getDisplayName(entry.name)}
+    </span>
   </button>
 
   {#if entry.is_dir && entry.children && expandedDirs.has(entry.path)}
-    {#each entry.children as child}
+    {#each entry.children.filter(c => !isReservedDir(c)) as child}
       {@render fileTreeItem(child, depth + 1)}
     {/each}
+  {/if}
+{/snippet}
+
+{#snippet listItem(entry: FileEntry, depth: number)}
+  {#if entry.is_dir}
+    <!-- Directory row: folder name + chevron; also a drop target via data-folder-path -->
+    <button
+      class="list-dir-item"
+      class:drop-target={dropTargetPath === entry.path}
+      style="padding-inline-start: {0.75 + depth}rem"
+      data-folder-path={entry.path}
+      onclick={() => toggleDir(entry.path)}
+      oncontextmenu={(e) => handleContextMenu(e, 'folder', entry.path, entry.name)}
+    >
+      <span class="tree-icon" class:expanded={expandedDirs.has(entry.path)}>
+        <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor">
+          <path d="M2 1l4 3-4 3z"/>
+        </svg>
+      </span>
+      <span class="list-dir-name">{entry.name}</span>
+    </button>
+    {#if expandedDirs.has(entry.path) && entry.children}
+      {#each entry.children.filter(c => !isReservedDir(c)) as child}
+        {@render listItem(child, depth + 1)}
+      {/each}
+    {/if}
+  {:else}
+    <!-- File row: name + preview excerpt; mouse-based drag to move between folders -->
+    {@const preview = previewMap.get(entry.path)}
+    <button
+      class="list-item"
+      style="padding-inline-start: {0.75 + depth + 1}rem"
+      data-file-path={entry.path}
+      onclick={() => onFileSelect(entry.path)}
+      oncontextmenu={(e) => handleContextMenu(e, 'file', entry.path, entry.name)}
+      onmousedown={(e) => startFileDrag(e, entry)}
+    >
+      <span class="list-item-title" class:moraya-rule={entry.name === 'MORAYA.md'}>{getDisplayName(entry.name)}</span>
+      {#if preview?.preview}
+        <span class="list-item-preview" class:moraya-rule-preview={entry.name === 'MORAYA.md'}>{preview.preview}</span>
+      {/if}
+    </button>
   {/if}
 {/snippet}
 
@@ -695,6 +999,7 @@
     targetPath={contextMenu.targetPath}
     targetName={contextMenu.targetName}
     onNewFile={handleNewFile}
+    onNewFolder={handleNewFolder}
     onSearch={handleSearchAction}
     onRefresh={handleRefresh}
     onRename={handleRename}
@@ -854,6 +1159,33 @@
     background: var(--bg-hover);
   }
 
+  /* MORAYA.md rule file — always pinned at top, highlighted with accent color (same as AI send button).
+     Use compound selectors to win over .tree-name / .list-item-title color declarations. */
+  .tree-name.moraya-rule,
+  .list-item-title.moraya-rule {
+    color: var(--accent-color);
+  }
+
+  /* Preview text: accent color faded toward gray */
+  .list-item-preview.moraya-rule-preview {
+    color: color-mix(in srgb, var(--accent-color) 45%, var(--text-muted));
+  }
+
+  /* Drop target highlight — folder buttons */
+  .tree-item.drop-target,
+  .list-dir-item.drop-target {
+    background: color-mix(in srgb, var(--accent-color) 15%, transparent);
+    outline: 1.5px solid var(--accent-color);
+    outline-offset: -1px;
+    border-radius: 4px;
+  }
+
+  /* Root-level drop zone: subtle top border indicates "drop at KB root" */
+  .sidebar-content.drop-root {
+    outline: 1.5px solid var(--accent-color);
+    outline-offset: -1px;
+  }
+
   .tree-icon {
     display: flex;
     align-items: center;
@@ -879,6 +1211,39 @@
     flex-direction: column;
   }
 
+  /* Directory row in list view — same height/padding as list-item for easy drop targeting */
+  .list-dir-item {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    width: 100%;
+    min-width: 0;
+    /* Match list-item height: single line with same vertical padding */
+    padding: 0.5rem 0.75rem;
+    border: none;
+    border-bottom: 1px solid var(--border-light);
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+    box-sizing: border-box;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+
+  .list-dir-item:hover {
+    background: var(--bg-hover);
+  }
+
+  .list-dir-name {
+    font-size: var(--font-size-xs);
+    font-weight: 500;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+  }
+
   .list-item {
     display: flex;
     flex-direction: column;
@@ -900,7 +1265,7 @@
   }
 
   .list-item-title {
-    font-size: var(--font-size-sm);
+    font-size: var(--font-size-xs);
     font-weight: 600;
     color: var(--text-primary);
     overflow: hidden;
@@ -910,7 +1275,7 @@
   }
 
   .list-item-preview {
-    font-size: var(--font-size-xs);
+    font-size: 11px;
     color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1101,6 +1466,23 @@
 
   :global([dir="rtl"]) .kb-dropdown-item {
     text-align: right;
+  }
+
+  /* Drag ghost — appended to document.body, outside scoped styles → use :global */
+  :global(.drag-ghost) {
+    position: fixed;
+    pointer-events: none;
+    z-index: 9999;
+    padding: 0.2rem 0.6rem;
+    background: var(--bg-primary, #fff);
+    border: 1.5px solid var(--accent-color, #4a9eff);
+    border-radius: 4px;
+    font-size: var(--font-size-sm, 0.8rem);
+    color: var(--text-primary, #333);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+    white-space: nowrap;
+    opacity: 0.92;
+    user-select: none;
   }
 
 </style>

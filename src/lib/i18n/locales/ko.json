@@ -149,6 +149,7 @@
     "search": "파일 검색...",
     "contextMenu": {
       "newFile": "새 파일",
+      "newFolder": "새 폴더",
       "searchFiles": "검색",
       "refresh": "새로고침",
       "rename": "이름 변경",
@@ -166,7 +167,10 @@
       "restoreConfirm": "이 버전으로 복원하시겠습니까? 현재 MORAYA.md 내용이 대체됩니다."
     },
     "newFilePrompt": "파일 이름을 입력하세요",
+    "newFolderPrompt": "폴더 이름을 입력하세요",
     "renamePrompt": "새 이름을 입력하세요",
+    "reservedDirTitle": "예약된 이름",
+    "reservedDirName": "\"images\"는 예약된 디렉토리 이름입니다. 다른 이름을 선택하세요.",
     "deleteConfirm": "\"{name}\"을(를) 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다."
   },
   "statusbar": {

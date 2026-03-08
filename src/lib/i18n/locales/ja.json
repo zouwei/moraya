@@ -149,6 +149,7 @@
     "search": "ファイルを検索...",
     "contextMenu": {
       "newFile": "新規ファイル",
+      "newFolder": "新規フォルダ",
       "searchFiles": "検索",
       "refresh": "更新",
       "rename": "名前を変更",
@@ -166,7 +167,10 @@
       "restoreConfirm": "このバージョンに復元しますか？現在の MORAYA.md の内容が置き換えられます。"
     },
     "newFilePrompt": "ファイル名を入力",
+    "newFolderPrompt": "フォルダ名を入力",
     "renamePrompt": "新しい名前を入力",
+    "reservedDirTitle": "予約済み名前",
+    "reservedDirName": "\"images\" はシステム予約済みのディレクトリ名です。別の名前を使用してください。",
     "deleteConfirm": "「{name}」を削除してもよろしいですか？この操作は取り消せません。"
   },
   "statusbar": {

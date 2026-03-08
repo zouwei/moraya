@@ -6,7 +6,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import { appDataDir } from '@tauri-apps/api/path';
+import { appDataDir, homeDir } from '@tauri-apps/api/path';
 import { load } from '@tauri-apps/plugin-store';
 import { exists, remove, mkdir } from '@tauri-apps/plugin-fs';
 import { ask } from '@tauri-apps/plugin-dialog';
@@ -28,6 +28,7 @@ function errMsg(e: unknown): string {
 const DYNAMIC_STORE_FILE = 'dynamic-mcp-services.json';
 
 let cachedAppDataDir: string | null = null;
+let cachedHomeDir: string | null = null;
 
 async function getBaseDir(): Promise<string> {
   if (!cachedAppDataDir) {
@@ -36,11 +37,16 @@ async function getBaseDir(): Promise<string> {
   return cachedAppDataDir;
 }
 
+/**
+ * AI-installed MCP services are stored in ~/.moraya/mcp/ so they are global
+ * and accessible across all knowledge bases and app instances.
+ */
 async function getServicesDir(): Promise<string> {
-  const base = await getBaseDir();
-  // Ensure trailing separator — appDataDir() may omit it on some platforms
-  const sep = base.endsWith('/') || base.endsWith('\\') ? '' : '/';
-  return `${base}${sep}mcp-services`;
+  if (!cachedHomeDir) {
+    cachedHomeDir = await homeDir();
+  }
+  const home = cachedHomeDir.replace(/[/\\]$/, '');
+  return `${home}/.moraya/mcp`;
 }
 
 // ── Initialization ──

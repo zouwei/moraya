@@ -4,6 +4,7 @@ import { readFile } from '@tauri-apps/plugin-fs';
 import { editorStore } from '../stores/editor-store';
 import { filesStore, type FileEntry } from '../stores/files-store';
 import { invalidateDocCache } from '../editor/doc-cache';
+import { computeImageDir, computeImageRelativePath } from './ai/image-path-utils';
 
 const MIME_MAP: Record<string, string> = {
   png: 'image/png',
@@ -125,4 +126,70 @@ export async function readImageAsBlobUrl(filePath: string): Promise<string> {
 
 export function getFileNameFromPath(path: string): string {
   return path.split('/').pop()?.split('\\').pop() || 'Untitled';
+}
+
+/**
+ * Migrate images from images/temp/ to the correct mirror directory after an
+ * article is first saved (i.e. when it goes from unsaved → saved with a real path).
+ *
+ * @param newFilePath  The newly saved article path.
+ * @param kbRoot       The knowledge base root directory.
+ * @returns            Map of old relative paths → new relative paths (for updating markdown refs).
+ */
+export async function migrateTempImages(
+  newFilePath: string,
+  kbRoot: string,
+): Promise<Map<string, string>> {
+  const tempDir = `${kbRoot}/images/temp`;
+  const movedPaths = new Map<string, string>();
+
+  // List files in images/temp/
+  let tempFiles: FileEntry[] = [];
+  try {
+    tempFiles = await invoke<FileEntry[]>('read_dir_recursive', {
+      path: tempDir,
+      depth: 1,
+    });
+  } catch {
+    // temp directory doesn't exist — nothing to migrate
+    return movedPaths;
+  }
+
+  const imageFiles = tempFiles.filter(e => !e.is_dir && isImageFile(e.name));
+  if (imageFiles.length === 0) return movedPaths;
+
+  const targetDir = computeImageDir(newFilePath, kbRoot);
+
+  // Ensure target directory exists before moving files
+  try {
+    await invoke('create_dir', { path: targetDir });
+  } catch {
+    // Directory may already exist — that's fine
+  }
+
+  for (const file of imageFiles) {
+    const oldAbsPath = file.path;
+    const newAbsPath = `${targetDir}/${file.name}`;
+
+    try {
+      // Move the file using rename (same filesystem — instant, no copy overhead)
+      await invoke('rename_file', { oldPath: oldAbsPath, newPath: newAbsPath });
+
+      // Record the path mapping for markdown reference updates
+      const oldRel = computeImageRelativePath(null, kbRoot, file.name);
+      const newRel = computeImageRelativePath(newFilePath, kbRoot, file.name);
+      movedPaths.set(oldRel, newRel);
+    } catch (e) {
+      console.warn(`Failed to migrate temp image ${file.name}:`, e);
+    }
+  }
+
+  return movedPaths;
+}
+
+const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif', 'tiff', 'tif']);
+
+function isImageFile(name: string): boolean {
+  const ext = name.split('.').pop()?.toLowerCase() ?? '';
+  return IMAGE_EXTENSIONS.has(ext);
 }

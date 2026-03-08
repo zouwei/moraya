@@ -25,6 +25,7 @@ import { editorStore } from '$lib/stores/editor-store';
 import { settingsStore } from '$lib/stores/settings-store';
 import { filesStore } from '$lib/stores/files-store';
 import { containerStore } from '$lib/services/mcp/container-store';
+import { computeImageDir, isInsideKnowledgeBase } from './image-path-utils';
 import { refreshFileTree } from '$lib/services/file-watcher';
 import { documentDir } from '@tauri-apps/api/path';
 import { invoke } from '@tauri-apps/api/core';
@@ -738,6 +739,22 @@ function buildSystemPrompt(
       '\n- If `fetch_image_to_local` fails for an image, skip it and report the failure. Do NOT call any image generation tool as a replacement.' +
       '\n- Image generation tools (DALL-E, Flux, etc.) should ONLY be used when the user explicitly asks to CREATE NEW images, never as a fallback for retrieving existing ones.' +
       '\nNever abandon the whole batch because one image failed — process each image independently.';
+
+    // Knowledge base image path rule — only inject when inside a KB
+    const activeKb = filesStore.getActiveKnowledgeBase();
+    if (activeKb && isInsideKnowledgeBase(currentFilePath, activeKb.path)) {
+      const imageDir = computeImageDir(currentFilePath, activeKb.path);
+      prompt +=
+        '\n\nIMPORTANT — Knowledge Base Image Storage Rule:' +
+        '\nWhen saving images to the knowledge base, you MUST follow the mirror directory convention:' +
+        `\n- Use the built-in tool \`save_image_to_kb\` (PREFERRED) — it handles the path automatically.` +
+        '\n- If you must use MCP filesystem tools to write image files, save them to this exact directory:' +
+        `\n  ${imageDir}/` +
+        '\n- Do NOT save images to any other location within the knowledge base.' +
+        (currentFilePath
+          ? `\n- Current article image directory: ${imageDir}/`
+          : '\n- Current article is unsaved — images will go to images/temp/ and be migrated on first save.');
+    }
 
     // File writing rules
     const openFileNote = currentFilePath && currentFilePath.endsWith('/MORAYA.md')

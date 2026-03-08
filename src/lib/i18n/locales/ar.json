@@ -149,6 +149,7 @@
     "search": "البحث في الملفات...",
     "contextMenu": {
       "newFile": "ملف جديد",
+      "newFolder": "مجلد جديد",
       "searchFiles": "بحث",
       "refresh": "تحديث",
       "rename": "إعادة تسمية",
@@ -166,7 +167,10 @@
       "restoreConfirm": "هل تريد استعادة هذا الإصدار؟ سيتم استبدال محتوى MORAYA.md الحالي."
     },
     "newFilePrompt": "أدخل اسم الملف",
+    "newFolderPrompt": "أدخل اسم المجلد",
     "renamePrompt": "أدخل الاسم الجديد",
+    "reservedDirTitle": "اسم محجوز",
+    "reservedDirName": "\"images\" هو اسم دليل محجوز. الرجاء اختيار اسم آخر.",
     "deleteConfirm": "هل أنت متأكد من حذف \"{name}\"؟ لا يمكن التراجع عن هذا الإجراء."
   },
   "statusbar": {

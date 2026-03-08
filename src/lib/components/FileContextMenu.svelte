@@ -10,6 +10,7 @@
     targetPath,
     targetName,
     onNewFile,
+    onNewFolder,
     onSearch,
     onRefresh,
     onRename,
@@ -26,6 +27,7 @@
     targetPath: string;
     targetName: string;
     onNewFile: () => void;
+    onNewFolder: () => void;
     onSearch: () => void;
     onRefresh: () => void;
     onRename: () => void;
@@ -80,6 +82,10 @@
   >
     <button class="menu-item" onclick={() => handleAction(onNewFile)}>
       {tr('sidebar.contextMenu.newFile')}
+    </button>
+
+    <button class="menu-item" onclick={() => handleAction(onNewFolder)}>
+      {tr('sidebar.contextMenu.newFolder')}
     </button>
 
     <button class="menu-item" onclick={() => handleAction(onSearch)}>

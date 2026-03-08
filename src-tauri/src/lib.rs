@@ -324,6 +324,7 @@ pub fn run() {
             commands::file::read_dir_recursive,
             commands::file::migrate_voice_profiles_dir,
             commands::file::create_markdown_file,
+            commands::file::create_dir,
             commands::file::rename_file,
             commands::file::delete_file,
             commands::file::read_file_previews,

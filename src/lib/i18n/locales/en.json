@@ -149,6 +149,7 @@
     "search": "Search files...",
     "contextMenu": {
       "newFile": "New File",
+      "newFolder": "New Folder",
       "searchFiles": "Search",
       "refresh": "Refresh",
       "rename": "Rename",
@@ -166,7 +167,10 @@
       "restoreConfirm": "Restore this version? Current MORAYA.md will be replaced."
     },
     "newFilePrompt": "Enter file name",
+    "newFolderPrompt": "Enter folder name",
     "renamePrompt": "Enter new name",
+    "reservedDirTitle": "Reserved Name",
+    "reservedDirName": "\"images\" is a reserved directory name. Please choose a different name.",
     "deleteConfirm": "Are you sure you want to delete \"{name}\"? This action cannot be undone."
   },
   "statusbar": {
