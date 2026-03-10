@@ -16,6 +16,9 @@ import { get } from 'svelte/store';
 import { t } from '$lib/i18n';
 import { isMacOS, isTauri } from '$lib/utils/platform';
 import { SPEECH_PROVIDER_BASE_URLS, type SpeechProviderConfig } from '$lib/services/ai/types';
+// Import worklet source as raw string so we can load it via blob: URL,
+// which bypasses CSP issues with custom protocol schemes (tauri://) in WKWebView.
+import pcmWorkletSource from './pcm-worklet.js?raw';
 import type {
   TranscriptSegment,
   SessionSpeaker,
@@ -470,10 +473,16 @@ async function startAudioCapture(
 
   const audioCtx = new AudioContext({ sampleRate: 16000 });
 
-  // PCM worklet for sending audio chunks to Rust
-  await audioCtx.audioWorklet.addModule(
-    new URL('./pcm-worklet.js', import.meta.url),
-  );
+  // PCM worklet for sending audio chunks to Rust.
+  // Use a blob: URL (from ?raw import) to avoid CSP issues with tauri:// custom
+  // scheme in WKWebView — `worker-src blob:` covers it even when `'self'` does not.
+  const workletBlob = new Blob([pcmWorkletSource], { type: 'application/javascript' });
+  const workletUrl = URL.createObjectURL(workletBlob);
+  try {
+    await audioCtx.audioWorklet.addModule(workletUrl);
+  } finally {
+    URL.revokeObjectURL(workletUrl);
+  }
   const worklet = new AudioWorkletNode(audioCtx, 'pcm-sender');
 
   // Mix all selected inputs into one mono chain.

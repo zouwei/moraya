@@ -102,6 +102,10 @@ function createEditorStore() {
     setCurrentFile(path: string | null) {
       update(state => ({ ...state, currentFilePath: path, isDirty: false }));
     },
+    /** Update only the file path without touching isDirty — used after rename. */
+    updateFilePath(newPath: string) {
+      update(state => ({ ...state, currentFilePath: newPath }));
+    },
     /** Batch-restore multiple fields in a single store update (1 subscriber notification
      *  instead of 5 separate set*() calls). Used by tab switching. */
     batchRestore(data: {

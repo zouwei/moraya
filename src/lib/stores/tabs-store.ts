@@ -175,6 +175,18 @@ function createTabsStore() {
       return true;
     },
 
+    /** Rename a tab's file path after a file rename on disk. */
+    renameTabFile(oldPath: string, newPath: string, newFileName: string) {
+      update(state => ({
+        ...state,
+        tabs: state.tabs.map(tab =>
+          tab.filePath === oldPath
+            ? { ...tab, filePath: newPath, fileName: newFileName }
+            : tab
+        ),
+      }));
+    },
+
     /** Update the active tab's file info after a save */
     updateActiveFile(filePath: string, fileName: string) {
       update(state => ({

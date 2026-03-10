@@ -13,9 +13,11 @@
   let {
     onFileSelect,
     onOpenKBManager,
+    onRename,
   }: {
     onFileSelect: (path: string) => void;
     onOpenKBManager?: () => void;
+    onRename?: (oldPath: string, newPath: string) => void;
   } = $props();
 
   let fileTree = $state<FileEntry[]>([]);
@@ -430,6 +432,10 @@
 
     if (!dirPath) return;
 
+    // Auto-expand the target directory so the inline input is visible
+    if (dirPath !== folderPath && !expandedDirs.has(dirPath)) {
+      expandedDirs = new Set([...expandedDirs, dirPath]);
+    }
     inputDialog = { mode: 'new-file', value: '', targetPath: dirPath };
     setTimeout(() => inputDialogEl?.focus(), 50);
   }
@@ -443,6 +449,10 @@
 
     if (!dirPath) return;
 
+    // Auto-expand the target directory so the inline input is visible
+    if (dirPath !== folderPath && !expandedDirs.has(dirPath)) {
+      expandedDirs = new Set([...expandedDirs, dirPath]);
+    }
     inputDialog = { mode: 'new-folder', value: '', targetPath: dirPath };
     setTimeout(() => inputDialogEl?.focus(), 50);
   }
@@ -525,6 +535,7 @@
         try {
           await invoke('rename_file', { oldPath, newPath });
           if (folderPath) await refreshFileTree(folderPath);
+          onRename?.(oldPath, newPath);
         } catch (e) {
           console.warn('Failed to rename:', e);
         }
@@ -859,22 +870,6 @@
     </div>
   {/if}
 
-  {#if inputDialog && inputDialog.mode !== 'rename'}
-    <div class="input-dialog">
-      <span class="input-dialog-label">
-        {inputDialog.mode === 'new-file' ? $t('sidebar.newFilePrompt') : $t('sidebar.newFolderPrompt')}
-      </span>
-      <input
-        bind:this={inputDialogEl}
-        type="text"
-        class="input-dialog-input"
-        bind:value={inputDialog.value}
-        onkeydown={handleInputDialogKeydown}
-        onblur={() => { inputDialog = null; }}
-      />
-    </div>
-  {/if}
-
   {#if showSaveAsKBHint && folderPath}
     <div class="kb-save-hint">
       <span>{$t('knowledgeBase.saveHint')}</span>
@@ -903,12 +898,44 @@
         {#each filteredTree as entry}
           {@render listItem(entry, 0)}
         {/each}
+        {#if inputDialog && inputDialog.mode !== 'rename' && inputDialog.targetPath === folderPath}
+          <div class="inline-rename" style="padding-inline-start: 1.75rem">
+            <span class="tree-icon file-icon">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" opacity="0.5"><path d="M2 1h5l3 3v7H2V1zm5 0v3h3"/></svg>
+            </span>
+            <input
+              bind:this={inputDialogEl}
+              type="text"
+              class="inline-rename-input"
+              placeholder={inputDialog.mode === 'new-file' ? $t('sidebar.newFilePrompt') : $t('sidebar.newFolderPrompt')}
+              bind:value={inputDialog.value}
+              onkeydown={handleInputDialogKeydown}
+              onblur={() => { inputDialog = null; }}
+            />
+          </div>
+        {/if}
       </div>
     {:else}
       <!-- Tree View -->
       {#each filteredTree as entry}
         {@render fileTreeItem(entry, 0)}
       {/each}
+      {#if inputDialog && inputDialog.mode !== 'rename' && inputDialog.targetPath === folderPath}
+        <div class="inline-rename" style="padding-inline-start: 0.75rem">
+          <span class="tree-icon file-icon">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" opacity="0.5"><path d="M2 1h5l3 3v7H2V1zm5 0v3h3"/></svg>
+          </span>
+          <input
+            bind:this={inputDialogEl}
+            type="text"
+            class="inline-rename-input"
+            placeholder={inputDialog.mode === 'new-file' ? $t('sidebar.newFilePrompt') : $t('sidebar.newFolderPrompt')}
+            bind:value={inputDialog.value}
+            onkeydown={handleInputDialogKeydown}
+            onblur={() => { inputDialog = null; }}
+          />
+        </div>
+      {/if}
     {/if}
   </div>
 </div>
@@ -969,6 +996,22 @@
     {#each entry.children.filter(c => !isReservedDir(c)) as child}
       {@render fileTreeItem(child, depth + 1)}
     {/each}
+    {#if inputDialog && inputDialog.mode !== 'rename' && inputDialog.targetPath === entry.path}
+      <div class="inline-rename" style="padding-inline-start: {0.75 + (depth + 1) * 1}rem">
+        <span class="tree-icon file-icon">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" opacity="0.5"><path d="M2 1h5l3 3v7H2V1zm5 0v3h3"/></svg>
+        </span>
+        <input
+          bind:this={inputDialogEl}
+          type="text"
+          class="inline-rename-input"
+          placeholder={inputDialog.mode === 'new-file' ? $t('sidebar.newFilePrompt') : $t('sidebar.newFolderPrompt')}
+          bind:value={inputDialog.value}
+          onkeydown={handleInputDialogKeydown}
+          onblur={() => { inputDialog = null; }}
+        />
+      </div>
+    {/if}
   {/if}
 {/snippet}
 
@@ -1010,6 +1053,22 @@
       {#each entry.children.filter(c => !isReservedDir(c)) as child}
         {@render listItem(child, depth + 1)}
       {/each}
+      {#if inputDialog && inputDialog.mode !== 'rename' && inputDialog.targetPath === entry.path}
+        <div class="inline-rename" style="padding-inline-start: {0.75 + depth + 1}rem">
+          <span class="tree-icon file-icon">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" opacity="0.5"><path d="M2 1h5l3 3v7H2V1zm5 0v3h3"/></svg>
+          </span>
+          <input
+            bind:this={inputDialogEl}
+            type="text"
+            class="inline-rename-input"
+            placeholder={inputDialog.mode === 'new-file' ? $t('sidebar.newFilePrompt') : $t('sidebar.newFolderPrompt')}
+            bind:value={inputDialog.value}
+            onkeydown={handleInputDialogKeydown}
+            onblur={() => { inputDialog = null; }}
+          />
+        </div>
+      {/if}
     {/if}
   {:else}
     {#if inputDialog?.mode === 'rename' && inputDialog.targetPath === entry.path}
@@ -1148,31 +1207,6 @@
     padding: 0.15rem 0.3rem;
     border: 1px solid var(--accent-color);
     border-radius: 3px;
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    font-size: var(--font-size-xs);
-    outline: none;
-  }
-
-  .input-dialog {
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-    padding: 0.35rem 0.5rem;
-    border-bottom: 1px solid var(--border-light);
-    background: var(--bg-secondary);
-  }
-
-  .input-dialog-label {
-    font-size: var(--font-size-xs);
-    color: var(--text-secondary);
-  }
-
-  .input-dialog-input {
-    width: 100%;
-    padding: 0.3rem 0.5rem;
-    border: 1px solid var(--accent-color);
-    border-radius: 4px;
     background: var(--bg-primary);
     color: var(--text-primary);
     font-size: var(--font-size-xs);

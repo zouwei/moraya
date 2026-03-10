@@ -921,6 +921,18 @@ ${tr('welcome.tip')}
     fileSelectDebounce = setTimeout(() => doFileSelect(path, mySerial), 50);
   }
 
+
+  /** Called by Sidebar after a successful rename on disk.
+   *  Updates editorStore and tabsStore so the current tab/editor reflects the new path. */
+  function handleFileRename(oldPath: string, newPath: string) {
+    const newFileName = getFileNameFromPath(newPath);
+    tabsStore.renameTabFile(oldPath, newPath, newFileName);
+    const { currentFilePath } = editorStore.getState();
+    if (currentFilePath === oldPath) {
+      editorStore.updateFilePath(newPath);
+    }
+  }
+
   async function doFileSelect(path: string, mySerial: number) {
     if (mySerial !== fileSelectSerial) return;
     if (!(await guardUnsavedChanges())) return;
@@ -1689,7 +1701,7 @@ ${tr('welcome.tip')}
 
   <div class="app-body">
     {#if showSidebar}
-      <Sidebar onFileSelect={handleFileSelect} onOpenKBManager={() => showKBManager = true} />
+      <Sidebar onFileSelect={handleFileSelect} onRename={handleFileRename} onOpenKBManager={() => showKBManager = true} />
     {/if}
 
     <main class="editor-area">
