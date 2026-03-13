@@ -621,7 +621,10 @@
     "noResults": "결과 없음",
     "caseSensitive": "대소문자 구분",
     "replace": "바꾸기",
-    "replaceAll": "모두 바꾸기"
+    "replaceAll": "모두 바꾸기",
+    "regex": "정규식 사용",
+    "regexError": "잘못된 정규식",
+    "matchStatus": "{current} / {total}"
   },
   "mermaid": {
     "loading": "다이어그램 로딩 중...",

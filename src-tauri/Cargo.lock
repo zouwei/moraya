@@ -2268,7 +2268,7 @@ dependencies = [
 
 [[package]]
 name = "moraya"
-version = "0.24.6"
+version = "0.25.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",

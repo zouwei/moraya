@@ -617,7 +617,10 @@
     "noResults": "Sin resultados",
     "caseSensitive": "Coincidencia exacta",
     "replace": "Reemplazar",
-    "replaceAll": "Reemplazar todo"
+    "replaceAll": "Reemplazar todo",
+    "regex": "Usar expresión regular",
+    "regexError": "Expresión regular inválida",
+    "matchStatus": "{current} / {total}"
   },
   "mermaid": {
     "loading": "Cargando diagrama...",

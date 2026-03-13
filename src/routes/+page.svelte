@@ -178,6 +178,11 @@ ${tr('welcome.tip')}
   let showTouchToolbar = $state(isIPadOS);
   let searchMatchCount = $state(0);
   let searchCurrentMatch = $state(0);
+  let searchRegexError = $state('');
+  // Cache last search params so we can re-run search after mode switch
+  let lastSearchText = '';
+  let lastSearchCS = false;
+  let lastSearchRegex = false;
   let currentFileName = $state($t('common.untitled'));
   let selectedText = $state('');
   let editorMode = $state<EditorMode>('visual');
@@ -412,12 +417,23 @@ ${tr('welcome.tip')}
     return undefined;
   }
 
-  function handleSearch(text: string, caseSensitive: boolean) {
+  function handleSearch(text: string, caseSensitive: boolean, useRegex: boolean = false) {
+    lastSearchText = text;
+    lastSearchCS = caseSensitive;
+    lastSearchRegex = useRegex;
+    searchRegexError = '';
     const target = getActiveSearchTarget();
     if (!target) { searchMatchCount = 0; searchCurrentMatch = 0; return; }
-    const count = target.searchText(text, caseSensitive);
-    searchMatchCount = count;
-    searchCurrentMatch = count > 0 ? 1 : 0;
+    const result = target.searchText(text, caseSensitive, useRegex);
+    if (typeof result === 'object' && 'error' in result) {
+      searchRegexError = result.error;
+      searchMatchCount = 0;
+      searchCurrentMatch = 0;
+    } else {
+      const count = typeof result === 'number' ? result : 0;
+      searchMatchCount = count;
+      searchCurrentMatch = count > 0 ? 1 : 0;
+    }
   }
 
   function handleFindNext() {
@@ -444,10 +460,10 @@ ${tr('welcome.tip')}
     handleFindNext();
   }
 
-  function handleReplaceAll(searchText: string, replaceText: string, caseSensitive: boolean) {
+  function handleReplaceAll(searchText: string, replaceText: string, caseSensitive: boolean, useRegex: boolean = false) {
     const target = getActiveSearchTarget();
     if (!target) return;
-    target.searchReplaceAll(searchText, replaceText, caseSensitive);
+    target.searchReplaceAll(searchText, replaceText, caseSensitive, useRegex);
     searchMatchCount = 0;
     searchCurrentMatch = 0;
   }
@@ -457,6 +473,7 @@ ${tr('welcome.tip')}
     showReplace = false;
     searchMatchCount = 0;
     searchCurrentMatch = 0;
+    searchRegexError = '';
     const target = getActiveSearchTarget();
     target?.clearSearch();
   }
@@ -569,6 +586,21 @@ ${tr('welcome.tip')}
   $effect(() => {
     if (!isTauri) return;
     invoke('set_menu_check', { id: 'view_outline', checked: showOutline }).catch(() => {});
+  });
+
+  // Re-run search when editor mode changes while search bar is open.
+  // The new editor component has fresh state, so we need to re-execute the search
+  // to populate its matches for findNext/findPrev to work.
+  let prevModeForSearch: EditorMode | null = null;
+  $effect(() => {
+    const mode = editorMode; // track
+    if (prevModeForSearch !== null && prevModeForSearch !== mode && showSearch && lastSearchText) {
+      // Delay to let the new editor component mount
+      requestAnimationFrame(() => {
+        handleSearch(lastSearchText, lastSearchCS, lastSearchRegex);
+      });
+    }
+    prevModeForSearch = mode;
   });
 
   // Expose sidebar width to titlebar for centering via CSS custom property
@@ -1723,8 +1755,6 @@ ${tr('welcome.tip')}
       {#if showSearch}
         <SearchBar
           {showReplace}
-          matchCount={searchMatchCount}
-          currentMatch={searchCurrentMatch}
           onSearch={handleSearch}
           onFindNext={handleFindNext}
           onFindPrev={handleFindPrev}
@@ -1765,6 +1795,10 @@ ${tr('welcome.tip')}
     {aiConfigured}
     {aiLoading}
     {aiError}
+    searchActive={showSearch}
+    {searchMatchCount}
+    {searchCurrentMatch}
+    {searchRegexError}
   />
 </div>
 

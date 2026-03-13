@@ -673,7 +673,10 @@
     "noResults": "无结果",
     "caseSensitive": "区分大小写",
     "replace": "替换",
-    "replaceAll": "全部替换"
+    "replaceAll": "全部替换",
+    "regex": "使用正则表达式",
+    "regexError": "正则语法错误",
+    "matchStatus": "{current} / {total}"
   },
   "mermaid": {
     "loading": "图表加载中...",

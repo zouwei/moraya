@@ -621,7 +621,10 @@
     "noResults": "Нет результатов",
     "caseSensitive": "Учитывать регистр",
     "replace": "Заменить",
-    "replaceAll": "Заменить все"
+    "replaceAll": "Заменить все",
+    "regex": "Использовать регулярное выражение",
+    "regexError": "Некорректное регулярное выражение",
+    "matchStatus": "{current} / {total}"
   },
   "mermaid": {
     "loading": "Загрузка диаграммы...",

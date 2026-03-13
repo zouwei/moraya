@@ -4,8 +4,6 @@
 
   let {
     showReplace = false,
-    matchCount = 0,
-    currentMatch = 0,
     onSearch,
     onFindNext,
     onFindPrev,
@@ -15,13 +13,11 @@
     onClose,
   }: {
     showReplace?: boolean;
-    matchCount?: number;
-    currentMatch?: number;
-    onSearch: (text: string, caseSensitive: boolean) => void;
+    onSearch: (text: string, caseSensitive: boolean, useRegex: boolean) => void;
     onFindNext: () => void;
     onFindPrev: () => void;
     onReplace: (replaceText: string) => void;
-    onReplaceAll: (searchText: string, replaceText: string, caseSensitive: boolean) => void;
+    onReplaceAll: (searchText: string, replaceText: string, caseSensitive: boolean, useRegex: boolean) => void;
     onToggleReplace: () => void;
     onClose: () => void;
   } = $props();
@@ -29,16 +25,38 @@
   let searchText = $state('');
   let replaceText = $state('');
   let caseSensitive = $state(false);
-  let searchInputEl: HTMLInputElement | undefined = $state();
+  let useRegex = $state(false);
+  let searchInputEl: HTMLTextAreaElement | undefined = $state();
+  let replaceInputEl: HTMLTextAreaElement | undefined = $state();
 
   const tr = $derived($tStore);
 
+  /** Compute display rows: 1 line = 1 row, max 6 rows */
+  function calcRows(text: string): number {
+    const lines = text.split('\n').length;
+    return Math.min(Math.max(lines, 1), 6);
+  }
+
+  let searchRows = $derived(calcRows(searchText));
+  let replaceRows = $derived(calcRows(replaceText));
+
   function handleSearchInput() {
-    onSearch(searchText, caseSensitive);
+    onSearch(searchText, caseSensitive, useRegex);
   }
 
   function handleSearchKeydown(event: KeyboardEvent) {
     if (event.isComposing) return;
+    // Alt+Enter or Ctrl+Enter → insert newline
+    if (event.key === 'Enter' && (event.altKey || event.ctrlKey || event.metaKey)) {
+      // Let the textarea handle the newline naturally via Alt+Enter
+      // For Ctrl/Cmd+Enter, manually insert newline since textarea doesn't do it by default
+      if (!event.altKey) {
+        event.preventDefault();
+        insertNewlineAt(searchInputEl);
+        handleSearchInput();
+      }
+      return;
+    }
     if (event.key === 'Enter') {
       event.preventDefault();
       if (event.shiftKey) {
@@ -55,6 +73,14 @@
 
   function handleReplaceKeydown(event: KeyboardEvent) {
     if (event.isComposing) return;
+    // Alt+Enter or Ctrl+Enter → insert newline
+    if (event.key === 'Enter' && (event.altKey || event.ctrlKey || event.metaKey)) {
+      if (!event.altKey) {
+        event.preventDefault();
+        insertNewlineAt(replaceInputEl);
+      }
+      return;
+    }
     if (event.key === 'Enter') {
       event.preventDefault();
       onReplace(replaceText);
@@ -65,8 +91,32 @@
     }
   }
 
+  /** Insert a newline at the cursor position of a textarea */
+  function insertNewlineAt(el: HTMLTextAreaElement | undefined) {
+    if (!el) return;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const val = el.value;
+    const newVal = val.substring(0, start) + '\n' + val.substring(end);
+    // Update the bound $state variable
+    if (el === searchInputEl) {
+      searchText = newVal;
+    } else {
+      replaceText = newVal;
+    }
+    // Restore cursor after Svelte re-renders
+    requestAnimationFrame(() => {
+      el.selectionStart = el.selectionEnd = start + 1;
+    });
+  }
+
   function toggleCaseSensitive() {
     caseSensitive = !caseSensitive;
+    handleSearchInput();
+  }
+
+  function toggleRegex() {
+    useRegex = !useRegex;
     handleSearchInput();
   }
 
@@ -94,64 +144,68 @@
 
   <div class="search-fields">
     <div class="search-row">
-      <input
+      <textarea
         bind:this={searchInputEl}
         class="search-input"
-        type="text"
         placeholder={tr('search.findPlaceholder')}
         bind:value={searchText}
         oninput={handleSearchInput}
         onkeydown={handleSearchKeydown}
-      />
-      <span class="match-info">
-        {#if searchText}
-          {#if matchCount > 0}
-            {currentMatch} / {matchCount}
-          {:else}
-            {tr('search.noResults')}
-          {/if}
-        {/if}
-      </span>
-      <button class="search-btn" onclick={onFindPrev} title="Previous (Shift+Enter)">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M3 9l4-4 4 4" />
-        </svg>
-      </button>
-      <button class="search-btn" onclick={onFindNext} title="Next (Enter)">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M3 5l4 4 4-4" />
-        </svg>
-      </button>
-      <button
-        class="search-btn"
-        class:active={caseSensitive}
-        onclick={toggleCaseSensitive}
-        title={tr('search.caseSensitive')}
-      >
-        Aa
-      </button>
-      <button class="search-btn close-btn" onclick={onClose} title="Close (Esc)">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M3 3l8 8M11 3l-8 8" />
-        </svg>
-      </button>
+        rows={searchRows}
+      ></textarea>
+      <div class="action-buttons">
+        <button
+          class="search-btn"
+          class:active={useRegex}
+          onclick={toggleRegex}
+          title={tr('search.regex')}
+        >
+          .*
+        </button>
+        <button
+          class="search-btn"
+          class:active={caseSensitive}
+          onclick={toggleCaseSensitive}
+          title={tr('search.caseSensitive')}
+        >
+          Aa
+        </button>
+        <button class="search-btn" onclick={onFindPrev} title="Previous (Shift+Enter)">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 9l4-4 4 4" />
+          </svg>
+        </button>
+        <button class="search-btn" onclick={onFindNext} title="Next (Enter)">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 5l4 4 4-4" />
+          </svg>
+        </button>
+        <button class="search-btn close-btn" onclick={onClose} title="Close (Esc)">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 3l8 8M11 3l-8 8" />
+          </svg>
+        </button>
+      </div>
     </div>
 
     {#if showReplace}
       <div class="replace-row">
-        <input
+        <textarea
+          bind:this={replaceInputEl}
           class="search-input"
-          type="text"
           placeholder={tr('search.replacePlaceholder')}
           bind:value={replaceText}
           onkeydown={handleReplaceKeydown}
-        />
-        <button class="search-btn text-btn" onclick={() => onReplace(replaceText)}>
-          {tr('search.replace')}
-        </button>
-        <button class="search-btn text-btn" onclick={() => onReplaceAll(searchText, replaceText, caseSensitive)}>
-          {tr('search.replaceAll')}
-        </button>
+          rows={replaceRows}
+        ></textarea>
+        <div class="replace-actions">
+          <button class="search-btn text-btn" onclick={() => onReplace(replaceText)}>
+            {tr('search.replace')}
+          </button>
+          <button class="search-btn text-btn" onclick={() => onReplaceAll(searchText, replaceText, caseSensitive, useRegex)}>
+            {tr('search.replaceAll')}
+          </button>
+        </div>
       </div>
     {/if}
   </div>
@@ -192,14 +246,13 @@
     display: flex;
     flex-direction: column;
     gap: 0.35rem;
-    max-width: 500px;
   }
 
   .search-row,
   .replace-row {
     display: flex;
-    align-items: center;
-    gap: 0.25rem;
+    align-items: flex-start;
+    gap: 0.5rem;
   }
 
   .search-input {
@@ -211,19 +264,30 @@
     background: var(--bg-primary);
     color: var(--text-primary);
     font-size: var(--font-size-sm);
+    font-family: inherit;
     outline: none;
+    resize: none;
+    line-height: 1.4;
+    overflow-y: auto;
+    max-height: 8rem;
   }
 
   .search-input:focus {
     border-color: var(--accent-color);
   }
 
-  .match-info {
-    font-size: var(--font-size-xs);
-    color: var(--text-muted);
-    white-space: nowrap;
-    min-width: 3.5rem;
-    text-align: center;
+  .replace-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    flex-shrink: 0;
+    padding-top: 0.15rem;
+  }
+
+  .action-buttons {
+    display: flex;
+    align-items: center;
+    gap: 0.15rem;
   }
 
   .search-btn {

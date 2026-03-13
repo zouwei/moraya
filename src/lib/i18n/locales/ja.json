@@ -621,7 +621,10 @@
     "noResults": "結果なし",
     "caseSensitive": "大文字/小文字を区別",
     "replace": "置換",
-    "replaceAll": "すべて置換"
+    "replaceAll": "すべて置換",
+    "regex": "正規表現を使用",
+    "regexError": "正規表現が無効です",
+    "matchStatus": "{current} / {total}"
   },
   "mermaid": {
     "loading": "ダイアグラムを読み込み中...",

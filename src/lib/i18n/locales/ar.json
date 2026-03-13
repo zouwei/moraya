@@ -621,7 +621,10 @@
     "noResults": "لا توجد نتائج",
     "caseSensitive": "مطابقة الحالة",
     "replace": "استبدال",
-    "replaceAll": "استبدال الكل"
+    "replaceAll": "استبدال الكل",
+    "regex": "استخدام التعبيرات النمطية",
+    "regexError": "تعبير نمطي غير صالح",
+    "matchStatus": "{current} / {total}"
   },
   "mermaid": {
     "loading": "جارٍ تحميل المخطط...",

@@ -1301,22 +1301,118 @@
   interface MatchPos { from: number; to: number }
   let searchMatches: MatchPos[] = [];
   let searchIndex = -1;
+  /** Cached search state for regex replace with capture groups */
+  let lastSearchRegex: boolean = false;
+  let lastSearchPattern: string = '';
+  let lastSearchCS: boolean = false;
 
-  function findTextMatches(text: string, cs: boolean): MatchPos[] {
-    if (!editor || !text) return [];
-    const matches: MatchPos[] = [];
-    const view = editor.view;
-    view.state.doc.descendants((node, pos) => {
-      if (node.isText && node.text) {
-        const haystack = cs ? node.text : node.text.toLowerCase();
-        const needle = cs ? text : text.toLowerCase();
-        let idx = 0;
-        while ((idx = haystack.indexOf(needle, idx)) !== -1) {
-          matches.push({ from: pos + idx, to: pos + idx + needle.length });
-          idx += needle.length;
+  const MAX_MATCHES = 10000;
+
+  /**
+   * Build flat text from ProseMirror doc with offset mapping.
+   * Block boundaries become '\n'. Returns { text, offsets[] } where
+   * offsets[i] maps flat text index i to ProseMirror position.
+   */
+  function buildFlatText(doc: import('prosemirror-model').Node): { text: string; offsets: number[] } {
+    const parts: string[] = [];
+    const offsets: number[] = [];
+    let first = true;
+    doc.descendants((node, pos) => {
+      if (node.isBlock && node.isTextblock) {
+        if (!first) {
+          // Insert '\n' for block boundary
+          parts.push('\n');
+          offsets.push(-1); // -1 = block boundary marker
+        }
+        first = false;
+        // Walk inline content
+        node.forEach((child, childOffset) => {
+          if (child.isText && child.text) {
+            for (let i = 0; i < child.text.length; i++) {
+              parts.push(child.text[i]);
+              offsets.push(pos + 1 + childOffset + i);
+            }
+          }
+        });
+        return false; // don't descend further
+      }
+      return true;
+    });
+    return { text: parts.join(''), offsets };
+  }
+
+  /**
+   * Convert flat text match range to ProseMirror MatchPos[].
+   * A single flat-text match may span multiple blocks, producing
+   * multiple ProseMirror ranges (one per block segment).
+   */
+  function flatRangeToPmRanges(offsets: number[], start: number, end: number): MatchPos[] {
+    const ranges: MatchPos[] = [];
+    let segStart = -1;
+    for (let i = start; i < end; i++) {
+      if (offsets[i] === -1) {
+        // Block boundary — flush current segment
+        if (segStart >= 0) {
+          ranges.push({ from: segStart, to: offsets[i - 1] + 1 });
+          segStart = -1;
+        }
+      } else {
+        if (segStart < 0) segStart = offsets[i];
+      }
+    }
+    if (segStart >= 0 && end > start) {
+      const lastIdx = end - 1;
+      // Walk backwards to find last non-boundary offset
+      for (let i = lastIdx; i >= start; i--) {
+        if (offsets[i] !== -1) {
+          ranges.push({ from: segStart, to: offsets[i] + 1 });
+          break;
         }
       }
-    });
+    }
+    return ranges;
+  }
+
+  function findTextMatches(text: string, cs: boolean, useRegex: boolean = false): MatchPos[] | { error: string } {
+    if (!editor || !text) return [];
+    const view = editor.view;
+    const { text: flatText, offsets } = buildFlatText(view.state.doc);
+
+    if (useRegex) {
+      let regex: RegExp;
+      try {
+        regex = new RegExp(text, cs ? 'g' : 'gi');
+      } catch (e) {
+        return { error: (e as Error).message };
+      }
+      const matches: MatchPos[] = [];
+      let m: RegExpExecArray | null;
+      let count = 0;
+      while ((m = regex.exec(flatText)) !== null) {
+        if (m[0].length === 0) { regex.lastIndex++; continue; }
+        const pmRanges = flatRangeToPmRanges(offsets, m.index, m.index + m[0].length);
+        // For decoration we use the first range (primary match)
+        if (pmRanges.length > 0) {
+          matches.push({ from: pmRanges[0].from, to: pmRanges[pmRanges.length - 1].to });
+        }
+        if (++count >= MAX_MATCHES) break;
+      }
+      return matches;
+    }
+
+    // Plain text search (supports multi-line via flat text)
+    const haystack = cs ? flatText : flatText.toLowerCase();
+    const needle = cs ? text : text.toLowerCase();
+    const matches: MatchPos[] = [];
+    let idx = 0;
+    while ((idx = haystack.indexOf(needle, idx)) !== -1) {
+      const pmRanges = flatRangeToPmRanges(offsets, idx, idx + needle.length);
+      if (pmRanges.length > 0) {
+        matches.push({ from: pmRanges[0].from, to: pmRanges[pmRanges.length - 1].to });
+      }
+      idx += needle.length;
+      if (matches.length >= MAX_MATCHES) break;
+    }
     return matches;
   }
 
@@ -1336,8 +1432,18 @@
     (view as any).setProps({ decorations: () => decoSet });
   }
 
-  export function searchText(text: string, cs: boolean): number {
-    searchMatches = findTextMatches(text, cs);
+  export function searchText(text: string, cs: boolean, useRegex: boolean = false): number | { error: string } {
+    lastSearchRegex = useRegex;
+    lastSearchPattern = text;
+    lastSearchCS = cs;
+    const result = findTextMatches(text, cs, useRegex);
+    if ('error' in result) {
+      searchMatches = [];
+      searchIndex = -1;
+      applySearchDecorations([], -1);
+      return result;
+    }
+    searchMatches = result;
     searchIndex = searchMatches.length > 0 ? 0 : -1;
     applySearchDecorations(searchMatches, searchIndex);
     if (searchIndex >= 0) scrollToMatch(searchIndex);
@@ -1364,26 +1470,82 @@
     if (!editor || searchIndex < 0 || searchIndex >= searchMatches.length) return;
     const view = editor.view;
     const match = searchMatches[searchIndex];
+
+    let replacement = replaceWith;
+    // Regex capture group replacement: re-run regex on matched text
+    if (lastSearchRegex && lastSearchPattern) {
+      try {
+        const regex = new RegExp(lastSearchPattern, lastSearchCS ? '' : 'i');
+        const { text: flatText } = buildFlatText(view.state.doc);
+        // Find the matched flat text substring for this match position
+        const matchedText = getMatchedFlatText(view.state.doc, match);
+        replacement = matchedText.replace(regex, replaceWith);
+      } catch {
+        // Fall through to literal replacement
+      }
+    }
+
     const tr = view.state.tr.replaceWith(
       match.from,
       match.to,
-      view.state.schema.text(replaceWith)
+      view.state.schema.text(replacement)
     );
     view.dispatch(tr);
   }
 
-  export function searchReplaceAll(searchStr: string, replaceWith: string, cs: boolean): number {
+  /** Extract the text matched by a ProseMirror range, including cross-block '\n'. */
+  function getMatchedFlatText(doc: import('prosemirror-model').Node, match: MatchPos): string {
+    const parts: string[] = [];
+    doc.nodesBetween(match.from, match.to, (node, pos) => {
+      if (node.isTextblock) {
+        if (parts.length > 0) parts.push('\n');
+        const startInNode = Math.max(match.from - pos - 1, 0);
+        const endInNode = Math.min(match.to - pos - 1, node.content.size);
+        if (endInNode > startInNode) {
+          parts.push(node.textBetween(startInNode, endInNode));
+        }
+        return false;
+      }
+      return true;
+    });
+    return parts.join('');
+  }
+
+  export function searchReplaceAll(searchStr: string, replaceWith: string, cs: boolean, useRegex: boolean = false): number {
     if (!editor || !searchStr) return 0;
-    const matches = findTextMatches(searchStr, cs);
-    if (matches.length === 0) return 0;
+    const result = findTextMatches(searchStr, cs, useRegex);
+    if ('error' in result || result.length === 0) return 0;
+    const matches = result;
     const view = editor.view;
     let tr = view.state.tr;
-    for (let i = matches.length - 1; i >= 0; i--) {
-      tr = tr.replaceWith(
-        matches[i].from,
-        matches[i].to,
-        view.state.schema.text(replaceWith)
-      );
+
+    if (useRegex) {
+      // Regex replace: process each match with capture groups
+      try {
+        const regex = new RegExp(searchStr, cs ? '' : 'i');
+        for (let i = matches.length - 1; i >= 0; i--) {
+          const matchedText = getMatchedFlatText(view.state.doc, matches[i]);
+          const replacement = matchedText.replace(regex, replaceWith);
+          tr = tr.replaceWith(
+            matches[i].from,
+            matches[i].to,
+            view.state.schema.text(replacement)
+          );
+        }
+      } catch {
+        // Fallback to literal replacement
+        for (let i = matches.length - 1; i >= 0; i--) {
+          tr = tr.replaceWith(matches[i].from, matches[i].to, view.state.schema.text(replaceWith));
+        }
+      }
+    } else {
+      for (let i = matches.length - 1; i >= 0; i--) {
+        tr = tr.replaceWith(
+          matches[i].from,
+          matches[i].to,
+          view.state.schema.text(replaceWith)
+        );
+      }
     }
     view.dispatch(tr);
     const count = matches.length;

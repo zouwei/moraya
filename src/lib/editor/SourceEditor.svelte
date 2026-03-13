@@ -206,21 +206,50 @@
   let searchMatches: MatchPos[] = [];
   let searchIndex = -1;
   let cachedLineHeight: number | undefined;
+  let lastSearchRegex = false;
+  let lastSearchPattern = '';
+  let lastSearchCS = false;
 
-  export function searchText(text: string, cs: boolean): number {
+  const MAX_MATCHES = 10000;
+
+  export function searchText(text: string, cs: boolean, useRegex: boolean = false): number | { error: string } {
     searchMatches = [];
     searchIndex = -1;
+    lastSearchRegex = useRegex;
+    lastSearchPattern = text;
+    lastSearchCS = cs;
     if (!text) return 0;
-    const haystack = cs ? content : content.toLowerCase();
-    const needle = cs ? text : text.toLowerCase();
-    let idx = 0;
-    while ((idx = haystack.indexOf(needle, idx)) !== -1) {
-      searchMatches.push({ from: idx, to: idx + needle.length });
-      idx += needle.length;
+
+    // Read content from textarea if available (defensive against Svelte reactivity edge cases)
+    const searchContent = textareaEl?.value ?? content;
+
+    if (useRegex) {
+      let regex: RegExp;
+      try {
+        regex = new RegExp(text, cs ? 'g' : 'gi');
+      } catch (e) {
+        return { error: (e as Error).message };
+      }
+      let m: RegExpExecArray | null;
+      while ((m = regex.exec(searchContent)) !== null) {
+        if (m[0].length === 0) { regex.lastIndex++; continue; }
+        searchMatches.push({ from: m.index, to: m.index + m[0].length });
+        if (searchMatches.length >= MAX_MATCHES) break;
+      }
+    } else {
+      const haystack = cs ? searchContent : searchContent.toLowerCase();
+      const needle = cs ? text : text.toLowerCase();
+      let idx = 0;
+      while ((idx = haystack.indexOf(needle, idx)) !== -1) {
+        searchMatches.push({ from: idx, to: idx + needle.length });
+        idx += needle.length;
+        if (searchMatches.length >= MAX_MATCHES) break;
+      }
     }
+
     if (searchMatches.length > 0) {
       searchIndex = 0;
-      selectMatch(0);
+      selectMatch(0, true); // skipFocus: don't steal focus from search bar
     }
     return searchMatches.length;
   }
@@ -242,24 +271,51 @@
   export function searchReplaceCurrent(replaceWith: string) {
     if (searchIndex < 0 || searchIndex >= searchMatches.length) return;
     const match = searchMatches[searchIndex];
-    content = content.substring(0, match.from) + replaceWith + content.substring(match.to);
+
+    let replacement = replaceWith;
+    if (lastSearchRegex && lastSearchPattern) {
+      try {
+        const regex = new RegExp(lastSearchPattern, lastSearchCS ? '' : 'i');
+        const matchedText = content.substring(match.from, match.to);
+        replacement = matchedText.replace(regex, replaceWith);
+      } catch {
+        // Fall through to literal replacement
+      }
+    }
+
+    content = content.substring(0, match.from) + replacement + content.substring(match.to);
     editorStore.setDirty(true);
     editorStore.setContent(content);
   }
 
-  export function searchReplaceAll(searchStr: string, replaceWith: string, cs: boolean): number {
+  export function searchReplaceAll(searchStr: string, replaceWith: string, cs: boolean, useRegex: boolean = false): number {
     if (!searchStr) return 0;
     const matches = searchMatches.length > 0 ? searchMatches : (() => {
-      // Rebuild matches if needed
-      searchText(searchStr, cs);
+      searchText(searchStr, cs, useRegex);
       return searchMatches;
     })();
     if (matches.length === 0) return 0;
     const count = matches.length;
-    // Replace from end to start to preserve positions
-    for (let i = matches.length - 1; i >= 0; i--) {
-      content = content.substring(0, matches[i].from) + replaceWith + content.substring(matches[i].to);
+
+    if (useRegex) {
+      try {
+        const regex = new RegExp(searchStr, cs ? '' : 'i');
+        for (let i = matches.length - 1; i >= 0; i--) {
+          const matchedText = content.substring(matches[i].from, matches[i].to);
+          const replacement = matchedText.replace(regex, replaceWith);
+          content = content.substring(0, matches[i].from) + replacement + content.substring(matches[i].to);
+        }
+      } catch {
+        for (let i = matches.length - 1; i >= 0; i--) {
+          content = content.substring(0, matches[i].from) + replaceWith + content.substring(matches[i].to);
+        }
+      }
+    } else {
+      for (let i = matches.length - 1; i >= 0; i--) {
+        content = content.substring(0, matches[i].from) + replaceWith + content.substring(matches[i].to);
+      }
     }
+
     editorStore.setDirty(true);
     editorStore.setContent(content);
     clearSearch();
@@ -271,10 +327,10 @@
     searchIndex = -1;
   }
 
-  function selectMatch(idx: number) {
+  function selectMatch(idx: number, skipFocus = false) {
     if (!textareaEl || idx < 0 || idx >= searchMatches.length) return;
     const match = searchMatches[idx];
-    textareaEl.focus();
+    if (!skipFocus) textareaEl.focus();
     textareaEl.setSelectionRange(match.from, match.to);
     // Scroll outer container to show selection
     const linesBefore = content.substring(0, match.from).split('\n').length;
@@ -301,7 +357,7 @@
   {#if showOutline}
     <OutlinePanel headings={outlineHeadings} activeId={activeHeadingId} onSelect={handleOutlineSelectSource} />
   {/if}
-  <div class="source-editor-inner">
+  <div class="source-editor-inner" style="max-width: {showOutline ? `${editorLineWidth + 200}px` : `${editorLineWidth}px`}">
     {#if showLineNumbers}
       <div class="line-numbers">
         {#each Array(lineCount) as _, i}

@@ -621,7 +621,10 @@
     "noResults": "無結果",
     "caseSensitive": "區分大小寫",
     "replace": "取代",
-    "replaceAll": "全部取代"
+    "replaceAll": "全部取代",
+    "regex": "使用正規表達式",
+    "regexError": "正規語法錯誤",
+    "matchStatus": "{current} / {total}"
   },
   "mermaid": {
     "loading": "圖表載入中...",

@@ -14,6 +14,10 @@
     aiConfigured = false,
     aiLoading = false,
     aiError = false,
+    searchActive = false,
+    searchMatchCount = 0,
+    searchCurrentMatch = 0,
+    searchRegexError = '',
   }: {
     onPublishWorkflow?: () => void;
     onShowUpdateDialog?: () => void;
@@ -24,6 +28,10 @@
     aiConfigured?: boolean;
     aiLoading?: boolean;
     aiError?: boolean;
+    searchActive?: boolean;
+    searchMatchCount?: number;
+    searchCurrentMatch?: number;
+    searchRegexError?: string;
   } = $props();
 
   const aiShortcutHint = isMacOS || isIPadOS ? '⇧⌘I' : 'Ctrl+Shift+I';
@@ -63,6 +71,17 @@
   <div class="statusbar-left">
     <span class="status-item">{$t('statusbar.words')}: {wordCount}</span>
     <span class="status-item">{$t('statusbar.characters')}: {charCount}</span>
+    {#if searchActive}
+      <span class="status-item search-status" class:search-error={!!searchRegexError}>
+        {#if searchRegexError}
+          {$t('search.regexError')}
+        {:else if searchMatchCount > 0}
+          {$t('search.matchStatus', { current: String(searchCurrentMatch), total: String(searchMatchCount) })}
+        {:else}
+          {$t('search.noResults')}
+        {/if}
+      </span>
+    {/if}
   </div>
   <div class="statusbar-right">
     <div class="mode-switcher">
@@ -141,6 +160,14 @@
 
   .status-item {
     white-space: nowrap;
+  }
+
+  .search-status {
+    color: var(--accent-color);
+  }
+
+  .search-status.search-error {
+    color: var(--color-error, #e53e3e);
   }
 
   .mode-switcher {

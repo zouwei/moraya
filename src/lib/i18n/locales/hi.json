@@ -621,7 +621,10 @@
     "noResults": "कोई परिणाम नहीं",
     "caseSensitive": "केस मिलाएँ",
     "replace": "बदलें",
-    "replaceAll": "सभी बदलें"
+    "replaceAll": "सभी बदलें",
+    "regex": "रेगुलर एक्सप्रेशन का उपयोग करें",
+    "regexError": "अमान्य रेगुलर एक्सप्रेशन",
+    "matchStatus": "{current} / {total}"
   },
   "mermaid": {
     "loading": "डायग्राम लोड हो रहा है...",

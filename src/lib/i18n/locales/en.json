@@ -673,7 +673,10 @@
     "noResults": "No results",
     "caseSensitive": "Match Case",
     "replace": "Replace",
-    "replaceAll": "Replace All"
+    "replaceAll": "Replace All",
+    "regex": "Use Regular Expression",
+    "regexError": "Invalid regex",
+    "matchStatus": "{current} / {total}"
   },
   "mermaid": {
     "loading": "Loading diagram...",
