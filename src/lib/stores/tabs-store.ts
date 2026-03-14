@@ -9,6 +9,7 @@ export interface TabItem {
   isDirty: boolean;
   cursorOffset: number;
   scrollFraction: number;
+  lastMtime: number | null;
 }
 
 interface TabsState {
@@ -31,6 +32,7 @@ function createTabsStore() {
     isDirty: false,
     cursorOffset: 0,
     scrollFraction: 0,
+    lastMtime: null,
   };
 
   const { subscribe, set, update } = writable<TabsState>({
@@ -73,6 +75,9 @@ function createTabsStore() {
   return {
     subscribe,
 
+    /** Save current editor state into the active tab (public for pre-sync before external editorStore changes) */
+    syncFromEditor,
+
     /** Initialize the first tab with content (called on mount) */
     initWithContent(content: string, filePath: string | null, fileName: string) {
       update(state => ({
@@ -96,6 +101,7 @@ function createTabsStore() {
         isDirty: false,
         cursorOffset: 0,
         scrollFraction: 0,
+        lastMtime: null,
       };
       update(state => ({
         tabs: [...state.tabs, newTab],
@@ -105,20 +111,22 @@ function createTabsStore() {
       return newTab.id;
     },
 
-    /** Open a file in a new tab or switch to existing tab if already open */
-    openFileTab(filePath: string, fileName: string, content: string): string {
+    /** Open a file in a new tab or switch to existing tab if already open.
+     *  When skipSync is true, skip syncFromEditor() — caller has already synced
+     *  or editorStore has been modified by loadFile()/openFile() before this call. */
+    openFileTab(filePath: string, fileName: string, content: string, mtime?: number | null, skipSync = false): string {
       const state = get({ subscribe });
       // Check if file is already open in a tab
       const existing = state.tabs.find(t => t.filePath === filePath);
       if (existing) {
         // Switch to existing tab
-        syncFromEditor();
+        if (!skipSync) syncFromEditor();
         update(s => ({ ...s, activeTabId: existing.id }));
         syncToEditor(existing);
         return existing.id;
       }
       // Create new tab
-      syncFromEditor();
+      if (!skipSync) syncFromEditor();
       const newTab: TabItem = {
         id: generateTabId(),
         filePath,
@@ -127,6 +135,7 @@ function createTabsStore() {
         isDirty: false,
         cursorOffset: 0,
         scrollFraction: 0,
+        lastMtime: mtime ?? null,
       };
       update(s => ({
         tabs: [...s.tabs, newTab],
@@ -153,8 +162,22 @@ function createTabsStore() {
       const tab = state.tabs.find(t => t.id === tabId);
       if (!tab) return false;
 
-      // Don't close the last tab
-      if (state.tabs.length <= 1) return false;
+      // Last tab: replace with a new empty tab
+      if (state.tabs.length <= 1) {
+        const newTab: TabItem = {
+          id: generateTabId(),
+          filePath: null,
+          fileName: 'Untitled',
+          content: '',
+          isDirty: false,
+          cursorOffset: 0,
+          scrollFraction: 0,
+          lastMtime: null,
+        };
+        set({ tabs: [newTab], activeTabId: newTab.id });
+        syncToEditor(newTab);
+        return true;
+      }
 
       // If closing the active tab, switch to an adjacent tab first
       if (tabId === state.activeTabId) {
@@ -188,13 +211,33 @@ function createTabsStore() {
     },
 
     /** Update the active tab's file info after a save */
-    updateActiveFile(filePath: string, fileName: string) {
+    updateActiveFile(filePath: string, fileName: string, mtime?: number | null) {
       update(state => ({
         ...state,
         tabs: state.tabs.map(tab =>
           tab.id === state.activeTabId
-            ? { ...tab, filePath, fileName, isDirty: false }
+            ? { ...tab, filePath, fileName, isDirty: false, lastMtime: mtime ?? tab.lastMtime }
             : tab
+        ),
+      }));
+    },
+
+    /** Update a tab's mtime (e.g. after choosing "keep local" on conflict) */
+    updateTabMtime(tabId: string, mtime: number) {
+      update(state => ({
+        ...state,
+        tabs: state.tabs.map(tab =>
+          tab.id === tabId ? { ...tab, lastMtime: mtime } : tab
+        ),
+      }));
+    },
+
+    /** Update a tab's content and mtime after external reload */
+    updateTabContent(tabId: string, content: string, mtime: number) {
+      update(state => ({
+        ...state,
+        tabs: state.tabs.map(tab =>
+          tab.id === tabId ? { ...tab, content, lastMtime: mtime, isDirty: false } : tab
         ),
       }));
     },

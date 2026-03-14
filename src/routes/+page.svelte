@@ -41,6 +41,7 @@
   import { checkForUpdate, shouldCheckToday, getTodayDateString } from '$lib/services/update-service';
   import { listen, type UnlistenFn } from '@tauri-apps/api/event';
   import { invoke } from '@tauri-apps/api/core';
+  import { getCurrentWindow } from '@tauri-apps/api/window';
   import { openUrl } from '@tauri-apps/plugin-opener';
   import { ask } from '@tauri-apps/plugin-dialog';
   import { t } from '$lib/i18n';
@@ -186,6 +187,10 @@ ${tr('welcome.tip')}
   let currentFileName = $state($t('common.untitled'));
   let selectedText = $state('');
   let editorMode = $state<EditorMode>('visual');
+
+  // Tab state for TitleBar and TabBar rendering
+  let tabs = $state<import('$lib/stores/tabs-store').TabItem[]>([]);
+  let activeTabId = $state('');
 
   // AI store state for sparkle indicator
   let aiConfigured = $state(false);
@@ -340,8 +345,18 @@ ${tr('welcome.tip')}
       const state = editorStore.getState();
       const newFilePath = state.currentFilePath;
 
-      if (isIPadOS && newFilePath) {
-        tabsStore.updateActiveFile(newFilePath, getFileNameFromPath(newFilePath));
+      if (newFilePath) {
+        // Fetch mtime after save for external change detection
+        invoke('get_files_mtime', { paths: [newFilePath] }).then((result: unknown) => {
+          const mtimes = result as [string, number][];
+          if (mtimes.length > 0) {
+            tabsStore.updateActiveFile(newFilePath, getFileNameFromPath(newFilePath), mtimes[0][1]);
+          } else {
+            tabsStore.updateActiveFile(newFilePath, getFileNameFromPath(newFilePath));
+          }
+        }).catch(() => {
+          tabsStore.updateActiveFile(newFilePath, getFileNameFromPath(newFilePath));
+        });
       }
 
       if (!asNew && newFilePath && getFileNameFromPath(newFilePath) === 'MORAYA.md') {
@@ -537,34 +552,31 @@ ${tr('welcome.tip')}
         morayaEditor = null;
       }
     }
-    // Sync dirty state to tabs store on iPad
-    if (isIPadOS) {
-      tabsStore.syncDirty(state.isDirty);
-    }
+    // Sync dirty state to tabs store
+    tabsStore.syncDirty(state.isDirty);
   });
 
-  // iPad tabs: reload content when active tab changes
-  let unsubTabs: (() => void) | undefined;
-  if (isIPadOS) {
-    let prevActiveTabId = '';
-    unsubTabs = tabsStore.subscribe(state => {
-      if (state.activeTabId !== prevActiveTabId) {
-        prevActiveTabId = state.activeTabId;
-        const tab = state.tabs.find(t => t.id === state.activeTabId);
-        if (tab) {
-          content = tab.content;
-          currentFileName = tab.fileName;
-          replaceContentAndScrollToTop(tab.content);
-        }
+  // Tabs: sync tab state for TitleBar/TabBar + reload content when active tab changes
+  let prevActiveTabId = '';
+  const unsubTabs = tabsStore.subscribe(state => {
+    tabs = state.tabs;
+    activeTabId = state.activeTabId;
+    if (state.activeTabId !== prevActiveTabId) {
+      prevActiveTabId = state.activeTabId;
+      const tab = state.tabs.find(t => t.id === state.activeTabId);
+      if (tab) {
+        content = tab.content;
+        currentFileName = tab.fileName;
+        replaceContentAndScrollToTop(tab.content);
       }
-    });
-  }
+    }
+  });
 
   onDestroy(() => {
     unsubAI();
     unsubSettings();
     unsubEditor();
-    unsubTabs?.();
+    unsubTabs();
   });
 
   // Sync native menu checkmarks when editor mode changes (all desktop platforms).
@@ -702,15 +714,27 @@ ${tr('welcome.tip')}
   function handleKeydown(event: KeyboardEvent) {
     const mod = event.metaKey || event.ctrlKey;
 
-    // Undo/Redo: on Tauri, native menu accelerators fire menu:edit_undo/redo (see handler above).
-    // On non-Tauri (browser), ProseMirror's built-in Mod-z keymap handles visual mode.
-    // This handler ensures undo/redo works in source mode in non-Tauri environments.
-    if (!isTauri && mod && event.key === 'z') {
+    // Undo: Cmd+Z / Ctrl+Z on all platforms
+    if (mod && !event.shiftKey && event.key === 'z') {
       event.preventDefault();
-      if (event.shiftKey) {
-        if (editorMode !== 'source') runCmd(redo); else document.execCommand('redo');
+      if (editorMode === 'source') {
+        document.execCommand('undo');
       } else {
-        if (editorMode !== 'source') runCmd(undo); else document.execCommand('undo');
+        morayaEditor?.view.focus();
+        runCmd(undo);
+      }
+      return;
+    }
+
+    // Redo: Cmd+Shift+Z / Ctrl+Shift+Z / Cmd+Y / Ctrl+Y
+    if ((mod && event.shiftKey && event.key === 'z') ||
+        (mod && !event.shiftKey && event.key === 'y')) {
+      event.preventDefault();
+      if (editorMode === 'source') {
+        document.execCommand('redo');
+      } else {
+        morayaEditor?.view.focus();
+        runCmd(redo);
       }
       return;
     }
@@ -874,8 +898,8 @@ ${tr('welcome.tip')}
    * Returns true if it's safe to proceed, false to abort the switch.
    */
   async function guardUnsavedChanges(): Promise<boolean> {
-    if (isIPadOS) return true; // iPad uses multi-tab with per-tab dirty state
-
+    // Multi-tab: each tab has independent state, no need to guard for sidebar file selection.
+    // This guard is still used for window close scenarios.
     const { isDirty, currentFilePath } = editorStore.getState();
     if (!isDirty) return true;
     // Use getCurrentContent() to get latest content from ProseMirror
@@ -910,32 +934,29 @@ ${tr('welcome.tip')}
   }
 
   async function handleOpenFile() {
-    if (!(await guardUnsavedChanges())) return;
+    // Sync current tab state BEFORE openFile() modifies editorStore
+    tabsStore.syncFromEditor();
     const fileContent = await openFile();
     if (fileContent !== null) {
-      if (isIPadOS) {
-        // openFile() already updated editorStore.currentFilePath
-        const filePath = editorStore.getState().currentFilePath;
-        const fileName = filePath ? getFileNameFromPath(filePath) : $t('common.untitled');
-        tabsStore.openFileTab(filePath ?? '', fileName, fileContent);
+      // openFile() already called editorStore.setCurrentFile(path)
+      const filePath = editorStore.getState().currentFilePath;
+      const fileName = filePath ? getFileNameFromPath(filePath) : $t('common.untitled');
+      let mtime: number | null = null;
+      if (filePath) {
+        try {
+          const result = await invoke('get_files_mtime', { paths: [filePath] }) as [string, number][];
+          if (result.length > 0) mtime = result[0][1];
+        } catch { /* ignore */ }
       }
-      content = fileContent;
+      // skipSync=true: we already synced above before openFile() modified editorStore
+      tabsStore.openFileTab(filePath ?? '', fileName, fileContent, mtime, true);
       resetWorkflowState();
-      await replaceContentAndScrollToTop(content);
     }
   }
 
   async function handleNewFile() {
-    if (!(await guardUnsavedChanges())) return;
-    if (isIPadOS) {
-      tabsStore.addTab();
-      content = '';
-      resetWorkflowState();
-      await replaceContentAndScrollToTop(content);
-      return;
-    }
+    tabsStore.addTab();
     content = '';
-    editorStore.reset();
     resetWorkflowState();
     await replaceContentAndScrollToTop(content);
   }
@@ -965,26 +986,102 @@ ${tr('welcome.tip')}
     }
   }
 
+  function handleSwitchTab(tabId: string) {
+    tabsStore.switchTab(tabId);
+  }
+
+  async function handleCloseTab(tab: import('$lib/stores/tabs-store').TabItem) {
+    if (tab.isDirty) {
+      const shouldSave = await ask(
+        $t('tabs.unsavedMsg', { fileName: tab.fileName }),
+        {
+          title: $t('tabs.unsavedTitle'),
+          kind: 'warning',
+          okLabel: $t('tabs.save'),
+          cancelLabel: $t('tabs.discard'),
+        }
+      );
+      if (shouldSave && tab.filePath) {
+        await handleSave();
+      }
+    }
+    tabsStore.closeTab(tab.id);
+  }
+
+  // External file change detection: check on window focus
+  let isCheckingChanges = false;
+
+  async function checkExternalChanges() {
+    const state = tabsStore.getState();
+    const fileTabs = state.tabs.filter(t => t.filePath && t.lastMtime != null);
+    if (fileTabs.length === 0) return;
+
+    const paths = fileTabs.map(t => t.filePath!);
+    let mtimes: [string, number][];
+    try {
+      mtimes = await invoke('get_files_mtime', { paths }) as [string, number][];
+    } catch { return; }
+    const mtimeMap = new Map(mtimes);
+
+    for (const tab of fileTabs) {
+      const currentMtime = mtimeMap.get(tab.filePath!);
+      if (currentMtime == null || currentMtime === tab.lastMtime) continue;
+
+      if (!tab.isDirty) {
+        // Clean tab: auto-reload silently
+        try {
+          const newContent = await invoke('read_file', { path: tab.filePath }) as string;
+          tabsStore.updateTabContent(tab.id, newContent, currentMtime);
+          if (tab.id === state.activeTabId) {
+            content = newContent;
+            await replaceContentAndScrollToTop(content);
+          }
+        } catch { /* file may have been deleted */ }
+      } else {
+        // Dirty tab: conflict dialog
+        const keepLocal = await ask(
+          $t('tabs.externalChangeMsg', { fileName: tab.fileName }),
+          {
+            title: $t('tabs.externalChangeTitle'),
+            kind: 'warning',
+            okLabel: $t('tabs.keepLocal'),
+            cancelLabel: $t('tabs.loadFromDisk'),
+          }
+        );
+        if (keepLocal) {
+          tabsStore.updateTabMtime(tab.id, currentMtime);
+        } else {
+          try {
+            const newContent = await invoke('read_file', { path: tab.filePath }) as string;
+            tabsStore.updateTabContent(tab.id, newContent, currentMtime);
+            if (tab.id === state.activeTabId) {
+              content = newContent;
+              await replaceContentAndScrollToTop(content);
+            }
+          } catch { /* ignore */ }
+        }
+      }
+    }
+  }
+
   async function doFileSelect(path: string, mySerial: number) {
     if (mySerial !== fileSelectSerial) return;
-    if (!(await guardUnsavedChanges())) return;
     if (mySerial !== fileSelectSerial) return; // Superseded by a newer click
+    // Sync current tab state BEFORE loadFile() — loadFile calls editorStore.setContent()
+    // which would pollute the old tab if syncFromEditor runs after it.
+    tabsStore.syncFromEditor();
     const fileContent = await loadFile(path);
     if (mySerial !== fileSelectSerial) return; // Superseded while IPC was in-flight
-    // Title update is intentionally deferred to here — after the serial check —
-    // so a stale IPC response never causes title/content to desync.
-    editorStore.setCurrentFile(path);
-    if (isIPadOS) {
-      const fileName = getFileNameFromPath(path);
-      tabsStore.openFileTab(path, fileName, fileContent);
-      content = fileContent;
-      resetWorkflowState();
-      await replaceContentAndScrollToTop(content);
-      return;
-    }
-    content = fileContent;
+    const fileName = getFileNameFromPath(path);
+    // Fetch mtime for external change detection
+    let mtime: number | null = null;
+    try {
+      const result = await invoke('get_files_mtime', { paths: [path] }) as [string, number][];
+      if (result.length > 0) mtime = result[0][1];
+    } catch { /* ignore */ }
+    // skipSync=true: we already synced above before loadFile polluted editorStore
+    tabsStore.openFileTab(path, fileName, fileContent, mtime, true);
     resetWorkflowState();
-    await replaceContentAndScrollToTop(content);
   }
 
   function handleContentChange(newContent: string) {
@@ -1654,13 +1751,20 @@ ${tr('welcome.tip')}
         listen(event, (e) => handler(e.payload)).then(unlisten => menuUnlisteners.push(unlisten));
       });
 
-      // Helper: load a file by path and sync to all editor modes
+      // Helper: load a file by path and open in a tab
       async function openFileByPath(filePath: string) {
+        // Sync current tab BEFORE loadFile() pollutes editorStore
+        tabsStore.syncFromEditor();
         const fileContent = await loadFile(filePath);
-        editorStore.setCurrentFile(filePath);
-        content = fileContent;
+        const fileName = getFileNameFromPath(filePath);
+        let mtime: number | null = null;
+        try {
+          const result = await invoke('get_files_mtime', { paths: [filePath] }) as [string, number][];
+          if (result.length > 0) mtime = result[0][1];
+        } catch { /* ignore */ }
+        // skipSync=true: we already synced above
+        tabsStore.openFileTab(filePath, fileName, fileContent, mtime, true);
         resetWorkflowState();
-        await replaceContentAndScrollToTop(content);
       }
 
       // Listen for file open events from OS file association (while app is running)
@@ -1699,11 +1803,23 @@ ${tr('welcome.tip')}
       }
     }
 
+    // Window focus: check for external file changes on all open tabs
+    let focusUnlisten: UnlistenFn | undefined;
+    if (isTauri && !isIPadOS) {
+      getCurrentWindow().onFocusChanged(async ({ payload: focused }) => {
+        if (!focused || isCheckingChanges) return;
+        isCheckingChanges = true;
+        try { await checkExternalChanges(); }
+        finally { isCheckingChanges = false; }
+      }).then(unlisten => { focusUnlisten = unlisten; });
+    }
+
     return () => {
       if (autoSaveTimer) clearInterval(autoSaveTimer);
       menuUnlisteners.forEach(unlisten => unlisten());
       openFileUnlisten?.();
       dragDropUnlisten?.();
+      focusUnlisten?.();
       vvUnlisten?.();
       window.removeEventListener('moraya:file-synced', handleFileSynced);
       window.removeEventListener('moraya:dynamic-service-created', handleDynamicServiceCreated);
@@ -1715,19 +1831,14 @@ ${tr('welcome.tip')}
 <svelte:window onkeydown={handleKeydown} />
 
 <div class="app-container">
-  <TitleBar title={currentFileName} />
+  <TitleBar title={currentFileName} {tabs} {activeTabId}
+    onSwitchTab={handleSwitchTab} onCloseTab={handleCloseTab}
+    onNewFile={() => handleNewFile()} onOpenFile={() => handleOpenFile()} />
 
-  {#if isIPadOS}
+  {#if !isMacOS}
     <TabBar
       onNewTab={() => handleNewFile()}
-      onCloseTab={(tab) => {
-        if (tab.isDirty) {
-          // TODO: show unsaved changes dialog
-          tabsStore.closeTab(tab.id);
-        } else {
-          tabsStore.closeTab(tab.id);
-        }
-      }}
+      onCloseTab={handleCloseTab}
     />
   {/if}
 

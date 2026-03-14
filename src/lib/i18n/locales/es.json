@@ -132,7 +132,9 @@
     "unsaved": "Sin guardar",
     "minimize": "Minimizar",
     "maximize": "Maximizar",
-    "close": "Cerrar"
+    "close": "Cerrar",
+    "newFile": "Nuevo archivo",
+    "openFile": "Abrir archivo..."
   },
   "sidebar": {
     "title": "Explorador",
@@ -1393,5 +1395,15 @@
     "success": "Plugin aplicado",
     "noChanges": "Sin cambios",
     "noPlugins": "Sin plugins en ejecución"
+  },
+  "tabs": {
+    "externalChangeTitle": "Archivo modificado externamente",
+    "externalChangeMsg": "\"{fileName}\" ha sido modificado fuera de Moraya.",
+    "keepLocal": "Mantener cambios locales",
+    "loadFromDisk": "Cargar desde disco",
+    "unsavedTitle": "Cambios sin guardar",
+    "unsavedMsg": "\"{fileName}\" tiene cambios sin guardar.",
+    "save": "Guardar",
+    "discard": "Descartar"
   }
 }

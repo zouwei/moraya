@@ -136,7 +136,9 @@
     "unsaved": "غير محفوظ",
     "minimize": "تصغير",
     "maximize": "تكبير",
-    "close": "إغلاق"
+    "close": "إغلاق",
+    "newFile": "ملف جديد",
+    "openFile": "فتح ملف..."
   },
   "sidebar": {
     "title": "المستكشف",
@@ -1397,5 +1399,15 @@
     "success": "تم تطبيق الإضافة",
     "noChanges": "لا تغييرات",
     "noPlugins": "لا توجد إضافات قيد التشغيل"
+  },
+  "tabs": {
+    "externalChangeTitle": "تم تعديل الملف خارجيًا",
+    "externalChangeMsg": "تم تعديل \"{fileName}\" خارج Moraya.",
+    "keepLocal": "الاحتفاظ بالتغييرات المحلية",
+    "loadFromDisk": "تحميل من القرص",
+    "unsavedTitle": "تغييرات غير محفوظة",
+    "unsavedMsg": "\"{fileName}\" يحتوي على تغييرات غير محفوظة.",
+    "save": "حفظ",
+    "discard": "تجاهل"
   }
 }

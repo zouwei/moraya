@@ -1010,6 +1010,15 @@
   onMount(async () => {
     isMounted = true;
 
+    // Safety timeout: if createEditor takes too long (e.g. dynamic import hangs),
+    // make the wrapper visible so the user doesn't see a permanently blank area.
+    const readyTimeout = setTimeout(() => {
+      if (!isReady) {
+        console.warn('[Editor] createEditor timed out after 5s, forcing visibility');
+        isReady = true;
+      }
+    }, 5000);
+
     // Strip frontmatter before editor sees it (avoids `---` → thematic break corruption)
     const { frontmatter, body } = extractFrontmatter(content);
     storedFrontmatter = frontmatter;
@@ -1055,7 +1064,16 @@
       };
     }
 
-    const createdEditor = await createEditor(editorOptions);
+    let createdEditor: MorayaEditor;
+    try {
+      createdEditor = await createEditor(editorOptions);
+    } catch (err) {
+      console.error('[Editor] createEditor failed:', err);
+      clearTimeout(readyTimeout);
+      isReady = true; // Make wrapper visible so user sees something
+      return;
+    }
+    clearTimeout(readyTimeout);
 
     // Guard: if component was destroyed while createEditor was running,
     // destroy the orphaned editor immediately to prevent stale callbacks.
@@ -1660,7 +1678,7 @@
       try {
         applySyncDoc(cached);
         externalSyncDone = true; // Tell $effect to skip redundant applySyncToEditor
-      } catch { /* ignore during init */ }
+      } catch (err) { console.error('[Editor] syncContent applySyncDoc (cached) failed:', err); }
       return;
     }
 
@@ -1672,7 +1690,7 @@
         if (filePath) docCache.set(filePath, visualContent, doc);
         applySyncDoc(doc);
         externalSyncDone = true; // Tell $effect to skip redundant applySyncToEditor
-      } catch { /* ignore during init */ }
+      } catch (err) { console.error('[Editor] syncContent applySyncDoc failed:', err); }
       return;
     }
 
@@ -1687,7 +1705,7 @@
         if (filePath) docCache.set(filePath, visualContent, doc);
         applySyncDoc(doc);
         externalSyncDone = true; // Prevent $effect timer from re-applying on next content change
-      } catch { /* ignore during init */ }
+      } catch (err) { console.error('[Editor] syncContent applySyncDoc (async) failed:', err); }
     });
   }
 

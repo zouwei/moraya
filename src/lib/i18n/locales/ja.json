@@ -136,7 +136,9 @@
     "unsaved": "未保存",
     "minimize": "最小化",
     "maximize": "最大化",
-    "close": "閉じる"
+    "close": "閉じる",
+    "newFile": "新規ファイル",
+    "openFile": "ファイルを開く..."
   },
   "sidebar": {
     "title": "エクスプローラー",
@@ -1397,5 +1399,15 @@
     "success": "プラグインを適用しました",
     "noChanges": "変更なし",
     "noPlugins": "実行中のプラグインなし"
+  },
+  "tabs": {
+    "externalChangeTitle": "ファイルが外部で変更されました",
+    "externalChangeMsg": "「{fileName}」が Moraya の外部で変更されました。",
+    "keepLocal": "ローカルの変更を保持",
+    "loadFromDisk": "ディスクから読み込む",
+    "unsavedTitle": "未保存の変更",
+    "unsavedMsg": "「{fileName}」には未保存の変更があります。",
+    "save": "保存",
+    "discard": "破棄"
   }
 }

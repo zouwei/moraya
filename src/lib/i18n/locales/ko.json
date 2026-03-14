@@ -136,7 +136,9 @@
     "unsaved": "저장되지 않음",
     "minimize": "최소화",
     "maximize": "최대화",
-    "close": "닫기"
+    "close": "닫기",
+    "newFile": "새 파일",
+    "openFile": "파일 열기..."
   },
   "sidebar": {
     "title": "탐색기",
@@ -1397,5 +1399,15 @@
     "success": "플러그인 적용됨",
     "noChanges": "변경 없음",
     "noPlugins": "실행 중인 플러그인 없음"
+  },
+  "tabs": {
+    "externalChangeTitle": "파일이 외부에서 변경됨",
+    "externalChangeMsg": "\"{fileName}\"이(가) Moraya 외부에서 수정되었습니다.",
+    "keepLocal": "로컬 변경사항 유지",
+    "loadFromDisk": "디스크에서 로드",
+    "unsavedTitle": "저장되지 않은 변경사항",
+    "unsavedMsg": "\"{fileName}\"에 저장되지 않은 변경사항이 있습니다.",
+    "save": "저장",
+    "discard": "삭제"
   }
 }

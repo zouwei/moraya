@@ -136,7 +136,9 @@
     "unsaved": "未儲存",
     "minimize": "最小化",
     "maximize": "最大化",
-    "close": "關閉"
+    "close": "關閉",
+    "newFile": "新建檔案",
+    "openFile": "開啟檔案..."
   },
   "sidebar": {
     "title": "資源管理器",
@@ -1397,5 +1399,15 @@
     "success": "插件已套用",
     "noChanges": "無變更",
     "noPlugins": "沒有執行中的插件"
+  },
+  "tabs": {
+    "externalChangeTitle": "檔案已被外部修改",
+    "externalChangeMsg": "「{fileName}」已在 Moraya 外部被修改。",
+    "keepLocal": "保留本地變更",
+    "loadFromDisk": "載入磁碟版本",
+    "unsavedTitle": "未儲存的變更",
+    "unsavedMsg": "「{fileName}」有未儲存的變更。",
+    "save": "儲存",
+    "discard": "捨棄"
   }
 }

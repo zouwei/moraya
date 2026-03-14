@@ -136,7 +136,9 @@
     "unsaved": "Не сохранено",
     "minimize": "Свернуть",
     "maximize": "Развернуть",
-    "close": "Закрыть"
+    "close": "Закрыть",
+    "newFile": "Новый файл",
+    "openFile": "Открыть файл..."
   },
   "sidebar": {
     "title": "Проводник",
@@ -1397,5 +1399,15 @@
     "success": "Плагин применён",
     "noChanges": "Нет изменений",
     "noPlugins": "Нет запущенных плагинов"
+  },
+  "tabs": {
+    "externalChangeTitle": "Файл изменён извне",
+    "externalChangeMsg": "«{fileName}» был изменён за пределами Moraya.",
+    "keepLocal": "Сохранить локальные изменения",
+    "loadFromDisk": "Загрузить с диска",
+    "unsavedTitle": "Несохранённые изменения",
+    "unsavedMsg": "«{fileName}» содержит несохранённые изменения.",
+    "save": "Сохранить",
+    "discard": "Отменить"
   }
 }

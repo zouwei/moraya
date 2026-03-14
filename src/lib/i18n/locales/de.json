@@ -136,7 +136,9 @@
     "unsaved": "Ungespeichert",
     "minimize": "Minimieren",
     "maximize": "Maximieren",
-    "close": "Schließen"
+    "close": "Schließen",
+    "newFile": "Neue Datei",
+    "openFile": "Datei öffnen..."
   },
   "sidebar": {
     "title": "Explorer",
@@ -1397,5 +1399,15 @@
     "success": "Plugin angewendet",
     "noChanges": "Keine Änderungen",
     "noPlugins": "Keine laufenden Plugins"
+  },
+  "tabs": {
+    "externalChangeTitle": "Datei extern geändert",
+    "externalChangeMsg": "\u201E{fileName}\u201C wurde außerhalb von Moraya geändert.",
+    "keepLocal": "Lokale Änderungen behalten",
+    "loadFromDisk": "Von Festplatte laden",
+    "unsavedTitle": "Ungespeicherte Änderungen",
+    "unsavedMsg": "\u201E{fileName}\u201C hat ungespeicherte Änderungen.",
+    "save": "Speichern",
+    "discard": "Verwerfen"
   }
 }

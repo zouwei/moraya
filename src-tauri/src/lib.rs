@@ -329,6 +329,7 @@ pub fn run() {
             commands::file::rename_file,
             commands::file::delete_file,
             commands::file::read_file_previews,
+            commands::file::get_files_mtime,
             commands::mcp::mcp_connect_stdio,
             commands::mcp::mcp_send_request,
             commands::mcp::mcp_send_notification,

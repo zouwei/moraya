@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import { tabsStore, type TabItem } from '$lib/stores/tabs-store';
   import { t } from '$lib/i18n';
 
@@ -14,10 +15,11 @@
   let activeTabId = $state('');
 
   // Top-level store subscription — do NOT wrap in $effect().
-  tabsStore.subscribe(state => {
+  const unsub = tabsStore.subscribe(state => {
     tabs = state.tabs;
     activeTabId = state.activeTabId;
   });
+  onDestroy(() => { unsub(); });
 
   function handleSwitchTab(tabId: string) {
     tabsStore.switchTab(tabId);
@@ -25,7 +27,7 @@
 
   function handleCloseTab(e: MouseEvent, tab: TabItem) {
     e.stopPropagation();
-    if (tab.isDirty && onCloseTab) {
+    if (onCloseTab) {
       onCloseTab(tab);
     } else {
       tabsStore.closeTab(tab.id);
@@ -39,10 +41,53 @@
       tabsStore.addTab();
     }
   }
+
+  // Scroll overflow detection
+  let scrollEl: HTMLDivElement | undefined = $state();
+  let canScrollLeft = $state(false);
+  let canScrollRight = $state(false);
+
+  function updateScrollState() {
+    if (!scrollEl) return;
+    canScrollLeft = scrollEl.scrollLeft > 1;
+    canScrollRight = scrollEl.scrollLeft < scrollEl.scrollWidth - scrollEl.clientWidth - 1;
+  }
+
+  function scrollTabs(dir: 'left' | 'right') {
+    if (!scrollEl) return;
+    const amount = 200;
+    scrollEl.scrollBy({ left: dir === 'left' ? -amount : amount, behavior: 'smooth' });
+  }
+
+  // Re-check overflow when tabs change
+  $effect(() => {
+    // Track tabs array to re-check on add/remove
+    void tabs.length;
+    requestAnimationFrame(updateScrollState);
+  });
+
+  // Auto-scroll active tab into view when activeTabId changes
+  $effect(() => {
+    void activeTabId;
+    requestAnimationFrame(() => {
+      if (!scrollEl) return;
+      const activeEl = scrollEl.querySelector('.tab-item.active') as HTMLElement | null;
+      if (activeEl) {
+        activeEl.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+        requestAnimationFrame(updateScrollState);
+      }
+    });
+  });
 </script>
 
 <div class="tabbar no-select">
-  <div class="tabs-scroll">
+  {#if canScrollLeft}
+    <button class="scroll-arrow scroll-left" onclick={() => scrollTabs('left')}>
+      <svg width="8" height="10" viewBox="0 0 8 10"><path fill="currentColor" d="M7 0L0 5l7 5z"/></svg>
+    </button>
+  {/if}
+
+  <div class="tabs-scroll" bind:this={scrollEl} onscroll={updateScrollState}>
     {#each tabs as tab (tab.id)}
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -55,21 +100,26 @@
           {#if tab.isDirty}<span class="dirty-dot"></span>{/if}
           {tab.fileName}
         </span>
-        {#if tabs.length > 1}
-          <!-- svelte-ignore a11y_click_events_have_key_events -->
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <span
-            class="tab-close"
-            onclick={(e) => handleCloseTab(e, tab)}
-          >
-            <svg width="8" height="8" viewBox="0 0 8 8">
-              <path fill="currentColor" d="M1 0L0 1l3 3-3 3 1 1 3-3 3 3 1-1-3-3 3-3-1-1-3 3z"/>
-            </svg>
-          </span>
-        {/if}
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <span
+          class="tab-close"
+          onclick={(e) => handleCloseTab(e, tab)}
+        >
+          <svg width="8" height="8" viewBox="0 0 8 8">
+            <path fill="currentColor" d="M1 0L0 1l3 3-3 3 1 1 3-3 3 3 1-1-3-3 3-3-1-1-3 3z"/>
+          </svg>
+        </span>
       </div>
     {/each}
   </div>
+
+  {#if canScrollRight}
+    <button class="scroll-arrow scroll-right" onclick={() => scrollTabs('right')}>
+      <svg width="8" height="10" viewBox="0 0 8 10"><path fill="currentColor" d="M0 0l7 5-7 5z"/></svg>
+    </button>
+  {/if}
+
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="tab-new" onclick={handleNewTab} title={$t('common.new')}>
@@ -100,6 +150,25 @@
 
   .tabs-scroll::-webkit-scrollbar {
     display: none;
+  }
+
+  .scroll-arrow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 36px;
+    border: none;
+    background: var(--bg-secondary);
+    color: var(--text-muted);
+    cursor: pointer;
+    flex-shrink: 0;
+    z-index: 1;
+    transition: color var(--transition-fast), background var(--transition-fast);
+  }
+  .scroll-arrow:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
   }
 
   .tab-item {
@@ -155,10 +224,22 @@
     border-radius: 3px;
     color: var(--text-muted);
     flex-shrink: 0;
-    transition: background var(--transition-fast), color var(--transition-fast);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s, background var(--transition-fast), color var(--transition-fast);
   }
 
-  .tab-close:active {
+  .tab-item.active .tab-close {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .tab-item:hover .tab-close {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .tab-close:hover {
     background: var(--bg-active);
     color: var(--text-primary);
   }

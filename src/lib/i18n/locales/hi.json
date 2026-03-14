@@ -136,7 +136,9 @@
     "unsaved": "सहेजा नहीं गया",
     "minimize": "छोटा करें",
     "maximize": "बड़ा करें",
-    "close": "बंद करें"
+    "close": "बंद करें",
+    "newFile": "नई फ़ाइल",
+    "openFile": "फ़ाइल खोलें..."
   },
   "sidebar": {
     "title": "एक्सप्लोरर",
@@ -1397,5 +1399,15 @@
     "success": "प्लगइन लागू हुआ",
     "noChanges": "कोई बदलाव नहीं",
     "noPlugins": "कोई चालू प्लगइन नहीं"
+  },
+  "tabs": {
+    "externalChangeTitle": "फ़ाइल बाहरी रूप से बदली गई",
+    "externalChangeMsg": "\"{fileName}\" को Moraya के बाहर संशोधित किया गया है।",
+    "keepLocal": "स्थानीय परिवर्तन रखें",
+    "loadFromDisk": "डिस्क से लोड करें",
+    "unsavedTitle": "सहेजे नहीं गए परिवर्तन",
+    "unsavedMsg": "\"{fileName}\" में सहेजे नहीं गए परिवर्तन हैं।",
+    "save": "सहेजें",
+    "discard": "छोड़ें"
   }
 }

@@ -514,3 +514,26 @@ pub fn migrate_voice_profiles_dir(old_dir: String, new_dir: String) -> Result<()
 
     copy_dir_recursive(&old_path, &new_path)
 }
+
+/// Batch-check file modification times for external change detection.
+/// Returns a list of (path, mtime_secs) pairs. Skips files that don't exist or fail validation.
+#[tauri::command]
+pub fn get_files_mtime(paths: Vec<String>) -> Result<Vec<(String, f64)>, String> {
+    let mut results = Vec::with_capacity(paths.len());
+    for path_str in paths {
+        let safe_path = match validate_path(&path_str) {
+            Ok(sp) => sp,
+            Err(_) => continue,
+        };
+        if let Ok(meta) = fs::metadata(&safe_path) {
+            if let Ok(mtime) = meta.modified() {
+                let secs = mtime
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs_f64();
+                results.push((path_str, secs));
+            }
+        }
+    }
+    Ok(results)
+}
