@@ -3,6 +3,9 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Mutex;
 use tauri::{Emitter, Manager};
 
+#[cfg(all(not(target_os = "macos"), not(target_os = "ios")))]
+use std::collections::VecDeque;
+
 mod commands;
 #[cfg(target_os = "macos")]
 mod dock;
@@ -64,6 +67,26 @@ static SAVED_WINDOW_POSITIONS: Mutex<Option<HashMap<String, (f64, f64)>>> = Mute
 /// intercepts the key before WebView2 opens DevTools.
 #[cfg(target_os = "windows")]
 static FOCUSED_WINDOW_COUNT: AtomicU32 = AtomicU32::new(0);
+
+/// Pool of pre-created hidden windows for Windows/Linux.
+/// WebView2 creation via `build()` hangs at runtime because wry's nested
+/// message pump conflicts with the running event loop. Windows are pre-created
+/// during `setup()` (before the event loop starts, where direct creation works)
+/// and reused at runtime via `navigate()` + `show()`.
+#[cfg(all(not(target_os = "macos"), not(target_os = "ios")))]
+pub struct WindowPool(pub Mutex<VecDeque<String>>);
+
+/// Number of windows to pre-create in the pool.
+#[cfg(all(not(target_os = "macos"), not(target_os = "ios")))]
+const WINDOW_POOL_SIZE: usize = 5;
+
+/// Get the app URL from the main window (works in both dev and production).
+#[cfg(all(not(target_os = "macos"), not(target_os = "ios")))]
+fn app_url(app: &tauri::AppHandle) -> tauri::Url {
+    app.get_webview_window("main")
+        .and_then(|w| w.url().ok())
+        .unwrap_or_else(|| "http://localhost:1420/".parse().unwrap())
+}
 
 /// Windows/Linux: shrink window if it exceeds the available screen area.
 /// Reserves space for OS taskbar (~48px) and window decorations (~52px).
@@ -150,55 +173,111 @@ pub(crate) fn create_editor_window(
     pending: &PendingFiles,
     path: Option<String>,
 ) -> Result<String, String> {
-    let counter = WINDOW_COUNTER.fetch_add(1, Ordering::SeqCst);
-    let label = format!("moraya-{}", counter);
-
-    // Extract filename for native window title (shown in macOS Dock & Window menu)
     let title = path
         .as_ref()
         .and_then(|p| std::path::Path::new(p).file_name())
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "Moraya".to_string());
 
-    // Store pending file path for this window (if any)
-    if let Some(ref p) = path {
-        let mut pending_map = pending.0.lock().unwrap();
-        pending_map.insert(label.clone(), p.clone());
+    // Windows/Linux: use pre-created window from pool.
+    // build() hangs at runtime due to WebView2 nested message pump deadlock.
+    // Pool windows are created during setup() where direct creation works.
+    #[cfg(all(not(target_os = "macos"), not(target_os = "ios")))]
+    {
+        let label = app
+            .try_state::<WindowPool>()
+            .and_then(|p| p.0.lock().ok()?.pop_front())
+            .ok_or("No windows available in pool")?;
+
+        let win = app
+            .get_webview_window(&label)
+            .ok_or("Pool window not found")?;
+
+        // Store pending file for the window to pick up via get_opened_file()
+        if let Some(ref p) = path {
+            pending.0.lock().unwrap().insert(label.clone(), p.clone());
+        }
+
+        // Navigate from about:blank to the app URL — triggers full SvelteKit load.
+        // navigate() uses the existing WebView2 controller (no nested pump needed).
+        let _ = win.navigate(app_url(app));
+
+        let _ = win.set_title(&title);
+
+        // Cascade from focused window
+        let cascaded = app
+            .webview_windows()
+            .values()
+            .find(|w| w.is_focused().unwrap_or(false))
+            .and_then(|f| {
+                let pos = f.outer_position().ok()?;
+                let scale = f.scale_factor().unwrap_or(1.0);
+                win.set_position(tauri::LogicalPosition::new(
+                    pos.x as f64 / scale + 30.0,
+                    pos.y as f64 / scale + 30.0,
+                ))
+                .ok()
+            })
+            .is_some();
+        if !cascaded {
+            let _ = win.center();
+        }
+
+        fit_window_to_screen(&win);
+        let _ = win.show();
+        let _ = win.set_focus();
+        return Ok(label);
     }
 
-    // ── DIAGNOSTIC Test B: explicit External URL ──
-    // WebviewUrl::default() = App("index.html") goes through Tauri's asset resolver,
-    // CSP injection, and custom protocol registration. External URL bypasses all of that.
-    // If build() succeeds with External URL, the hang is in Tauri's URL/protocol setup.
-    // If it still hangs, the issue is in WebView2 controller creation itself.
-    let dev_url: tauri::Url = "http://localhost:1420/".parse().unwrap();
-    println!("[create_window] DIAG-B: external URL build, label={}, url={}", label, dev_url);
-    let _window = tauri::WebviewWindowBuilder::new(
-        app,
-        &label,
-        tauri::WebviewUrl::External(dev_url),
-    )
-    .title(&title)
-    .inner_size(1200.0, 800.0)
-    .decorations(true)
-    .build()
-    .map_err(|e| {
-        println!("[create_window] DIAG-B FAILED: {}", e);
-        format!("Failed to create window: {}", e)
-    })?;
-    println!("[create_window] DIAG-B OK — build() returned!");
-
+    // macOS: direct build (WKWebView doesn't have the hang issue)
     #[cfg(target_os = "macos")]
     {
+        let counter = WINDOW_COUNTER.fetch_add(1, Ordering::SeqCst);
+        let label = format!("moraya-{}", counter);
+
+        if let Some(ref p) = path {
+            pending.0.lock().unwrap().insert(label.clone(), p.clone());
+        }
+
+        let cascade_pos = app
+            .webview_windows()
+            .values()
+            .find_map(|w| w.outer_position().ok())
+            .map(|pos| (pos.x as f64 + 30.0, pos.y as f64 + 30.0));
+
+        let mut builder = tauri::WebviewWindowBuilder::new(
+            app,
+            &label,
+            tauri::WebviewUrl::default(),
+        )
+        .title(&title)
+        .inner_size(1200.0, 800.0)
+        .min_inner_size(600.0, 400.0)
+        .decorations(true);
+
+        if let Some((x, y)) = cascade_pos {
+            builder = builder.position(x, y);
+        } else {
+            builder = builder.center();
+        }
+
         use tauri::TitleBarStyle;
-        let _ = _window.set_title_bar_style(TitleBarStyle::Overlay);
+        builder = builder.title_bar_style(TitleBarStyle::Overlay);
+
+        let window = builder
+            .build()
+            .map_err(|e| format!("Failed to create window: {}", e))?;
+        let _ = window.set_title_bar_style(TitleBarStyle::Overlay);
+        let _ = window.set_focus();
+        return Ok(label);
     }
 
-    #[cfg(all(not(target_os = "macos"), not(target_os = "ios")))]
-    fit_window_to_screen(&_window);
-
-    let _ = _window.set_focus();
-    Ok(label)
+    // iOS: not supported
+    #[cfg(target_os = "ios")]
+    {
+        let _ = (app, pending, path, title);
+        return Err("Multi-window is not supported on iPad".to_string());
+    }
 }
 
 /// Open a file in a new editor window.
@@ -279,7 +358,38 @@ fn detach_tab_to_window(
         let _ = (&app, &pending_tab, &tab_data, x, y);
         return Err("Multi-window is not supported on iPad".to_string());
     }
-    #[cfg(not(target_os = "ios"))]
+
+    // Windows/Linux: use pool window
+    #[cfg(all(not(target_os = "macos"), not(target_os = "ios")))]
+    {
+        let label = app
+            .try_state::<WindowPool>()
+            .and_then(|p| p.0.lock().ok()?.pop_front())
+            .ok_or("No windows available in pool")?;
+
+        let win = app
+            .get_webview_window(&label)
+            .ok_or("Pool window not found")?;
+
+        let title = if tab_data.file_name.is_empty() {
+            "Moraya".to_string()
+        } else {
+            tab_data.file_name.clone()
+        };
+
+        pending_tab.0.lock().unwrap().insert(label.clone(), tab_data);
+
+        let _ = win.navigate(app_url(&app));
+        let _ = win.set_title(&title);
+        let _ = win.set_position(tauri::LogicalPosition::new(x, y));
+        fit_window_to_screen(&win);
+        let _ = win.show();
+        // Don't set_focus — drag may still be in progress
+        return Ok(label);
+    }
+
+    // macOS: direct build
+    #[cfg(target_os = "macos")]
     {
         let counter = WINDOW_COUNTER.fetch_add(1, Ordering::SeqCst);
         let label = format!("moraya-{}", counter);
@@ -290,11 +400,7 @@ fn detach_tab_to_window(
             tab_data.file_name.clone()
         };
 
-        // Store tab data for the new window to pick up on mount
-        {
-            let mut map = pending_tab.0.lock().unwrap();
-            map.insert(label.clone(), tab_data);
-        }
+        pending_tab.0.lock().unwrap().insert(label.clone(), tab_data);
 
         let mut builder = tauri::WebviewWindowBuilder::new(
             &app,
@@ -305,39 +411,17 @@ fn detach_tab_to_window(
         .inner_size(1200.0, 800.0)
         .min_inner_size(600.0, 400.0)
         .decorations(true)
-        .devtools(false);
+        .position(x, y);
 
-        #[cfg(target_os = "macos")]
-        {
-            use tauri::TitleBarStyle;
-            builder = builder.title_bar_style(TitleBarStyle::Overlay);
-        }
-
-        // Place the window approximately at the target position using builder.position()
-        // to avoid the flicker caused by appearing at the OS default location first.
-        // builder.position() may use physical pixels on some platforms, so follow up
-        // with set_position(LogicalPosition) for exact logical coordinate placement.
-        // We do NOT use visible(false)+show() because show() steals focus from the
-        // source window and breaks the ongoing pointer capture (killing the drag).
-        builder = builder.position(x, y);
+        use tauri::TitleBarStyle;
+        builder = builder.title_bar_style(TitleBarStyle::Overlay);
 
         let window = builder
             .build()
             .map_err(|e| format!("Failed to create window: {}", e))?;
 
         let _ = window.set_position(tauri::LogicalPosition::new(x, y));
-
-        #[cfg(target_os = "macos")]
-        {
-            use tauri::TitleBarStyle;
-            let _ = window.set_title_bar_style(TitleBarStyle::Overlay);
-        }
-
-        #[cfg(all(not(target_os = "macos"), not(target_os = "ios")))]
-        {
-            fit_window_to_screen(&window);
-        }
-
+        let _ = window.set_title_bar_style(TitleBarStyle::Overlay);
         Ok(label)
     }
 }
@@ -653,6 +737,46 @@ pub fn run() {
                 });
             }
 
+            // Windows/Linux: pre-create hidden window pool.
+            // build() works here because the main event loop hasn't started yet
+            // (Tauri uses direct creation, not the async dispatch that deadlocks).
+            // Pool windows start with about:blank and are navigated to the app URL
+            // when activated via create_editor_window / detach_tab_to_window.
+            #[cfg(all(not(target_os = "macos"), not(target_os = "ios")))]
+            {
+                let mut pool_labels = VecDeque::new();
+                for i in 0..WINDOW_POOL_SIZE {
+                    let pool_label = format!("moraya-pool-{}", i);
+                    match tauri::WebviewWindowBuilder::new(
+                        app.handle(),
+                        &pool_label,
+                        tauri::WebviewUrl::External(
+                            "about:blank".parse().unwrap(),
+                        ),
+                    )
+                    .visible(false)
+                    .inner_size(1200.0, 800.0)
+                    .min_inner_size(600.0, 400.0)
+                    .decorations(true)
+                    .build()
+                    {
+                        Ok(ref w) => {
+                            fit_window_to_screen(w);
+                            pool_labels.push_back(pool_label);
+                        }
+                        Err(e) => {
+                            eprintln!("[window-pool] Failed to create pool window {}: {}", i, e);
+                            break;
+                        }
+                    }
+                }
+                println!(
+                    "[window-pool] Created {} pool windows",
+                    pool_labels.len()
+                );
+                app.manage(WindowPool(Mutex::new(pool_labels)));
+            }
+
             let _ = window;
             Ok(())
         })
@@ -682,6 +806,35 @@ pub fn run() {
                         let prev = FOCUSED_WINDOW_COUNT.fetch_sub(1, Ordering::SeqCst);
                         if prev == 1 {
                             let _ = _app.global_shortcut().unregister(shortcut);
+                        }
+                    }
+                }
+            }
+
+            // Windows/Linux: recycle pool windows on close instead of destroying them.
+            // Hides the window, navigates to about:blank (triggers SvelteKit cleanup),
+            // and returns the label to the pool for reuse.
+            #[cfg(all(not(target_os = "macos"), not(target_os = "ios")))]
+            {
+                if let tauri::RunEvent::WindowEvent {
+                    label,
+                    event: tauri::WindowEvent::CloseRequested { api, .. },
+                    ..
+                } = &_event
+                {
+                    if label.starts_with("moraya-pool-") {
+                        api.prevent_close();
+                        if let Some(win) = _app.get_webview_window(label) {
+                            let _ = win.hide();
+                            let _ = win.set_title("Moraya");
+                            if let Ok(url) = "about:blank".parse() {
+                                let _ = win.navigate(url);
+                            }
+                        }
+                        if let Some(pool) = _app.try_state::<WindowPool>() {
+                            if let Ok(mut labels) = pool.0.lock() {
+                                labels.push_back(label.to_string());
+                            }
                         }
                     }
                 }
