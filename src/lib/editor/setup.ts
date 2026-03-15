@@ -311,7 +311,7 @@ function createDirtyTrackPlugin(onDocChanged: (textContent: string) => void): Pl
  * Used ONLY in split mode where the SourceEditor needs periodic markdown sync.
  * Debounce is set to 500ms (more relaxed than visual-only mode).
  */
-function createLazyChangePlugin(onChange: (markdown: string) => void): Plugin {
+function createLazyChangePlugin(onChange: (markdown: string) => void, debounceMs = 500): Plugin {
   let changeTimer: ReturnType<typeof setTimeout> | null = null;
 
   return new Plugin({
@@ -327,7 +327,7 @@ function createLazyChangePlugin(onChange: (markdown: string) => void): Plugin {
             onChange(markdown);
           } catch { /* editor might be destroyed */ }
           changeTimer = null;
-        }, 500);
+        }, debounceMs);
       },
       destroy: () => {
         if (changeTimer !== null) {
@@ -359,12 +359,14 @@ export interface EditorOptions {
   onDocChanged?: (textContent: string) => void;
   /** Full markdown serialization callback. Used in split mode for SourceEditor sync. */
   onChange?: (markdown: string) => void;
+  /** Debounce interval (ms) for the lazy-change plugin. Default 500ms. Split mode uses 150ms. */
+  changeDebounceMs?: number;
   onFocus?: () => void;
   onBlur?: () => void;
 }
 
 export async function createEditor(options: EditorOptions): Promise<MorayaEditor> {
-  const { root, defaultValue = '', onDocChanged, onChange, onFocus, onBlur } = options;
+  const { root, defaultValue = '', onDocChanged, onChange, changeDebounceMs, onFocus, onBlur } = options;
 
   // Load Tier 1 plugins (uses cache if already preloaded)
   const tier1 = await preloadEnhancementPlugins();
@@ -408,7 +410,7 @@ export async function createEditor(options: EditorOptions): Promise<MorayaEditor
 
   // Change detection
   if (onChange) {
-    plugins.push(createLazyChangePlugin(onChange));
+    plugins.push(createLazyChangePlugin(onChange, changeDebounceMs));
   } else if (onDocChanged) {
     plugins.push(createDirtyTrackPlugin(onDocChanged));
   }

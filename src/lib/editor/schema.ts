@@ -11,7 +11,7 @@
  *   table_header, table_cell, math_inline, math_block,
  *   defList, defListTerm, defListDescription
  *
- * Marks (5): strong, em, code, link, strike_through
+ * Marks (6): html_mark, strong, em, code, link, strike_through
  */
 
 import { Schema, Fragment } from 'prosemirror-model';
@@ -22,9 +22,9 @@ import katex from 'katex';
 
 /** Extract a quoted attribute value from an HTML tag string. */
 function extractHtmlAttr(html: string, name: string): string | null {
-  const re = new RegExp(`${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, 'i');
+  const re = new RegExp(`${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i');
   const m = html.match(re);
-  return m ? (m[1] ?? m[2] ?? null) : null;
+  return m ? (m[1] ?? m[2] ?? m[3] ?? null) : null;
 }
 
 /** Replace element content with broken-image icon + source code display. */
@@ -39,6 +39,82 @@ function showBrokenImage(container: HTMLElement, sourceText: string): void {
   code.className = 'broken-image-src';
   code.textContent = sourceText;
   container.appendChild(code);
+}
+
+/** Convert HTML tag attributes to CSS inline styles for visual rendering. */
+function htmlTagToStyle(openTag: string): string {
+  const tagMatch = openTag.match(/^<([a-zA-Z][a-zA-Z0-9]*)/);
+  if (!tagMatch) return '';
+  const tagName = tagMatch[1].toLowerCase();
+  switch (tagName) {
+    case 'font': {
+      const parts: string[] = [];
+      const color = extractHtmlAttr(openTag, 'color');
+      if (color) parts.push(`color: ${color}`);
+      const size = extractHtmlAttr(openTag, 'size');
+      if (size) {
+        // HTML <font size=N> approximate CSS equivalents
+        const sizeMap: Record<string, string> = {
+          '1': '0.63em', '2': '0.82em', '3': '1em', '4': '1.13em',
+          '5': '1.5em', '6': '2em', '7': '3em',
+        };
+        parts.push(`font-size: ${sizeMap[size] || size}`);
+      }
+      const face = extractHtmlAttr(openTag, 'face');
+      if (face) parts.push(`font-family: ${face}`);
+      return parts.join('; ');
+    }
+    case 'span':
+    case 'div':
+      return extractHtmlAttr(openTag, 'style') || '';
+    default:
+      return '';
+  }
+}
+
+/** Check if a path is a local file path (absolute Unix or Windows path). */
+function isLocalFilePath(src: string): boolean {
+  if (!src) return false;
+  if (src.startsWith('/') && !src.startsWith('//')) return true;
+  if (/^[A-Z]:[\\\/]/i.test(src)) return true;
+  return false;
+}
+
+/** Cache for local image blob URLs (path → blob:...) */
+const localImageBlobCache = new Map<string, string>();
+
+/**
+ * Load a local image file via Tauri IPC and set the img src to a blob URL.
+ * Uses the `read_file_binary` command (validate_path → home directory scope)
+ * rather than the fs plugin (narrower scope), so images from any location
+ * within the user's home directory are loadable.
+ * Caches results so repeated calls for the same path are instant.
+ */
+function loadLocalImageSrc(img: HTMLImageElement, src: string): void {
+  const cached = localImageBlobCache.get(src);
+  if (cached) {
+    img.src = cached;
+    return;
+  }
+  import('@tauri-apps/api/core').then(({ invoke }) => {
+    invoke<number[]>('read_file_binary', { path: src }).then(data => {
+      const bytes = new Uint8Array(data);
+      const ext = src.split('.').pop()?.toLowerCase() || '';
+      const mimeMap: Record<string, string> = {
+        png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+        gif: 'image/gif', svg: 'image/svg+xml', webp: 'image/webp',
+        ico: 'image/x-icon', bmp: 'image/bmp', avif: 'image/avif',
+      };
+      const blob = new Blob([bytes], { type: mimeMap[ext] || 'image/png' });
+      const blobUrl = URL.createObjectURL(blob);
+      localImageBlobCache.set(src, blobUrl);
+      img.src = blobUrl;
+    }).catch(() => {
+      img.dispatchEvent(new Event('error'));
+    });
+  }).catch(() => {
+    img.dispatchEvent(new Event('error'));
+  });
 }
 
 // ── Node Specs ──────────────────────────────────────────────────
@@ -216,15 +292,29 @@ const image: NodeSpec = {
     container.className = 'image-node';
 
     const img = document.createElement('img');
-    img.src = node.attrs.src;
     if (node.attrs.alt) img.alt = node.attrs.alt;
     if (node.attrs.title) img.title = node.attrs.title;
+
+    // Apply width from title attr (e.g. title="width=70%")
+    const titleStr = (node.attrs.title || '') as string;
+    const widthMatch = titleStr.match(/^width=(\d+%?)$/);
+    if (widthMatch) {
+      img.style.width = widthMatch[1].includes('%') ? widthMatch[1] : `${widthMatch[1]}px`;
+      img.style.maxWidth = 'none';
+    }
 
     img.onerror = () => {
       const alt = node.attrs.alt ? `![${node.attrs.alt}]` : '![]';
       const title = node.attrs.title ? ` "${node.attrs.title}"` : '';
       showBrokenImage(container, `${alt}(${node.attrs.src}${title})`);
     };
+
+    const src = node.attrs.src as string;
+    if (isLocalFilePath(src)) {
+      loadLocalImageSrc(img, src);
+    } else {
+      img.src = src;
+    }
 
     container.appendChild(img);
     return container;
@@ -306,11 +396,15 @@ const html_inline: NodeSpec = {
       const src = extractHtmlAttr(value, 'src') || '';
       if (src) {
         const img = document.createElement('img');
-        img.src = src;
         img.alt = extractHtmlAttr(value, 'alt') || '';
         img.onerror = () => {
           showBrokenImage(wrapper, value);
         };
+        if (isLocalFilePath(src)) {
+          loadLocalImageSrc(img, src);
+        } else {
+          img.src = src;
+        }
         wrapper.appendChild(img);
       } else {
         showBrokenImage(wrapper, value);
@@ -574,6 +668,52 @@ const strike_through: MarkSpec = {
   toDOM() { return ['del', 0]; },
 };
 
+/**
+ * Mark for paired inline HTML tags (e.g., <font>, <span>, <sub>, <sup>).
+ * Paired opening/closing tags are rendered with their styling in the visual
+ * editor while the original HTML is preserved in serialization.
+ * Only truly paired tags (detected via pre-scan) use this mark;
+ * unpaired tags remain as html_inline atom nodes for roundtrip fidelity.
+ */
+const html_mark: MarkSpec = {
+  attrs: {
+    openTag: { default: '' },
+    closeTag: { default: '' },
+  },
+  excludes: '', // Allow nesting multiple html_marks (e.g., <font><u>text</u></font>)
+  parseDOM: [{
+    tag: '[data-type="html-mark"]',
+    getAttrs(dom: HTMLElement) {
+      return {
+        openTag: dom.dataset.openTag ?? '',
+        closeTag: dom.dataset.closeTag ?? '',
+      };
+    },
+  }],
+  toDOM(mark) {
+    const openTag = mark.attrs.openTag as string;
+    const tagMatch = openTag.match(/^<([a-zA-Z][a-zA-Z0-9]*)/);
+    const tagName = tagMatch ? tagMatch[1].toLowerCase() : 'span';
+
+    const attrs: Record<string, string> = {
+      'data-type': 'html-mark',
+      'data-open-tag': openTag,
+      'data-close-tag': mark.attrs.closeTag as string,
+    };
+
+    // Use actual semantic elements for common tags
+    const semanticTags = ['sub', 'sup', 'u', 'ins', 'mark', 'small', 'big', 'kbd', 'abbr'];
+    if (semanticTags.includes(tagName)) {
+      return [tagName, attrs, 0];
+    }
+
+    // Others (font, span, etc.): styled span
+    const style = htmlTagToStyle(openTag);
+    if (style) attrs.style = style;
+    return ['span', attrs, 0];
+  },
+};
+
 // ── Schema ──────────────────────────────────────────────────────
 
 export const schema = new Schema({
@@ -604,6 +744,7 @@ export const schema = new Schema({
     defListDescription,
   },
   marks: {
+    html_mark,
     strong,
     em,
     code,

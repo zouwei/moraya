@@ -164,6 +164,7 @@
   let syncResetTimer: ReturnType<typeof setTimeout> | undefined; // delayed reset for syncingFromExternal
   let lastSyncWasExternal = false; // true when last content came from source editor (split mode)
   let externalSyncTimer: ReturnType<typeof setTimeout> | undefined; // debounce for external content sync
+  let lastSyncedMd = ''; // tracks last markdown synced to editor to avoid redundant getMarkdown()
   let tableToolbarRaf: number | undefined; // RAF throttle for table toolbar updates
   let syncGeneration = 0; // Incremented on each syncContent call; stale async callbacks bail out
 
@@ -1051,13 +1052,15 @@
     };
 
     if (needsSerialization) {
-      // Split mode: full serialization every 500ms for SourceEditor sync
+      // Split mode: full serialization every 150ms for SourceEditor sync
+      editorOptions.changeDebounceMs = 150;
       editorOptions.onChange = (markdown) => {
         if (!isMounted) return;
         if (syncingFromExternal) return;
         lastSyncWasExternal = false;
         internalChange = true;
         const full = storedFrontmatter + markdown;
+        lastSyncedMd = full; // Prevent applySyncToEditor from re-syncing this content back
         content = full;
         onContentChange?.(full);
         editorStore.setDirtyContent(true, full);
@@ -1096,6 +1099,7 @@
 
     editor = createdEditor;
     isReady = true;
+    lastSyncedMd = content; // Initialize for applySyncToEditor dedup
     console.log('[Editor] createEditor done, doc content size:', createdEditor.view.state.doc.content.size, 'textContent length:', createdEditor.view.state.doc.textContent.length);
     onEditorReady?.(editor);
     if (showOutline) extractHeadings();
@@ -1284,40 +1288,40 @@
   // Debounced to avoid rebuilding the ProseMirror document on every keystroke.
   // Uses addToHistory:false to avoid undo history accumulation.
   function applySyncToEditor(md: string) {
-    console.log('[Editor] applySyncToEditor md length:', md.length, 'preview:', JSON.stringify(md.slice(0, 100)));
     if (!editor || !isReady) return;
+    // Fast string comparison — skip if content unchanged (avoids O(n) getMarkdown)
+    if (md === lastSyncedMd) return;
+    lastSyncedMd = md;
+
     // Re-extract frontmatter in case user edited it in source mode
     const { frontmatter, body } = extractFrontmatter(md);
     storedFrontmatter = frontmatter;
 
-    const editorContent = editor.getMarkdown();
     const visualContent = toHardBreaks(body);
-    if (visualContent !== editorContent) {
-      try {
-        syncingFromExternal = true;
-        lastSyncWasExternal = true;
-        if (syncResetTimer) clearTimeout(syncResetTimer);
-        const view = editor.view;
-        const filePath = editorStore.getState().currentFilePath || '';
-        // Check LRU doc cache
-        let doc = docCache.get(filePath, visualContent);
-        if (!doc) {
-          doc = parseMarkdown(visualContent);
-          if (!doc) return;
-          if (filePath) docCache.set(filePath, visualContent, doc);
-        }
-        const tr = view.state.tr.replace(
-          0, view.state.doc.content.size,
-          new Slice(doc.content, 0, 0),
-        );
-        tr.setMeta('addToHistory', false);
-        view.dispatch(tr);
-      } catch { /* ignore during init */ }
-      // The lazy-change plugin debounces onChange by 100ms (setup.ts).
-      // Keep syncingFromExternal=true until after that fires so the
-      // reformatted markdown doesn't flow back to the source editor.
-      syncResetTimer = setTimeout(() => { syncingFromExternal = false; }, 200);
-    }
+    try {
+      syncingFromExternal = true;
+      lastSyncWasExternal = true;
+      if (syncResetTimer) clearTimeout(syncResetTimer);
+      const view = editor.view;
+      const filePath = editorStore.getState().currentFilePath || '';
+      // Check LRU doc cache
+      let doc = docCache.get(filePath, visualContent);
+      if (!doc) {
+        doc = parseMarkdown(visualContent);
+        if (!doc) return;
+        if (filePath) docCache.set(filePath, visualContent, doc);
+      }
+      const tr = view.state.tr.replace(
+        0, view.state.doc.content.size,
+        new Slice(doc.content, 0, 0),
+      );
+      tr.setMeta('addToHistory', false);
+      view.dispatch(tr);
+    } catch { /* ignore during init */ }
+    // The lazy-change plugin debounces onChange by 150ms (split mode).
+    // Keep syncingFromExternal=true until after that fires so the
+    // reformatted markdown doesn't flow back to the source editor.
+    syncResetTimer = setTimeout(() => { syncingFromExternal = false; }, 200);
     // Refresh outline after external sync (onChange is suppressed by syncingFromExternal)
     scheduleExtractHeadings();
   }
@@ -1351,7 +1355,7 @@
     }
     // Debounce: avoid running toHardBreaks + sync on every keystroke
     if (externalSyncTimer) clearTimeout(externalSyncTimer);
-    externalSyncTimer = setTimeout(() => applySyncToEditor(current), 150);
+    externalSyncTimer = setTimeout(() => applySyncToEditor(current), 80);
   });
 
   // When outline is toggled on (e.g. after async settings load), extract headings.
@@ -1707,6 +1711,7 @@
       pendingSyncMd = md; // Save for when editor finishes initializing
       return;
     }
+    lastSyncedMd = md; // Track for applySyncToEditor dedup
     const myGen = ++syncGeneration;
     // NOTE: externalSyncDone is set AFTER applySyncDoc succeeds (not here at the top).
     // If parsing or applying fails silently (caught by try/catch), externalSyncDone stays

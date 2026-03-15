@@ -434,6 +434,11 @@ ${tr('welcome.tip')}
     commandMap[cmd]?.();
   }
 
+  /** Check if focus is inside the source textarea pane (split mode). */
+  function isSourcePaneFocused(): boolean {
+    return document.activeElement?.tagName === 'TEXTAREA';
+  }
+
   // ── Search / Replace callbacks ─────────────────────────
 
   function getActiveSearchTarget(): Editor | SourceEditor | undefined {
@@ -742,8 +747,10 @@ ${tr('welcome.tip')}
 
     // Undo: Cmd+Z / Ctrl+Z on all platforms
     if (mod && !event.shiftKey && event.key === 'z') {
+      // ProseMirror already handled it via keymap → skip to avoid double undo
+      if (event.defaultPrevented) return;
       event.preventDefault();
-      if (editorMode === 'source') {
+      if (editorMode === 'source' || (editorMode === 'split' && isSourcePaneFocused())) {
         document.execCommand('undo');
       } else {
         morayaEditor?.view.focus();
@@ -755,8 +762,9 @@ ${tr('welcome.tip')}
     // Redo: Cmd+Shift+Z / Ctrl+Shift+Z / Cmd+Y / Ctrl+Y
     if ((mod && event.shiftKey && event.key === 'z') ||
         (mod && !event.shiftKey && event.key === 'y')) {
+      if (event.defaultPrevented) return;
       event.preventDefault();
-      if (editorMode === 'source') {
+      if (editorMode === 'source' || (editorMode === 'split' && isSourcePaneFocused())) {
         document.execCommand('redo');
       } else {
         morayaEditor?.view.focus();
@@ -1830,10 +1838,9 @@ ${tr('welcome.tip')}
         'menu:file_export_pdf': () => exportDocument(getCurrentContent(), 'pdf'),
         'menu:file_export_image': () => exportDocument(getCurrentContent(), 'image'),
         'menu:file_export_doc': () => exportDocument(getCurrentContent(), 'doc'),
-        // Edit — undo/redo
+        // Edit — undo/redo (split mode: route to whichever pane is focused)
         'menu:edit_undo': () => {
-          if (editorMode === 'source') {
-            // Focus the active textarea so document.execCommand targets it
+          if (editorMode === 'source' || (editorMode === 'split' && isSourcePaneFocused())) {
             (document.activeElement as HTMLElement)?.focus();
             document.execCommand('undo');
           } else {
@@ -1842,7 +1849,7 @@ ${tr('welcome.tip')}
           }
         },
         'menu:edit_redo': () => {
-          if (editorMode === 'source') {
+          if (editorMode === 'source' || (editorMode === 'split' && isSourcePaneFocused())) {
             (document.activeElement as HTMLElement)?.focus();
             document.execCommand('redo');
           } else {

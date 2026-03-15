@@ -207,9 +207,15 @@ pub(crate) fn create_editor_window(
         let _ = _window.set_title_bar_style(TitleBarStyle::Overlay);
     }
 
-    // Windows/Linux: shrink window to fit screen (taskbar/decorations)
+    // Windows/Linux: each window needs its own menu bar (macOS has a single app-level menu).
+    // Also shrink window to fit screen (taskbar/decorations).
     #[cfg(all(not(target_os = "macos"), not(target_os = "ios")))]
-    fit_window_to_screen(&_window);
+    {
+        if let Ok(win_menu) = menu::create_menu(app) {
+            let _ = _window.set_menu(win_menu);
+        }
+        fit_window_to_screen(&_window);
+    }
 
     Ok(label)
 }
@@ -347,7 +353,12 @@ fn detach_tab_to_window(
         }
 
         #[cfg(all(not(target_os = "macos"), not(target_os = "ios")))]
-        fit_window_to_screen(&window);
+        {
+            if let Ok(win_menu) = menu::create_menu(&app) {
+                let _ = window.set_menu(win_menu);
+            }
+            fit_window_to_screen(&window);
+        }
 
         Ok(label)
     }
@@ -607,7 +618,9 @@ pub fn run() {
                 #[cfg(all(not(target_os = "macos"), not(target_os = "ios")))]
                 tray::setup_tray(app)?;
 
-                // Handle menu events — emit to the main window
+                // Handle menu events — emit only to the focused window.
+                // Using app.emit() would broadcast to ALL windows, causing duplicate
+                // actions (e.g., "New Window" creating N windows instead of 1).
                 let app_handle_for_events = app.handle().clone();
                 app.on_menu_event(move |_app, event| {
                     // Skip spurious events fired by set_checked() during
@@ -617,6 +630,14 @@ pub fn run() {
                     }
 
                     let id = event.id().0.as_str();
+                    let event_name = format!("menu:{}", id);
+
+                    // Find the focused window to emit to (avoids broadcast to all windows).
+                    let focused_label = app_handle_for_events
+                        .webview_windows()
+                        .iter()
+                        .find(|(_, w)| w.is_focused().unwrap_or(false))
+                        .map(|(label, _)| label.clone());
 
                     // For CheckMenuItem items, emit the current check state as
                     // payload so the frontend can SET (not toggle) the value.
@@ -624,11 +645,19 @@ pub fn run() {
                         "view_mode_visual" | "view_mode_source" | "view_mode_split"
                         | "view_sidebar" | "view_ai_panel" | "view_outline" => {
                             if let Some(checked) = menu::get_check_state(&app_handle_for_events, id) {
-                                let _ = app_handle_for_events.emit(&format!("menu:{}", id), checked);
+                                if let Some(label) = &focused_label {
+                                    let _ = app_handle_for_events.emit_to(label, &event_name, checked);
+                                } else {
+                                    let _ = app_handle_for_events.emit(&event_name, checked);
+                                }
                             }
                         }
                         _ => {
-                            let _ = app_handle_for_events.emit(&format!("menu:{}", id), ());
+                            if let Some(label) = &focused_label {
+                                let _ = app_handle_for_events.emit_to(label, &event_name, ());
+                            } else {
+                                let _ = app_handle_for_events.emit(&event_name, ());
+                            }
                         }
                     }
                 });

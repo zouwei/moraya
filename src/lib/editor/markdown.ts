@@ -31,6 +31,60 @@ const md = new MarkdownIt({
   .use(deflistPlugin)
   .use(texmathPlugin);
 
+// ── Paired HTML tag pre-processing ──────────────────────────────
+
+/**
+ * Pre-scan inline tokens to identify paired HTML opening/closing tags.
+ * Sets `meta.htmlPaired = true` on paired tokens so the parser converts
+ * them to marks (styled rendering) instead of atom nodes (invisible).
+ * Unpaired tags remain unmarked → atom nodes → exact roundtrip fidelity.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function tagPairedHtmlInline(tokens: any[]): void {
+  const VOID_RE = /^<(?:br|hr|img|input|wbr|area|base|col|embed|link|meta|param|source|track)[\s/>]/i;
+  for (const token of tokens) {
+    if (token.type !== 'inline' || !token.children) continue;
+    const children = token.children;
+    const stack: { tagName: string; index: number }[] = [];
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i];
+      if (child.type !== 'html_inline') continue;
+      const content: string = child.content;
+      // Skip void/self-closing elements and comments
+      if (VOID_RE.test(content) || /\/>$/.test(content) || /^<!--/.test(content)) continue;
+      // Closing tag?
+      const closeMatch = content.match(/^<\/([a-zA-Z][a-zA-Z0-9]*)\s*>$/);
+      if (closeMatch) {
+        const tagName = closeMatch[1].toLowerCase();
+        for (let j = stack.length - 1; j >= 0; j--) {
+          if (stack[j].tagName === tagName) {
+            children[stack[j].index].meta = { ...(children[stack[j].index].meta || {}), htmlPaired: true };
+            child.meta = { ...(child.meta || {}), htmlPaired: true };
+            stack.splice(j, 1);
+            break;
+          }
+        }
+        continue;
+      }
+      // Opening tag?
+      const openMatch = content.match(/^<([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>$/);
+      if (openMatch) {
+        stack.push({ tagName: openMatch[1].toLowerCase(), index: i });
+      }
+    }
+  }
+}
+
+// Patch md.parse to inject paired-tag pre-processing before prosemirror-markdown
+// processes the tokens. This allows the html_inline handler to distinguish
+// paired tags (→ marks with styling) from unpaired tags (→ atom nodes).
+const _origMdParse = md.parse.bind(md);
+md.parse = function (src: string, env: unknown) {
+  const tokens = _origMdParse(src, env);
+  tagPairedHtmlInline(tokens);
+  return tokens;
+};
+
 // ── Parser ──────────────────────────────────────────────────────
 
 /**
@@ -248,6 +302,31 @@ class MorayaMarkdownParser extends MarkdownParser {
       state.closeNode(); // close table_cell
     };
 
+    // ── Paired inline HTML → marks ─────────────────────────────────
+    // Pre-scanned paired tags (meta.htmlPaired) become openMark/closeMark
+    // so the visual editor renders them with styling. Unpaired tags stay
+    // as html_inline atom nodes for exact roundtrip fidelity.
+    h['html_inline'] = (state, tok) => {
+      const content: string = tok.content;
+      if (tok.meta?.htmlPaired) {
+        if (!content.startsWith('</')) {
+          // Opening tag → open mark
+          const tagMatch = content.match(/^<([a-zA-Z][a-zA-Z0-9]*)/);
+          const tagName = tagMatch ? tagMatch[1].toLowerCase() : '';
+          state.openMark(schema.marks.html_mark.create({
+            openTag: content,
+            closeTag: `</${tagName}>`,
+          }));
+        } else {
+          // Closing tag → close mark
+          state.closeMark(schema.marks.html_mark);
+        }
+        return;
+      }
+      // Not paired → atom node (preserves current behavior)
+      state.addNode(schema.nodes.html_inline, { value: content });
+    };
+
     // ── HTML <img> tag: block → inline promotion ──────────────────
     // markdown-it tokenizes standalone <img> as html_block (renders as code block).
     // Promote to paragraph(html_inline) so the toDOM can render it as an image.
@@ -455,6 +534,14 @@ const serializer = new MarkdownSerializer(
       close: '~~',
       mixable: true,
       expelEnclosingWhitespace: true,
+    },
+    html_mark: {
+      open(_state: MarkdownSerializerState, mark: Mark) {
+        return mark.attrs.openTag as string;
+      },
+      close(_state: MarkdownSerializerState, mark: Mark) {
+        return mark.attrs.closeTag as string;
+      },
     },
   },
   {
