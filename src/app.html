@@ -7,7 +7,9 @@
     <title>Moraya</title>
     %sveltekit.head%
   </head>
-  <body data-sveltekit-preload-data="hover">
+  <body data-sveltekit-preload-data="hover" style="background:#1a1a2e;">
+    <!-- TEMP DIAGNOSTIC: red border = HTML loaded; if content area is plain dark blue, Svelte didn't mount -->
     <div style="display: contents">%sveltekit.body%</div>
+    <script>console.log('[moraya-diag] app.html loaded, location:', window.location.href);</script>
   </body>
 </html>

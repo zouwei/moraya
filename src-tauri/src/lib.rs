@@ -169,16 +169,19 @@ pub(crate) fn create_editor_window(
     // Build window with same config as main.
     // decorations + title_bar_style are set in the builder to avoid a post-build
     // toggle that causes WKWebView to cache stale viewport measurements.
+    let url = tauri::WebviewUrl::default();
+    println!("[create_window] step 1: label={}, url={:?}", label, url);
+
     let mut builder = tauri::WebviewWindowBuilder::new(
         app,
         &label,
-        tauri::WebviewUrl::default(),
+        url,
     )
     .title(&title)
     .inner_size(1200.0, 800.0)
     .min_inner_size(600.0, 400.0)
     .decorations(true)
-    .devtools(false);
+    .devtools(true); // TEMP: enable devtools for debugging new window freeze
 
     // Cascade new windows: offset from the focused/existing window by 30px.
     // Falls back to centering if no existing window position is available.
@@ -199,9 +202,14 @@ pub(crate) fn create_editor_window(
         builder = builder.title_bar_style(TitleBarStyle::Overlay);
     }
 
+    println!("[create_window] step 1b: calling builder.build()");
     let _window = builder
         .build()
-        .map_err(|e| format!("Failed to create window: {}", e))?;
+        .map_err(|e| {
+            println!("[create_window] ERROR: build() failed: {}", e);
+            format!("Failed to create window: {}", e)
+        })?;
+    println!("[create_window] step 1c: build() succeeded, webview_url={:?}", _window.url());
 
     // Runtime fallback: ensure overlay is set even if the builder didn't apply it
     #[cfg(target_os = "macos")]
@@ -210,28 +218,19 @@ pub(crate) fn create_editor_window(
         let _ = _window.set_title_bar_style(TitleBarStyle::Overlay);
     }
 
-    // Windows/Linux: defer menu setup so WebView2 can finish initializing first.
-    // Setting the menu synchronously right after build() can block the message loop
-    // while WebView2 is still creating its browser process, causing the new window
-    // to freeze (close button dead, no input). Spawning a thread with a short delay
-    // lets the main thread pump WebView2 initialization messages before we set the menu.
     #[cfg(all(not(target_os = "macos"), not(target_os = "ios")))]
     {
+        println!("[create_window] step 2: fitting window to screen");
         fit_window_to_screen(&_window);
-        let app_clone = app.clone();
-        let win_label = label.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(200));
-            if let Some(win) = app_clone.get_webview_window(&win_label) {
-                if let Ok(win_menu) = menu::create_menu(&app_clone) {
-                    let _ = win.set_menu(win_menu);
-                }
-            }
-        });
+        println!("[create_window] step 3: fit_window_to_screen done");
+        // App-level menu (set in setup) auto-applies to new windows.
+        // Do NOT call window.set_menu() — sharing or duplicating the Menu
+        // object on Windows can interfere with WebView2 initialization.
     }
 
-    // Bring new window to front so the user can see it immediately.
+    println!("[create_window] step 4: calling set_focus");
     let _ = _window.set_focus();
+    println!("[create_window] step 5: done, returning label={}", label);
 
     Ok(label)
 }
@@ -371,16 +370,6 @@ fn detach_tab_to_window(
         #[cfg(all(not(target_os = "macos"), not(target_os = "ios")))]
         {
             fit_window_to_screen(&window);
-            let app_clone = app.clone();
-            let win_label = label.clone();
-            std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_millis(200));
-                if let Some(win) = app_clone.get_webview_window(&win_label) {
-                    if let Ok(win_menu) = menu::create_menu(&app_clone) {
-                        let _ = win.set_menu(win_menu);
-                    }
-                }
-            });
         }
 
         Ok(label)

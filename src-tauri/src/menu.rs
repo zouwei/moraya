@@ -181,14 +181,7 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
             &mode_split,
             &PredefinedMenuItem::separator(app)?,
             &CheckMenuItem::with_id(app, "view_sidebar", "Toggle Sidebar", true, false, Some("CmdOrCtrl+\\"))?,
-            // On Windows, Ctrl+Shift+I is handled by the global shortcut plugin (to intercept
-            // before WebView2 opens DevTools). Setting the same key as a menu accelerator causes
-            // a dual-registration conflict in the Windows message loop, freezing new windows.
-            // macOS doesn't have this issue — global shortcuts and menu accelerators coexist.
-            #[cfg(target_os = "macos")]
             &CheckMenuItem::with_id(app, "view_ai_panel", "Toggle AI Panel", true, false, Some("CmdOrCtrl+Shift+I"))?,
-            #[cfg(not(target_os = "macos"))]
-            &CheckMenuItem::with_id(app, "view_ai_panel", "Toggle AI Panel         Ctrl+Shift+I", true, false, None::<&str>)?,
             &CheckMenuItem::with_id(app, "view_outline", "Toggle Outline", true, false, Some("CmdOrCtrl+Shift+O"))?,
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, "view_zoom_in", "Zoom In", true, Some("CmdOrCtrl+="))?,
