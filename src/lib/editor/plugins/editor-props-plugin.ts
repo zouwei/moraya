@@ -14,12 +14,12 @@
  * Reducing 5 plugin instances to 1 saves ~4 apply() traversals per transaction.
  */
 
+import { Fragment, Slice } from 'prosemirror-model';
 import { AllSelection, Plugin, PluginKey, TextSelection } from 'prosemirror-state';
 import { Decoration, DecorationSet } from 'prosemirror-view';
-import { Fragment, Slice } from 'prosemirror-model';
-import { parseMarkdown } from '../markdown';
 import { editorStore } from '../../stores/editor-store';
 import { isMacOS } from '../../utils/platform';
+import { parseMarkdown } from '../markdown';
 
 const editorPropsKey = new PluginKey('moraya-editor-props');
 
@@ -290,7 +290,7 @@ export function createEditorPropsPlugin(): Plugin {
             // Check 1: ProseMirror's internal selection (post-flush, should be current)
             const sel = view.state.selection;
             if (sel instanceof AllSelection ||
-                (docSize > 0 && sel.from <= 1 && sel.to >= docSize - 1)) {
+              (docSize > 0 && sel.from <= 1 && sel.to >= docSize - 1)) {
               isAllSelected = true;
             }
 
@@ -303,7 +303,7 @@ export function createEditorPropsPlugin(): Plugin {
                   const editorRange = document.createRange();
                   editorRange.selectNodeContents(view.dom);
                   if (range.compareBoundaryPoints(Range.START_TO_START, editorRange) <= 0 &&
-                      range.compareBoundaryPoints(Range.END_TO_END, editorRange) >= 0) {
+                    range.compareBoundaryPoints(Range.END_TO_END, editorRange) >= 0) {
                     isAllSelected = true;
                   }
                 }
@@ -318,7 +318,7 @@ export function createEditorPropsPlugin(): Plugin {
                   const selectedText = domSel.toString();
                   const fullText = view.dom.textContent || '';
                   if (selectedText.length > 0 && fullText.length > 0 &&
-                      selectedText.length >= fullText.length * 0.9) {
+                    selectedText.length >= fullText.length * 0.9) {
                     isAllSelected = true;
                   }
                 }
@@ -370,6 +370,31 @@ export function createEditorPropsPlugin(): Plugin {
           }
           return false;
         },
+      },
+
+      /**
+       * click below content handler:
+       * When the last node is a code_block or other non-paragraph block, and the user clicks the empty area below it,
+       * append a paragraph and place the cursor there.
+       */
+      handleClick(view, _pos, event) {
+        if (event.button !== 0) return false;
+        const { doc } = view.state;
+        const lastNode = doc.lastChild;
+        if (!lastNode || lastNode.type.name === 'paragraph') return false;
+        // Get the actual DOM element of the last block node
+        const lastNodePos = doc.content.size - lastNode.nodeSize;
+        const lastDOM = view.nodeDOM(lastNodePos) as HTMLElement | null;
+        if (!lastDOM) return false;
+
+        // Click is below the last block -> append a paragraph and place cursor there
+        const endPos = doc.content.size;
+        const paragraph = view.state.schema.nodes.paragraph.create();
+        const tr = view.state.tr.insert(endPos, paragraph);
+        tr.setSelection(TextSelection.create(tr.doc, endPos + 1));
+        view.dispatch(tr);
+        view.focus();
+        return true;
       },
 
       /**
