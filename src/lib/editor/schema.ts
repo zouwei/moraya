@@ -142,15 +142,21 @@ const localImageBlobCache = new Map<string, string>();
  * Caches results so repeated calls for the same path are instant.
  */
 function loadLocalImageSrc(img: HTMLImageElement, src: string): void {
-  const cached = localImageBlobCache.get(src);
+  // Decode URL-encoded characters (e.g. %E7%9F%A5 → 知).
+  // Markdown parsers URL-encode non-ASCII characters in paths, but the
+  // filesystem expects actual Unicode characters.
+  let path: string;
+  try { path = decodeURIComponent(src); } catch { path = src; }
+
+  const cached = localImageBlobCache.get(path);
   if (cached) {
     img.src = cached;
     return;
   }
   import('@tauri-apps/api/core').then(({ invoke }) => {
-    invoke<number[]>('read_file_binary', { path: src }).then(data => {
+    invoke<number[]>('read_file_binary', { path }).then(data => {
       const bytes = new Uint8Array(data);
-      const ext = src.split('.').pop()?.toLowerCase() || '';
+      const ext = path.split('.').pop()?.toLowerCase() || '';
       const mimeMap: Record<string, string> = {
         png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
         gif: 'image/gif', svg: 'image/svg+xml', webp: 'image/webp',
@@ -158,7 +164,7 @@ function loadLocalImageSrc(img: HTMLImageElement, src: string): void {
       };
       const blob = new Blob([bytes], { type: mimeMap[ext] || 'image/png' });
       const blobUrl = URL.createObjectURL(blob);
-      localImageBlobCache.set(src, blobUrl);
+      localImageBlobCache.set(path, blobUrl);
       img.src = blobUrl;
     }).catch(() => {
       img.dispatchEvent(new Event('error'));
@@ -845,6 +851,7 @@ const em: MarkSpec = {
 const code: MarkSpec = {
   priority: 100,
   code: true,
+  inclusive: false,
   parseDOM: [{ tag: 'code' }],
   toDOM() { return ['code', 0]; },
 };

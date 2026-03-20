@@ -25,6 +25,7 @@ import { createEnterHandlerPlugin } from './plugins/enter-handler';
 import { createEditorPropsPlugin } from './plugins/editor-props-plugin';
 import { createCursorSyntaxPlugin } from './plugins/cursor-syntax';
 import { createLinkTextPlugin } from './plugins/link-text-plugin';
+import { createInlineCodeConvertPlugin } from './plugins/inline-code-convert';
 
 // ── Tier 1: Enhancement plugins (dynamic imports, loaded in parallel) ──
 
@@ -193,11 +194,17 @@ function buildInputRules(tier1: Tier1Plugins) {
     (state, match, start, end) => {
       const tr = state.tr;
       if (match[1]) {
-        const textStart = start + 1;
-        const textEnd = end - 1;
-        tr.delete(end - 1, end); // remove closing backtick
-        tr.delete(start, start + 1); // remove opening backtick
-        tr.addMark(start, start + match[1].length, schema.marks.code.create());
+        // The closing backtick is the just-typed character and is NOT in the
+        // document yet (ProseMirror InputRule contract). Only text up to `end`
+        // exists. Use indexOf to locate the captured text within the match,
+        // then delete surrounding delimiters that ARE in the document.
+        const textStart = start + match[0].indexOf(match[1]);
+        const textEnd = textStart + match[1].length;
+        if (textEnd < end) tr.delete(textEnd, end);
+        if (textStart > start) tr.delete(start, textStart);
+        const markFrom = start;
+        const markTo = markFrom + match[1].length;
+        tr.addMark(markFrom, markTo, schema.marks.code.create());
       }
       return tr;
     },
@@ -209,11 +216,13 @@ function buildInputRules(tier1: Tier1Plugins) {
     (state, match, start, end) => {
       const tr = state.tr;
       if (match[1]) {
-        const textStart = start + 2;
-        const textEnd = end - 2;
-        tr.delete(end - 2, end);
-        tr.delete(start, start + 2);
-        tr.addMark(start, start + match[1].length, schema.marks.strike_through.create());
+        const textStart = start + match[0].indexOf(match[1]);
+        const textEnd = textStart + match[1].length;
+        if (textEnd < end) tr.delete(textEnd, end);
+        if (textStart > start) tr.delete(start, textStart);
+        const markFrom = start;
+        const markTo = markFrom + match[1].length;
+        tr.addMark(markFrom, markTo, schema.marks.strike_through.create());
       }
       return tr;
     },
@@ -603,6 +612,9 @@ export async function createEditor(options: EditorOptions): Promise<MorayaEditor
 
     // Link text decorations + auto-convert [text](url) to link mark on cursor leave
     createLinkTextPlugin(),
+
+    // Inline code auto-convert: `text` → code mark on cursor leave
+    createInlineCodeConvertPlugin(),
 
     // Image selection highlight (blue overlay when images are within a range selection)
     createImageSelectionPlugin(),

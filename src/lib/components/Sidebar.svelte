@@ -902,8 +902,8 @@
   {/if}
 
   <div class="sidebar-content" class:drop-root={dropTargetPath === folderPath && !!folderPath}>
-    {#if fileTree.length === 0 && knowledgeBases.length === 0}
-      <!-- No knowledge bases created yet -->
+    {#if knowledgeBases.length === 0}
+      <!-- No knowledge bases created yet — prompt user to add one -->
       <div class="sidebar-empty">
         <p>{$t('sidebar.createKB')}</p>
         <button class="open-btn" onclick={() => onOpenKBManager?.()}>{$t('knowledgeBase.add')}</button>

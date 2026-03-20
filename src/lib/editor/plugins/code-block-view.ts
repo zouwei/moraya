@@ -159,6 +159,12 @@ function createLanguagePicker(
   picker.className = 'code-lang-picker';
   picker.setAttribute('contenteditable', 'false');
 
+  // Prevent ProseMirror and parent containers from stealing focus.
+  // mousedown: stops ProseMirror's internal selection handling.
+  // click: stops .editor-wrapper's onclick from calling editor.view.focus().
+  picker.addEventListener('mousedown', (e) => { e.stopPropagation(); });
+  picker.addEventListener('click', (e) => { e.stopPropagation(); });
+
   // Search input
   const searchWrap = document.createElement('div');
   searchWrap.className = 'code-lang-search';
@@ -166,6 +172,10 @@ function createLanguagePicker(
   searchInput.type = 'text';
   searchInput.className = 'code-lang-search-input';
   searchInput.placeholder = 'Search language...';
+  searchInput.autocomplete = 'off';
+  searchInput.setAttribute('autocorrect', 'off');
+  searchInput.setAttribute('autocapitalize', 'off');
+  searchInput.spellcheck = false;
   searchWrap.appendChild(searchInput);
   picker.appendChild(searchWrap);
 
@@ -298,10 +308,12 @@ function createLanguagePicker(
     }
   });
 
-  // Append inside the wrapper (not document.body) to avoid WKWebView clipping
-  // from body { overflow: hidden }. position:fixed still works relative to the
-  // viewport since no ancestor has transform/perspective/filter.
-  container.appendChild(picker);
+  // Append OUTSIDE ProseMirror's DOM tree so the editor's domObserver won't
+  // detect focus moving to the search input and steal it back. Use the
+  // closest .editor-wrapper ancestor (or fall back to document.body).
+  // position:fixed still positions relative to the viewport.
+  const pickerHost = container.closest('.editor-wrapper') ?? document.body;
+  pickerHost.appendChild(picker);
   positionPicker();
 
   function positionPicker() {
@@ -709,12 +721,18 @@ export function createCodeBlockNodeView(node: PmNode, view: EditorView, getPos: 
           rendererEditing = false;
           lastRendererCode = '';
           rendererPreview.innerHTML = '';
+          // Dispose the old renderer instance when switching away
+          if (!isRenderer && currentRendererInstance) {
+            currentRendererInstance.dispose();
+            currentRendererInstance = null;
+          }
         }
 
         if (isRenderer) {
           syncRendererMode();
         } else {
           rendererPreview.style.display = 'none';
+          wrapper.classList.remove('renderer-preview-mode');
           syncMermaidMode();
         }
         return true;

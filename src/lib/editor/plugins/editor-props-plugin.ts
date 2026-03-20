@@ -107,8 +107,25 @@ export function createEditorPropsPlugin(): Plugin {
         const plain = event.clipboardData?.getData('text/plain');
         if (!plain) return false;
 
-        // Case 1: link pattern with empty text or empty URL
+        // Case 1: markdown image syntax — parse as markdown so the image renders
+        // instead of being escaped as literal text (e.g. \![alt](src)).
         const trimmed = plain.trim();
+        if (/^!\[/.test(trimmed)) {
+          const doc = parseMarkdown(trimmed);
+          if (doc.content.size > 2) {
+            const content = doc.content;
+            const inner = (content.childCount === 1 && content.firstChild!.type.name === 'paragraph')
+              ? content.firstChild!.content
+              : content;
+            view.dispatch(
+              view.state.tr.replaceSelection(new Slice(inner, 0, 0)),
+            );
+            pendingPaste = true;
+            return true;
+          }
+        }
+
+        // Case 2: link pattern with empty text or empty URL
         const linkMatch = /^\[([^\]]*)\]\(([^)]*)\)$/.exec(trimmed);
         if (linkMatch && (!linkMatch[1] || !linkMatch[2])) {
           const textNode = view.state.schema.text(plain);
@@ -387,6 +404,12 @@ export function createEditorPropsPlugin(): Plugin {
         const lastDOM = view.nodeDOM(lastNodePos) as HTMLElement | null;
         if (!lastDOM) return false;
 
+        // Only trigger when clicking BELOW the last block's bottom edge.
+        // Without this check, clicks on NodeView widgets (e.g. code block
+        // language picker) would be intercepted, stealing focus.
+        const rect = lastDOM.getBoundingClientRect();
+        if (event.clientY <= rect.bottom) return false;
+
         // Click is below the last block -> append a paragraph and place cursor there
         const endPos = doc.content.size;
         const paragraph = view.state.schema.nodes.paragraph.create();
@@ -424,6 +447,35 @@ export function createEditorPropsPlugin(): Plugin {
           const tr = view.state.tr.setSelection(new AllSelection(view.state.doc));
           view.dispatch(tr);
           return true;
+        }
+
+        // ── ArrowRight: escape code mark at right boundary ──
+        // The inline-code-convert plugin proactively sets stored marks to include
+        // code at the code–ZWSP boundary (so typing extends code). ArrowRight
+        // clears stored marks and moves the cursor past the ZWSP, escaping code.
+        if (event.key === 'ArrowRight' &&
+            !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey) {
+          const sel = view.state.selection;
+          if (sel.empty && sel instanceof TextSelection && sel.$cursor) {
+            const $cursor = sel.$cursor;
+            const codeType = view.state.schema.marks.code;
+            const hasCodeBefore = $cursor.nodeBefore?.marks.some(m => m.type === codeType);
+            const nodeAfter = $cursor.nodeAfter;
+            if (hasCodeBefore && nodeAfter?.isText &&
+                !codeType.isInSet(nodeAfter.marks) &&
+                nodeAfter.text?.startsWith('\u200B')) {
+              // Move cursor past the ZWSP and clear code from stored marks
+              const nextPos = $cursor.pos + nodeAfter.nodeSize;
+              const $next = view.state.doc.resolve(Math.min(nextPos, view.state.doc.content.size));
+              const nextSel = TextSelection.near($next, 1);
+              const tr = view.state.tr.setSelection(nextSel);
+              tr.setStoredMarks([]);
+              tr.setMeta('code-escape', true);
+              tr.scrollIntoView();
+              view.dispatch(tr);
+              return true;
+            }
+          }
         }
 
         // ── Fast AllSelection / full-range deletion ──

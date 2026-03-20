@@ -9,12 +9,8 @@
  *
  * In paragraphs:
  * - Enter: split the current block into a new paragraph (no <br/>).
- * - Enter after ```language: create code block.
+ * - Enter after ``` or ```language: create code block.
  * - Enter after | col1 | col2 |: create table.
- *
- * Other:
- * - Space after ```: intercepted via a direct capture-phase beforeinput listener
- *   to insert space as plain text without triggering Milkdown's code block input rule.
  *
  * Uses handleKeyDown (props-level) which has higher priority than keymaps,
  * ensuring this runs before Milkdown's built-in hardbreak keymap.
@@ -99,36 +95,8 @@ export function createEnterHandlerPlugin(): Plugin {
   return new Plugin({
     key: enterHandlerKey,
 
-    // Direct DOM listener for Space interception — bypasses ProseMirror's
-    // plugin prop system entirely, which is more reliable than handleDOMEvents.
-    view(editorView) {
-      function onBeforeInput(e: Event) {
-        const ie = e as InputEvent;
-        if (ie.inputType !== 'insertText' || ie.data !== ' ') return;
-
-        const { $from } = editorView.state.selection;
-        if ($from.parent.type.name !== 'paragraph') return;
-        const text = $from.parent.textContent;
-        if ($from.parentOffset !== text.length || !/^```[a-zA-Z]*$/.test(text)) return;
-
-        // Stop the event completely — prevents both the browser insertion
-        // and ProseMirror's input rule from seeing this space.
-        ie.preventDefault();
-        ie.stopImmediatePropagation();
-
-        // Manually insert the space via ProseMirror transaction.
-        const { from } = editorView.state.selection;
-        editorView.dispatch(editorView.state.tr.insertText(' ', from, from));
-      }
-
-      editorView.dom.addEventListener('beforeinput', onBeforeInput, true);
-
-      return {
-        destroy() {
-          editorView.dom.removeEventListener('beforeinput', onBeforeInput, true);
-        },
-      };
-    },
+    // NOTE: The Milkdown-era beforeinput Space interceptor has been removed.
+    // ProseMirror's InputRule at setup.ts now correctly handles ```+space → code block.
 
     props: {
       handleKeyDown(view, event) {
@@ -245,12 +213,10 @@ export function createEnterHandlerPlugin(): Plugin {
           if ($from.parent.type.name === 'paragraph') {
             const text = $from.parent.textContent;
 
-            // Only ```language creates a code block; bare ``` is treated as
-            // normal text (prevents closing fences from pasted code blocks
-            // from spawning empty code blocks).
+            // ```language or bare ``` creates a code block.
             // Guard: cursor must be at end of paragraph (user finished typing the fence).
             const match = $from.parentOffset === text.length
-              ? text.match(/^```(\S+)\s*$/)
+              ? text.match(/^```(\S*)\s*$/)
               : null;
             if (match) {
               const language = match[1];

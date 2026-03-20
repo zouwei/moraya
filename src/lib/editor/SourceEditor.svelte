@@ -82,15 +82,47 @@
     outer.scrollTo({ top: Math.round(line * lineH), behavior: 'smooth' });
   }
 
-  // Only compute line count when line numbers are visible
-  let lineCount = $derived(showLineNumbers ? countNewlines(content) : 0);
+  // ── Line numbers with per-line height matching ──
+  // When lines wrap, each line number must match the rendered height of the
+  // corresponding text line. We measure via a temporary off-screen element
+  // that mirrors the textarea's font/width/wrapping.
+  let lineHeights = $state<number[]>([]);
+  let lineHeightRaf: number | null = null;
 
-  /** Count newlines without allocating an array (O(n) scan) */
-  function countNewlines(s: string): number {
-    let count = 1;
-    let idx = -1;
-    while ((idx = s.indexOf('\n', idx + 1)) !== -1) count++;
-    return count;
+  function computeLineHeights() {
+    if (!showLineNumbers || !textareaEl) { lineHeights = []; return; }
+    if (lineHeightRaf !== null) cancelAnimationFrame(lineHeightRaf);
+    lineHeightRaf = requestAnimationFrame(() => {
+      lineHeightRaf = null;
+      if (!textareaEl) return;
+      const lines = content.split('\n');
+      const measure = document.createElement('div');
+      const cs = getComputedStyle(textareaEl);
+      measure.style.font = cs.font;
+      measure.style.lineHeight = cs.lineHeight;
+      measure.style.letterSpacing = cs.letterSpacing;
+      measure.style.tabSize = cs.tabSize;
+      measure.style.whiteSpace = 'pre-wrap';
+      measure.style.wordWrap = 'break-word';
+      measure.style.overflowWrap = 'break-word';
+      measure.style.width = textareaEl.clientWidth + 'px';
+      measure.style.visibility = 'hidden';
+      measure.style.position = 'absolute';
+      measure.style.top = '0';
+      measure.style.left = '-9999px';
+
+      const divs: HTMLDivElement[] = [];
+      for (const line of lines) {
+        const d = document.createElement('div');
+        d.textContent = line || '\u00A0';
+        divs.push(d);
+        measure.appendChild(d);
+      }
+      document.body.appendChild(measure);
+      const heights = divs.map(d => d.offsetHeight);
+      document.body.removeChild(measure);
+      lineHeights = heights;
+    });
   }
 
   // ── Ghost div sync (decoupled from Svelte reactivity) ──
@@ -114,6 +146,7 @@
     // Read `content` to establish dependency
     void content;
     syncGhost();
+    computeLineHeights();
   });
 
   // Debounce store updates to avoid multiple synchronous subscriber cascades per keystroke.
@@ -232,12 +265,17 @@
     }
   }
 
+  // Recompute line heights when textarea width changes (window resize, sidebar toggle)
+  let resizeObserver: ResizeObserver | null = null;
+
   onMount(() => {
     // Initialize ghost div content synchronously on mount
     if (ghostEl) ghostEl.textContent = content + '\n';
     if (showOutline) extractHeadingsFromMarkdown();
 
     if (textareaEl) {
+      resizeObserver = new ResizeObserver(() => computeLineHeights());
+      resizeObserver.observe(textareaEl);
       // Disable macOS smart quotes/dashes in the source editor textarea
       textareaEl.setAttribute('autocorrect', 'off');
       textareaEl.setAttribute('autocapitalize', 'off');
@@ -284,6 +322,10 @@
     if (ghostRaf !== null) {
       cancelAnimationFrame(ghostRaf);
     }
+    if (lineHeightRaf !== null) {
+      cancelAnimationFrame(lineHeightRaf);
+    }
+    resizeObserver?.disconnect();
     if (outlineTimer) clearTimeout(outlineTimer);
     if (scrollRafOutline) cancelAnimationFrame(scrollRafOutline);
     clearTimeout(newlineTimer);
@@ -450,8 +492,8 @@
   <div class="source-editor-inner" style="max-width: {showOutline ? `${editorLineWidth + outlineWidth}px` : `${editorLineWidth}px`}">
     {#if showLineNumbers}
       <div class="line-numbers">
-        {#each Array(lineCount) as _, i}
-          <span class="line-number">{i + 1}</span>
+        {#each lineHeights as h, i}
+          <span class="line-number" style={h ? `height:${h}px` : ''}>{i + 1}</span>
         {/each}
       </div>
     {/if}

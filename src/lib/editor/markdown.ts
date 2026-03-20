@@ -852,5 +852,9 @@ export function serializeMarkdown(doc: PmNode): string {
   // This is safe: re-parsing produces the same ProseMirror doc (empty links →
   // literal text via our custom handler; non-empty links → link marks).
   result = result.replace(/\\\[([^\\\[\]]*)\\\]\(([^)]*)\)/g, '[$1]($2)');
+  // Strip zero-width spaces used as cursor targets after inline code marks.
+  // These are inserted by the inline-code-convert plugin so WebKit can
+  // position the caret outside <code> elements at textblock boundaries.
+  result = result.replace(/\u200B/g, '');
   return result;
 }
