@@ -90,7 +90,9 @@
     {/if}
     {#if indexingPhase === 'error'}
       <span class="status-item indexing-error">Embedding error</span>
-    {:else if indexingPhase && indexingPhase !== 'done'}
+    {:else if indexingPhase === 'done'}
+      <span class="status-item indexing-done">✓ {$t('kb.indexComplete')}</span>
+    {:else if indexingPhase}
       <span class="status-item indexing-status">
         <span class="indexing-spinner"></span>
         {#if indexingPhase === 'scanning'}
@@ -203,6 +205,10 @@
 
   .indexing-error {
     color: var(--color-error, #e53e3e);
+  }
+
+  .indexing-done {
+    color: var(--color-success, #38a169);
   }
 
   .indexing-spinner {

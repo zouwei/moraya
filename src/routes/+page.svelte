@@ -236,6 +236,7 @@ ${tr('welcome.tip')}
   let indexingPhase = $state('');
   let indexingCurrent = $state(0);
   let indexingTotal = $state(0);
+  let indexingClearTimer: ReturnType<typeof setTimeout> | undefined;
   let seoCompleted = $state(false);
   let imageGenCompleted = $state(false);
   let currentSEOData = $state<SEOData | null>(null);
@@ -1093,11 +1094,119 @@ ${tr('welcome.tip')}
   let fileSelectSerial = 0;
   let fileSelectDebounce: ReturnType<typeof setTimeout> | undefined;
 
-  /** Pending character offset to scroll to after file opens (set by search result click) */
-  let pendingScrollCharOffset = 0;
+  /** Schedule scroll-to-keyword + flash highlight after editor renders */
+  function scheduleScrollAndHighlight(keyword: string) {
+    let attempts = 0;
+    const maxAttempts = 8;
+    const tryFind = () => {
+      attempts++;
+      if (!morayaEditor?.view) {
+        if (attempts < maxAttempts) setTimeout(tryFind, 300);
+        return;
+      }
+      const view = morayaEditor.view;
+      const found = findAllKeywordOccurrences(view, keyword);
+      if (found.length === 0) {
+        if (attempts < maxAttempts) setTimeout(tryFind, 300);
+        return;
+      }
+      const match = found[0];
+      // Scroll precisely to the keyword
+      try {
+        const coords = view.coordsAtPos(match.from);
+        const wrapper = document.querySelector('.editor-wrapper') as HTMLElement | null;
+        if (wrapper && coords) {
+          const wrapperRect = wrapper.getBoundingClientRect();
+          const targetTop = wrapper.scrollTop + coords.top - wrapperRect.top - wrapperRect.height * 0.15;
+          wrapper.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
+        }
+      } catch { /* ignore */ }
+      // Flash highlight after scroll settles
+      setTimeout(() => applyFlashHighlight(view, match), 600);
+    };
+    // Start after initial approximate scroll has begun
+    setTimeout(tryFind, 600);
+  }
 
-  function handleFileSelect(path: string, scrollOffset?: number) {
+  /** Find all occurrences of keyword (or CJK chars) in ProseMirror doc */
+  function findAllKeywordOccurrences(view: any, keyword: string): { from: number; to: number }[] {
+    const results: { from: number; to: number }[] = [];
+    const kwLower = keyword.toLowerCase();
+    // Try full keyword
+    view.state.doc.descendants((node: any, pos: number) => {
+      if (!node.isText || !node.text) return;
+      const text = node.text.toLowerCase();
+      let idx = 0;
+      while ((idx = text.indexOf(kwLower, idx)) !== -1) {
+        results.push({ from: pos + idx, to: pos + idx + keyword.length });
+        idx += keyword.length;
+      }
+    });
+    if (results.length > 0) return results;
+    // Fallback: individual CJK characters
+    for (const ch of keyword) {
+      if (/[\u4e00-\u9fff]/.test(ch)) {
+        view.state.doc.descendants((node: any, pos: number) => {
+          if (!node.isText || !node.text) return;
+          let idx = 0;
+          while ((idx = node.text.indexOf(ch, idx)) !== -1) {
+            results.push({ from: pos + idx, to: pos + idx + 1 });
+            idx += 1;
+          }
+        });
+        if (results.length > 0) return results;
+      }
+    }
+    return results;
+  }
+
+  /** Apply flash highlight using an overlay div (doesn't modify ProseMirror DOM) */
+  function applyFlashHighlight(view: any, match: { from: number; to: number }) {
+    try {
+      const startCoords = view.coordsAtPos(match.from);
+      const endCoords = view.coordsAtPos(match.to);
+      const wrapper = document.querySelector('.editor-wrapper') as HTMLElement | null;
+      if (!wrapper || !startCoords || !endCoords) return;
+
+      const wrapperRect = wrapper.getBoundingClientRect();
+
+      // Remove previous overlay if any
+      document.querySelectorAll('.kb-flash-overlay').forEach((el) => el.remove());
+
+      const overlay = document.createElement('div');
+      overlay.className = 'kb-flash-overlay';
+      overlay.style.cssText = [
+        'position: absolute',
+        `left: ${startCoords.left - wrapperRect.left + wrapper.scrollLeft}px`,
+        `top: ${startCoords.top - wrapperRect.top + wrapper.scrollTop}px`,
+        `width: ${endCoords.right - startCoords.left}px`,
+        `height: ${Math.max(startCoords.bottom - startCoords.top, 20)}px`,
+        'background: rgba(255, 200, 0, 0.45)',
+        'pointer-events: none',
+        'z-index: 5',
+        'border-radius: 3px',
+        'transition: opacity 0.5s ease',
+      ].join('; ');
+
+      wrapper.appendChild(overlay);
+
+      // Fade out and remove after 3 seconds
+      clearTimeout(flashHighlightTimer);
+      flashHighlightTimer = setTimeout(() => {
+        overlay.style.opacity = '0';
+        setTimeout(() => overlay.remove(), 500);
+      }, 3000);
+    } catch { /* best-effort */ }
+  }
+
+  /** Pending character offset and keyword to scroll to + highlight after file opens */
+  let pendingScrollCharOffset = 0;
+  let pendingSearchKeyword = '';
+  let flashHighlightTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function handleFileSelect(path: string, scrollOffset?: number, searchKeyword?: string) {
     pendingScrollCharOffset = scrollOffset || 0;
+    pendingSearchKeyword = searchKeyword || '';
     const mySerial = ++fileSelectSerial;
     clearTimeout(fileSelectDebounce);
     fileSelectDebounce = setTimeout(() => doFileSelect(path, mySerial), 50);
@@ -1431,28 +1540,38 @@ ${tr('welcome.tip')}
     tabsStore.openFileTab(path, fileName, fileContent, mtime, true);
     resetWorkflowState();
 
-    // Scroll to search result offset if pending
-    if (pendingScrollCharOffset > 0) {
-      const offset = pendingScrollCharOffset;
+    // Scroll to search result + flash highlight keyword
+    if (pendingScrollCharOffset > 0 || pendingSearchKeyword) {
+      const keyword = pendingSearchKeyword;
+      const byteOffset = pendingScrollCharOffset;
       pendingScrollCharOffset = 0;
-      // Wait for editor to render the new content, then scroll
-      setTimeout(() => {
-        try {
-          if (morayaEditor?.view) {
+      pendingSearchKeyword = '';
+
+      // Step 1: Scroll using byte offset (approximate but immediate)
+      if (byteOffset > 0) {
+        setTimeout(() => {
+          try {
+            if (!morayaEditor?.view) return;
             const view = morayaEditor.view;
-            // Convert character offset to ProseMirror position (approximate: +1 for doc start)
-            const pos = Math.min(offset + 1, view.state.doc.content.size - 1);
-            if (pos > 0) {
-              const coords = view.coordsAtPos(pos);
+            // Approximate: for CJK text, divide by ~2 to roughly convert bytes→chars
+            const approxPos = Math.min(Math.floor(byteOffset / 2) + 1, view.state.doc.content.size - 1);
+            if (approxPos > 0) {
+              const coords = view.coordsAtPos(approxPos);
               const wrapper = document.querySelector('.editor-wrapper') as HTMLElement | null;
               if (wrapper && coords) {
                 const wrapperRect = wrapper.getBoundingClientRect();
-                wrapper.scrollTo({ top: wrapper.scrollTop + coords.top - wrapperRect.top - 100, behavior: 'smooth' });
+                const targetTop = wrapper.scrollTop + coords.top - wrapperRect.top - wrapperRect.height * 0.15;
+                wrapper.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
               }
             }
-          }
-        } catch { /* scroll best-effort */ }
-      }, 300);
+          } catch { /* ignore */ }
+        }, 300);
+      }
+
+      // Step 2: Find keyword in doc, scroll precisely to it, and flash highlight
+      if (keyword) {
+        scheduleScrollAndHighlight(keyword);
+      }
     }
   }
 
@@ -2194,12 +2313,16 @@ ${tr('welcome.tip')}
         indexingPhase = event.payload.phase;
         indexingCurrent = event.payload.current;
         indexingTotal = event.payload.total;
-        // Auto-clear after "done" or "error" phase
-        if (event.payload.phase === 'done') {
-          setTimeout(() => { indexingPhase = ''; }, 2000);
-        } else if (event.payload.phase === 'error') {
-          console.error('[KB] Indexing error:', event.payload.file_name);
-          setTimeout(() => { indexingPhase = ''; }, 5000);
+        // Auto-clear after "done" or "error" phase (10s delay for user visibility)
+        if (event.payload.phase === 'done' || event.payload.phase === 'error') {
+          if (event.payload.phase === 'error') {
+            console.error('[KB] Indexing error:', event.payload.file_name);
+          }
+          clearTimeout(indexingClearTimer);
+          indexingClearTimer = setTimeout(() => { indexingPhase = ''; }, 10000);
+        } else {
+          // New indexing activity — cancel pending clear (replaces previous done/error)
+          clearTimeout(indexingClearTimer);
         }
       }).then(unlisten => menuUnlisteners.push(unlisten));
 

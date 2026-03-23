@@ -25,9 +25,6 @@ jobs:
           - platform: windows-latest
             args: ''
             rust-targets: ''
-          - platform: windows-latest
-            args: '--target aarch64-pc-windows-msvc'
-            rust-targets: 'aarch64-pc-windows-msvc'
           # Linux x86_64
           - platform: ubuntu-22.04
             args: ''

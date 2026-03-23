@@ -93,7 +93,7 @@ async function* streamViaProxy(
   // If no chunk arrives within this window, assume the stream has stalled.
   // This prevents the generator from waiting indefinitely when the provider
   // drops the SSE connection without sending [DONE] or closing properly.
-  const CHUNK_TIMEOUT_MS = 30_000;
+  const CHUNK_TIMEOUT_MS = 120_000;
 
   const channel = new Channel<string>();
   channel.onmessage = (text: string) => {

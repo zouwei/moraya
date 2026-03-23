@@ -12,7 +12,7 @@
     onClose,
   }: {
     initialMode?: 'files' | 'commands';
-    onFileSelect: (path: string, scrollOffset?: number) => void;
+    onFileSelect: (path: string, scrollOffset?: number, keyword?: string) => void;
     onCommand: (action: string) => void;
     onClose: () => void;
   } = $props();
@@ -260,7 +260,7 @@
         onCommand(item.action);
         onClose();
       } else if (item.type === 'search') {
-        onFileSelect(item.filePath, item.offset);
+        onFileSelect(item.filePath, item.offset, searchQuery);
         onClose();
       }
       return;

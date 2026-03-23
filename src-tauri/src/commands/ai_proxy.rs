@@ -487,7 +487,7 @@ async fn do_stream(
             } else if let Some(err) = extract_sse_error(&line) {
                 last_sse_error = Some(err);
             } else if line.contains("data") {
-                eprintln!("[ai_proxy] SSE line not parsed: {}", &line[..line.len().min(200)]);
+                eprintln!("[ai_proxy] SSE line not parsed: {}", safe_truncate(&line, 200));
             }
         }
     }
@@ -500,7 +500,7 @@ async fn do_stream(
         } else if let Some(err) = extract_sse_error(&buffer) {
             last_sse_error = Some(err);
         } else if buffer.contains("data") {
-            eprintln!("[ai_proxy] SSE buffer not parsed: {}", &buffer[..buffer.len().min(200)]);
+            eprintln!("[ai_proxy] SSE buffer not parsed: {}", safe_truncate(&buffer, 200));
         }
     }
 
@@ -514,6 +514,19 @@ async fn do_stream(
     Ok(())
 }
 
+/// Truncate a UTF-8 string to at most `max_bytes` bytes, ensuring the cut
+/// lands on a char boundary (never splits a multi-byte character).
+fn safe_truncate(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
 /// Truncate API error body to keep error messages readable.
 /// Extracts the "message" field from JSON errors when possible.
 fn truncate_api_error(status: u16, body: &str) -> String {
@@ -523,7 +536,7 @@ fn truncate_api_error(status: u16, body: &str) -> String {
         let msg = v.get("error").and_then(|e| e.get("message")).and_then(|m| m.as_str())
             .or_else(|| v.get("message").and_then(|m| m.as_str()));
         if let Some(m) = msg {
-            let truncated = if m.len() > 300 { format!("{}...", &m[..300]) } else { m.to_string() };
+            let truncated = if m.len() > 300 { format!("{}...", safe_truncate(m, 300)) } else { m.to_string() };
             return format!("API error ({}): {}", status, truncated);
         }
     }

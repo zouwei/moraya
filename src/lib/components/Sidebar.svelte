@@ -16,7 +16,7 @@
     onRename,
     onOpenSettings,
   }: {
-    onFileSelect: (path: string, scrollOffset?: number) => void;
+    onFileSelect: (path: string, scrollOffset?: number, keyword?: string) => void;
     onOpenKBManager?: () => void;
     onRename?: (oldPath: string, newPath: string) => void;
     onOpenSettings?: (tab: string) => void;
@@ -1009,7 +1009,7 @@
     <div class="content-search-results">
       <div class="content-search-label">{$t('commandPalette.semanticSearch')}</div>
       {#each contentSearchResults as result}
-        <button class="content-search-item" onclick={() => onFileSelect(result.filePath, result.offset)}>
+        <button class="content-search-item" onclick={() => onFileSelect(result.filePath, result.offset, searchQuery)}>
           <div class="csr-file">{result.filePath.split('/').pop()}</div>
           <div class="csr-preview">{#if result.heading}<span class="csr-heading">{result.heading}:</span> {/if}{@html highlightKeywords(result.preview, searchQuery)}</div>
         </button>

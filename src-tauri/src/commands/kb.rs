@@ -1133,6 +1133,9 @@ async fn do_index_files(
         let total = total_files;
         let dims = dimensions;
         tokio::task::spawn_blocking(move || {
+            // Load existing chunks for incremental indexing (carry over unchanged files)
+            let existing_chunks = load_chunks(&kb_owned).unwrap_or_default();
+
             let mut all_chunks: Vec<ChunkMeta> = Vec::new();
             let mut all_texts: Vec<String> = Vec::new();
             let mut file_hashes: HashMap<String, String> = HashMap::new();
@@ -1165,13 +1168,23 @@ async fn do_index_files(
 
                 let content_hash = hash_content(&content);
 
-                // Skip if unchanged and model/dimensions match
+                // Skip if unchanged and model/dimensions match — carry over existing chunks
                 if let Some(ref existing) = existing_meta_clone {
                     if existing.model_id == model_owned
                         && existing.dimensions == dims
                         && existing.file_hashes.get(&rel_path) == Some(&content_hash)
                     {
-                        file_hashes.insert(rel_path, content_hash);
+                        file_hashes.insert(rel_path.clone(), content_hash);
+                        // Carry over existing chunks for this file
+                        for ec in &existing_chunks {
+                            if ec.file_path == rel_path {
+                                let mut carried = ec.clone();
+                                carried.id = chunk_id;
+                                all_texts.push(carried.preview.clone());
+                                all_chunks.push(carried);
+                                chunk_id += 1;
+                            }
+                        }
                         continue;
                     }
                 }
@@ -1659,7 +1672,7 @@ pub fn kb_delete_index(
 /// Index a single file (for auto-index on save).
 #[tauri::command]
 pub async fn kb_index_single_file(
-    _app: tauri::AppHandle,
+    app: tauri::AppHandle,
     state: tauri::State<'_, KBIndexState>,
     ai_state: tauri::State<'_, AIProxyState>,
     kb_path: String,
@@ -1680,6 +1693,19 @@ pub async fn kb_index_single_file(
         .to_string_lossy()
         .to_string();
 
+    let file_name = file
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+
+    let _ = app.emit("kb-index-progress", IndexProgress {
+        phase: "indexing".to_string(),
+        current: 0,
+        total: 1,
+        file_name: file_name.clone(),
+    });
+
     // Read current content and hash
     let content =
         std::fs::read_to_string(&file).map_err(|_| "Failed to read file".to_string())?;
@@ -1690,6 +1716,12 @@ pub async fn kb_index_single_file(
 
     // Check if file actually changed
     if meta.file_hashes.get(&rel_path) == Some(&content_hash) {
+        let _ = app.emit("kb-index-progress", IndexProgress {
+            phase: "done".to_string(),
+            current: 1,
+            total: 1,
+            file_name: file_name.clone(),
+        });
         return Ok(()); // No change
     }
 
@@ -1756,6 +1788,13 @@ pub async fn kb_index_single_file(
     if let Ok(mut indexes) = state.indexes.lock() {
         indexes.remove(&kb_path);
     }
+
+    let _ = app.emit("kb-index-progress", IndexProgress {
+        phase: "done".to_string(),
+        current: 1,
+        total: 1,
+        file_name: file_name,
+    });
 
     Ok(())
 }

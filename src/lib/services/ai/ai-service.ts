@@ -483,7 +483,7 @@ function createAIStore() {
           }
         }
       }
-      update(state => ({ ...state, chatHistory: [], lastResponse: null, interrupted: false }));
+      update(state => ({ ...state, chatHistory: [], lastResponse: null, interrupted: false, error: null }));
     },
     /**
      * Remove the last user message and everything after it (partial assistant
