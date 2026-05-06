@@ -1,0 +1,22 @@
+# GitHub Packages auth template for installing `@moraya/markdown-core` from the
+# private GitHub Packages registry. Copy to ~/.npmrc (preferred) or to ./.npmrc
+# (gitignored locally; do NOT commit a populated copy).
+#
+# Required scope on the GitHub PAT:
+#   - read:packages
+#
+# Get a PAT at: https://github.com/settings/tokens
+# Choose "Fine-grained" → "Selected repositories: zouwei/moraya-markdown-core"
+# → Permissions: Repository → Contents: Read; Metadata: Read; Packages: Read.
+#
+# CI (GitHub Actions): use the workflow's GITHUB_TOKEN via setup-node's
+# `registry-url: https://npm.pkg.github.com` + `scope: '@moraya'` inputs;
+# do NOT echo a token into a checked-in file.
+#
+# Pre-publication bridge: until @moraya/markdown-core@0.1.0 is published, this
+# repo consumes a vendored tarball at ./vendor/moraya-markdown-core-0.1.0.tgz
+# and the registry config below has no effect. Once the registry-published
+# version exists, switch the dependency to "^0.1.0" and rely on this .npmrc.
+
+@moraya:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}
