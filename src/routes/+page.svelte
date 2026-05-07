@@ -62,6 +62,12 @@
 
   import '$lib/styles/global.css';
   import '$lib/styles/editor.css';
+  // KaTeX renders math via katex.render() in @moraya/core's schema with default
+  // output='htmlAndMathml'. Without katex.css, the MathML accessibility layer
+  // shows visually as duplicated raw text below the rendered formula. This CSS
+  // hides the MathML container while preserving HTML rendering + screen reader
+  // access via the still-present MathML in the DOM.
+  import 'katex/dist/katex.min.css';
 
   // Set platform class BEFORE first render so CSS layout (titlebar, padding)
   // is correct from the start. Avoids WebKit flex layout caching issues when
