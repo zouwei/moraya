@@ -1,5 +1,5 @@
 /**
- * Tauri implementation of `LinkOpener` from `@zouwei/moraya-core`.
+ * Tauri implementation of `LinkOpener` from `@moraya/core`.
  *
  * Routes by the href shape:
  *   - Local file path (absolute / relative / file://) → `plugin-opener.openPath`
@@ -11,7 +11,7 @@
  * absolute URL, or a verbatim string the consumer can pass through unchanged.
  */
 
-import type { LinkOpener } from '@zouwei/moraya-core'
+import type { LinkOpener } from '@moraya/core'
 
 function isLocalFilePath(href: string): boolean {
   if (href.startsWith('/')) return true

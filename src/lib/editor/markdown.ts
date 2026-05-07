@@ -1,7 +1,7 @@
 /**
  * Moraya markdown bridge.
  *
- * Wraps `@zouwei/moraya-core`'s parser/serializer with the bridged
+ * Wraps `@moraya/core`'s parser/serializer with the bridged
  * consumer schema as default, so moraya call sites that don't pass an
  * explicit schema get docs whose `node.type` / `mark.type` references
  * match the bridged schema (TauriMediaResolver injection).
@@ -17,7 +17,7 @@ import {
   parseMarkdown as coreParseMarkdown,
   parseMarkdownAsync as coreParseMarkdownAsync,
   serializeMarkdown as coreSerializeMarkdown,
-} from '@zouwei/moraya-core'
+} from '@moraya/core'
 import type { Node as PmNode } from 'prosemirror-model'
 import { schema } from './schema'
 

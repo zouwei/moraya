@@ -1,5 +1,5 @@
 /**
- * Moraya implementation of `RendererRegistry` from `@zouwei/moraya-core`.
+ * Moraya implementation of `RendererRegistry` from `@moraya/core`.
  *
  * Adapts moraya's existing renderer plugin system (`$lib/services/plugin/`)
  * to the simpler core interface:
@@ -17,7 +17,7 @@
  * WeakMap.
  */
 
-import type { RendererRegistry, RendererPluginModule } from '@zouwei/moraya-core'
+import type { RendererRegistry, RendererPluginModule } from '@moraya/core'
 import { RENDERER_PLUGINS, RENDERER_LANGUAGES, getRendererPlugin } from '$lib/services/plugin/renderer-registry'
 import { loadRendererPlugin } from '$lib/services/plugin/renderer-loader'
 import rendererVersions from '$lib/services/plugin/renderer-versions.json'

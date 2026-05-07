@@ -31,33 +31,33 @@ jobs:
         run: pnpm check
 
       # v0.60.0-pre §1.3.3: enforce npm-only consumption boundary for
-      # @zouwei/moraya-core. The sibling repo at ../moraya-core (or
+      # @moraya/core. The sibling repo at ../moraya-core (or
       # ./moraya-core symlink) is for cross-repo editing convenience
       # only; production code MUST import via the published package name.
       #
       # Vendored tarballs under ./vendor/*.tgz (frozen artifacts produced by
       # `pnpm pack` in the sibling repo) are acceptable as a pre-publication
       # bridge per §1.3 "Local iteration without a publish round-trip".
-      - name: Forbid sibling-path imports of @zouwei/moraya-core
+      - name: Forbid sibling-path imports of @moraya/core
         run: |
           set -e
           if grep -rEn "from[[:space:]]+['\"](\.{1,2}/)+moraya-core" src src-tauri 2>/dev/null; then
-            echo "::error::Found relative-path import of moraya-core. Use the published package: import from '@zouwei/moraya-core'."
+            echo "::error::Found relative-path import of moraya-core. Use the published package: import from '@moraya/core'."
             exit 1
           fi
           if grep -nE "['\"](\.{1,2}/)+moraya-core" tsconfig.json 2>/dev/null; then
-            echo "::error::tsconfig.json must not map @zouwei/moraya-core to a sibling path."
+            echo "::error::tsconfig.json must not map @moraya/core to a sibling path."
             exit 1
           fi
           if [ -f pnpm-workspace.yaml ] && grep -nE "moraya-core" pnpm-workspace.yaml; then
             echo "::error::pnpm-workspace.yaml must not reference moraya-core."
             exit 1
           fi
-          if grep -nE "\"@zouwei/moraya-core\":[[:space:]]*\"(file:\.\.?/|link:|workspace:)" package.json; then
-            echo "::error::package.json must depend on @zouwei/moraya-core via the registry or a frozen tarball under ./vendor/, not file:./.. paths or link:/workspace:."
+          if grep -nE "\"@moraya/core\":[[:space:]]*\"(file:\.\.?/|link:|workspace:)" package.json; then
+            echo "::error::package.json must depend on @moraya/core via the registry or a frozen tarball under ./vendor/, not file:./.. paths or link:/workspace:."
             exit 1
           fi
-          echo "OK: no sibling-path imports of @zouwei/moraya-core."
+          echo "OK: no sibling-path imports of @moraya/core."
 
   build:
     runs-on: ubuntu-22.04

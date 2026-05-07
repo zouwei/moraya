@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@moraya/core':
+        specifier: file:vendor/moraya-core-0.1.0.tgz
+        version: file:vendor/moraya-core-0.1.0.tgz(highlight.js@11.11.1)(katex@0.16.28)(markdown-it-deflist@3.0.0)(markdown-it-texmath@1.0.0)(markdown-it@14.1.1)(mermaid@11.12.2)(node-emoji@2.2.0)(prosemirror-commands@1.7.1)(prosemirror-dropcursor@1.8.2)(prosemirror-history@1.5.0)(prosemirror-inputrules@1.5.1)(prosemirror-keymap@1.2.3)(prosemirror-markdown@1.13.4)(prosemirror-model@1.25.4)(prosemirror-schema-list@1.5.1)(prosemirror-state@1.4.4)(prosemirror-tables@1.8.5)(prosemirror-view@1.41.6)
       '@tauri-apps/api':
         specifier: ^2.10.1
         version: 2.10.1
@@ -29,9 +32,6 @@ importers:
       '@types/markdown-it':
         specifier: ^14.1.2
         version: 14.1.2
-      '@zouwei/moraya-core':
-        specifier: file:vendor/zouwei-moraya-core-0.1.0.tgz
-        version: file:vendor/zouwei-moraya-core-0.1.0.tgz(highlight.js@11.11.1)(katex@0.16.28)(markdown-it-deflist@3.0.0)(markdown-it-texmath@1.0.0)(markdown-it@14.1.1)(mermaid@11.12.2)(node-emoji@2.2.0)(prosemirror-commands@1.7.1)(prosemirror-dropcursor@1.8.2)(prosemirror-history@1.5.0)(prosemirror-inputrules@1.5.1)(prosemirror-keymap@1.2.3)(prosemirror-markdown@1.13.4)(prosemirror-model@1.25.4)(prosemirror-schema-list@1.5.1)(prosemirror-state@1.4.4)(prosemirror-tables@1.8.5)(prosemirror-view@1.41.6)
       highlight.js:
         specifier: ^11.11.1
         version: 11.11.1
@@ -340,6 +340,33 @@ packages:
 
   '@mermaid-js/parser@0.6.3':
     resolution: {integrity: sha512-lnjOhe7zyHjc+If7yT4zoedx2vo4sHaTmtkl1+or8BRTnCtDmcTpAjpzDSfCZrshM5bCoz0GyidzadJAH1xobA==}
+
+  '@moraya/core@file:vendor/moraya-core-0.1.0.tgz':
+    resolution: {integrity: sha512-Ux679DrLZ0pLwJ+W9hDvzJOVM03d4VlQcWKUQTjUjkbm/EQquHCbB77+fI9+cyHyQ/5LMfaGyCLy+mcarRa0Mg==, tarball: file:vendor/moraya-core-0.1.0.tgz}
+    version: 0.1.0
+    engines: {node: '>=20.0.0'}
+    peerDependencies:
+      highlight.js: ^11.11.0
+      katex: ^0.16.28
+      markdown-it: ^14.0.0
+      markdown-it-deflist: ^3.0.0
+      markdown-it-texmath: ^1.0.0
+      mermaid: ^11.0.0
+      node-emoji: ^2.0.0
+      prosemirror-commands: ^1.7.0
+      prosemirror-dropcursor: ^1.8.0
+      prosemirror-history: ^1.5.0
+      prosemirror-inputrules: ^1.5.0
+      prosemirror-keymap: ^1.2.0
+      prosemirror-markdown: ^1.13.0
+      prosemirror-model: ^1.20.0
+      prosemirror-schema-list: ^1.5.0
+      prosemirror-state: ^1.4.0
+      prosemirror-tables: ^1.8.0
+      prosemirror-view: ^1.33.0
+    peerDependenciesMeta:
+      mermaid:
+        optional: true
 
   '@polka/url@1.0.0-next.29':
     resolution: {integrity: sha512-wwQAWhWSuHaag8c4q/KN/vCoeOJYshAIvMQwD4GpSb3OiZklFfvAgmj0VCBBImRpuF/aFgIRzllXlVX93Jevww==}
@@ -866,33 +893,6 @@ packages:
 
   '@vitest/utils@4.1.4':
     resolution: {integrity: sha512-13QMT+eysM5uVGa1rG4kegGYNp6cnQcsTc67ELFbhNLQO+vgsygtYJx2khvdt4gVQqSSpC/KT5FZZxUpP3Oatw==}
-
-  '@zouwei/moraya-core@file:vendor/zouwei-moraya-core-0.1.0.tgz':
-    resolution: {integrity: sha512-yvKcrJHB02VE+DYe/uSe9jl9YcZbbPuUvrkyDbdMSSuu3p12bwd+3lEKrmiZmQKqTJ/dXg3gEFL98k8iLIW8Hw==, tarball: file:vendor/zouwei-moraya-core-0.1.0.tgz}
-    version: 0.1.0
-    engines: {node: '>=20.0.0'}
-    peerDependencies:
-      highlight.js: ^11.11.0
-      katex: ^0.16.28
-      markdown-it: ^14.0.0
-      markdown-it-deflist: ^3.0.0
-      markdown-it-texmath: ^1.0.0
-      mermaid: ^11.0.0
-      node-emoji: ^2.0.0
-      prosemirror-commands: ^1.7.0
-      prosemirror-dropcursor: ^1.8.0
-      prosemirror-history: ^1.5.0
-      prosemirror-inputrules: ^1.5.0
-      prosemirror-keymap: ^1.2.0
-      prosemirror-markdown: ^1.13.0
-      prosemirror-model: ^1.20.0
-      prosemirror-schema-list: ^1.5.0
-      prosemirror-state: ^1.4.0
-      prosemirror-tables: ^1.8.0
-      prosemirror-view: ^1.33.0
-    peerDependenciesMeta:
-      mermaid:
-        optional: true
 
   acorn@8.15.0:
     resolution: {integrity: sha512-NZyJarBfL7nWwIq+FDL6Zp/yHEhePMNnnJ0y3qfieCrmNvYct8uvtiV41UvlSe6apAfk0fY1FbWx+NwfmpvtTg==}
@@ -1808,6 +1808,28 @@ snapshots:
     dependencies:
       langium: 3.3.1
 
+  '@moraya/core@file:vendor/moraya-core-0.1.0.tgz(highlight.js@11.11.1)(katex@0.16.28)(markdown-it-deflist@3.0.0)(markdown-it-texmath@1.0.0)(markdown-it@14.1.1)(mermaid@11.12.2)(node-emoji@2.2.0)(prosemirror-commands@1.7.1)(prosemirror-dropcursor@1.8.2)(prosemirror-history@1.5.0)(prosemirror-inputrules@1.5.1)(prosemirror-keymap@1.2.3)(prosemirror-markdown@1.13.4)(prosemirror-model@1.25.4)(prosemirror-schema-list@1.5.1)(prosemirror-state@1.4.4)(prosemirror-tables@1.8.5)(prosemirror-view@1.41.6)':
+    dependencies:
+      highlight.js: 11.11.1
+      katex: 0.16.28
+      markdown-it: 14.1.1
+      markdown-it-deflist: 3.0.0
+      markdown-it-texmath: 1.0.0
+      node-emoji: 2.2.0
+      prosemirror-commands: 1.7.1
+      prosemirror-dropcursor: 1.8.2
+      prosemirror-history: 1.5.0
+      prosemirror-inputrules: 1.5.1
+      prosemirror-keymap: 1.2.3
+      prosemirror-markdown: 1.13.4
+      prosemirror-model: 1.25.4
+      prosemirror-schema-list: 1.5.1
+      prosemirror-state: 1.4.4
+      prosemirror-tables: 1.8.5
+      prosemirror-view: 1.41.6
+    optionalDependencies:
+      mermaid: 11.12.2
+
   '@polka/url@1.0.0-next.29': {}
 
   '@resvg/resvg-js-android-arm-eabi@2.6.2':
@@ -2262,28 +2284,6 @@ snapshots:
       '@vitest/pretty-format': 4.1.4
       convert-source-map: 2.0.0
       tinyrainbow: 3.1.0
-
-  '@zouwei/moraya-core@file:vendor/zouwei-moraya-core-0.1.0.tgz(highlight.js@11.11.1)(katex@0.16.28)(markdown-it-deflist@3.0.0)(markdown-it-texmath@1.0.0)(markdown-it@14.1.1)(mermaid@11.12.2)(node-emoji@2.2.0)(prosemirror-commands@1.7.1)(prosemirror-dropcursor@1.8.2)(prosemirror-history@1.5.0)(prosemirror-inputrules@1.5.1)(prosemirror-keymap@1.2.3)(prosemirror-markdown@1.13.4)(prosemirror-model@1.25.4)(prosemirror-schema-list@1.5.1)(prosemirror-state@1.4.4)(prosemirror-tables@1.8.5)(prosemirror-view@1.41.6)':
-    dependencies:
-      highlight.js: 11.11.1
-      katex: 0.16.28
-      markdown-it: 14.1.1
-      markdown-it-deflist: 3.0.0
-      markdown-it-texmath: 1.0.0
-      node-emoji: 2.2.0
-      prosemirror-commands: 1.7.1
-      prosemirror-dropcursor: 1.8.2
-      prosemirror-history: 1.5.0
-      prosemirror-inputrules: 1.5.1
-      prosemirror-keymap: 1.2.3
-      prosemirror-markdown: 1.13.4
-      prosemirror-model: 1.25.4
-      prosemirror-schema-list: 1.5.1
-      prosemirror-state: 1.4.4
-      prosemirror-tables: 1.8.5
-      prosemirror-view: 1.41.6
-    optionalDependencies:
-      mermaid: 11.12.2
 
   acorn@8.15.0: {}
 

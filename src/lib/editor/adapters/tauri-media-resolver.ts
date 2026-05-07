@@ -1,5 +1,5 @@
 /**
- * Tauri implementation of `MediaResolver` from `@zouwei/moraya-core`.
+ * Tauri implementation of `MediaResolver` from `@moraya/core`.
  *
  * Routes:
  *   - `loadLocalImage(path)` → `invoke('read_file_binary', { path })` → Blob URL
@@ -13,7 +13,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core'
-import type { MediaResolver } from '@zouwei/moraya-core'
+import type { MediaResolver } from '@moraya/core'
 
 const blobCache = new Map<string, string>()
 
@@ -52,7 +52,7 @@ export class TauriMediaResolver implements MediaResolver {
       blobCache.set(absolutePath, url)
       return url
     } catch {
-      // Per @zouwei/moraya-core §4.5 contract: resolve a fallback URL,
+      // Per @moraya/core §4.5 contract: resolve a fallback URL,
       // never reject. The schema's onerror handler shows a "broken image"
       // icon when the empty resolution can't be applied.
       return ''

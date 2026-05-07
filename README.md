@@ -339,7 +339,7 @@ All API keys are stored exclusively in your OS Keychain — never in plaintext. 
 | v0.36.0 | Cloud Resource Insert — pick Picora image/audio/video from menu & right-click | ✅ |
 | v0.37.0 | Picora Settings Tab — unified account/sync/browse panel; image-host entry de-emphasized | ✅ |
 | v0.39.0 | Apple code signing & notarization — signed/notarized macOS DMG, no xattr workaround | ✅ |
-| v0.60.0-pre | Shared markdown core extraction (@zouwei/moraya-core, npm-only boundary) | 📋 |
+| v0.60.0-pre | Shared markdown core extraction (@moraya/core public on npmjs.com, npm-only boundary) | 📋 |
 | v0.60.0 | Moraya Web foundation — editor base + Connect tier (Picora storage adapter) | 📋 |
 | v0.61.0 | BYOC infrastructure + 5 storage adapters (Aliyun OSS, AWS S3, Cloudflare R2, Tencent COS, Backblaze B2) | 📋 |
 | v0.62.0 | E2E client-side encryption + Cloud KMS dual mode (AWS / Aliyun / Tencent KMS) | 📋 |

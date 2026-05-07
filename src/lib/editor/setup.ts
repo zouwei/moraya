@@ -2,7 +2,7 @@
  * Moraya editor setup bridge.
  *
  * Adapts moraya's existing `EditorOptions` shape (root / defaultValue / etc.)
- * to `@zouwei/moraya-core`'s `CreateEditorOptions` shape (container /
+ * to `@moraya/core`'s `CreateEditorOptions` shape (container /
  * initialContent / mediaResolver / etc.) and injects the Tauri DI implementations.
  *
  * v0.60.0-pre §F2.5 / §F2.6: all schema / link / renderer / platform
@@ -24,7 +24,7 @@ import {
   parseMarkdown,
   serializeMarkdown,
   type MorayaEditorInstance,
-} from '@zouwei/moraya-core'
+} from '@moraya/core'
 import { EditorState } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import type { Schema } from 'prosemirror-model'
