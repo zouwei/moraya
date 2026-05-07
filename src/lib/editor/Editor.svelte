@@ -248,6 +248,14 @@
   }
 
   let isReady = $state(false);
+  /**
+   * Set to a non-null string when createEditor() throws or times out so the
+   * user sees something other than a silent blank pane. Critical for diagnosing
+   * environment-specific WKWebView/WebView2 failures from bug reports — without
+   * this, the only signal is "rendering does not display" with nothing in the
+   * UI to copy/paste back to maintainers (e.g. issue #50).
+   */
+  let initFailure = $state<string | null>(null);
   let pendingSyncMd: string | null = null; // content requested before editor was ready
   let isMounted = false; // tracks whether component is still alive (guards async gaps)
   let internalChange = false; // flag to avoid re-sync loop on editor's own onChange
@@ -1525,6 +1533,7 @@
     const readyTimeout = setTimeout(() => {
       if (!isReady) {
         console.warn('[Editor] createEditor timed out after 5s, forcing visibility');
+        initFailure = 'Editor initialization timed out after 5s (dynamic import or plugin load may be hanging).';
         isReady = true;
       }
     }, 5000);
@@ -1597,10 +1606,16 @@
     } catch (err) {
       console.error('[Editor] createEditor failed:', err);
       clearTimeout(readyTimeout);
-      isReady = true; // Make wrapper visible so user sees something
+      const msg = err instanceof Error
+        ? `${err.name}: ${err.message}\n${err.stack ?? ''}`
+        : String(err);
+      initFailure = msg;
+      isReady = true; // Make wrapper visible so user sees the error message
       return;
     }
     clearTimeout(readyTimeout);
+    // Editor created successfully — clear any stale timeout-induced failure marker.
+    initFailure = null;
 
     // Guard: if component was destroyed while createEditor was running,
     // destroy the orphaned editor immediately to prevent stale callbacks.
@@ -2571,6 +2586,14 @@
       <OutlinePanel headings={outlineHeadings} activeId={activeHeadingId} width={outlineWidth} containerHeight={wrapperHeight} onSelect={handleOutlineSelect} onWidthChange={onOutlineWidthChange} />
     {/if}
     <div bind:this={editorEl} class="editor-root"></div>
+    {#if initFailure}
+      <div class="editor-init-error" role="alert">
+        <strong>Editor failed to render.</strong>
+        <p>Please open Help → Toggle Developer Tools, copy this message and any console errors into the GitHub issue:</p>
+        <pre>{initFailure}</pre>
+        <p class="hint">Workaround: switch to <em>Source</em> mode (bottom-right) to view and edit the markdown directly.</p>
+      </div>
+    {/if}
   </div>
 </div>
 
@@ -2696,6 +2719,44 @@
     visibility: visible;
   }
 
+  /* Visible failure state for createEditor() exceptions / timeouts.
+     Without this, environment-specific WebView failures (e.g. issue #50 on
+     macOS Monterey 12.7.5 Intel) showed only a blank pane and the user could
+     not copy any error to report. */
+  .editor-init-error {
+    margin: 1rem 0;
+    padding: 1rem 1.25rem;
+    border: 1px solid var(--border-color, #f0a0a0);
+    border-left: 4px solid #d33;
+    border-radius: 6px;
+    background: var(--surface-1, rgba(220, 50, 50, 0.06));
+    color: var(--text-primary, #333);
+    font-size: 0.9rem;
+    line-height: 1.5;
+  }
+  .editor-init-error strong {
+    color: #d33;
+    display: block;
+    margin-bottom: 0.5rem;
+    font-size: 1rem;
+  }
+  .editor-init-error pre {
+    margin: 0.5rem 0;
+    padding: 0.6rem 0.75rem;
+    background: rgba(0, 0, 0, 0.05);
+    border-radius: 4px;
+    font-family: var(--font-mono, ui-monospace, Menlo, monospace);
+    font-size: 0.8rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+  .editor-init-error .hint {
+    margin: 0.5rem 0 0;
+    color: var(--text-muted, #666);
+    font-size: 0.85rem;
+  }
 
   /* Inner centering container: constrains total width and centers with auto margins.
      Without outline: max-width = editorLineWidth (e.g. 800px).

@@ -8,6 +8,7 @@ import type { ImageProviderConfig, AIProviderConfig } from './types';
 import { resolveImageSize, DOUBAO_SIZE_MAP } from './types';
 import { sendAIRequest, openaiEndpoint } from './providers';
 import { generateBaseUrlCandidates } from './ai-service';
+import { extractOpenAICompatImageUrl, extractDashScopeImageUrl } from './image-response-parser';
 import { invoke } from '@tauri-apps/api/core';
 
 export interface ImageGenerationResult {
@@ -103,35 +104,16 @@ async function callOpenAIImageAPI(
   });
 
   const data = JSON.parse(responseText);
-  const item = data.data?.[0];
+  const imageUrl = extractOpenAICompatImageUrl(data);
 
-  if (!item?.url) {
-    throw new Error('No image URL in response');
+  if (!imageUrl) {
+    // Include a response excerpt so the user can report the actual shape returned
+    // by their aggregator (helps add new patterns to extractOpenAICompatImageUrl).
+    throw new Error(`No image URL in response: ${JSON.stringify(data).slice(0, 500)}`);
   }
 
-  return { url: item.url, revisedPrompt: item.revised_prompt };
-}
-
-/** Extract image URL from DashScope response (multiple possible locations). */
-function extractDashScopeImageUrl(data: Record<string, unknown>): string | null {
-  const output = data.output as Record<string, unknown> | undefined;
-  if (!output) return null;
-  // results[0].url (wanx async task)
-  const results = output.results as Array<Record<string, unknown>> | undefined;
-  if (results?.[0]?.url) return results[0].url as string;
-  // result.url (some models)
-  const result = output.result as Record<string, unknown> | undefined;
-  if (result?.url) return result.url as string;
-  // choices[0].message.content[].image (multimodal-generation: z-image-turbo, qwen-image-2.0)
-  const choices = output.choices as Array<Record<string, unknown>> | undefined;
-  const message = choices?.[0]?.message as Record<string, unknown> | undefined;
-  const content = message?.content as Array<Record<string, unknown>> | undefined;
-  if (content) {
-    for (const item of content) {
-      if (typeof item.image === 'string') return item.image;
-    }
-  }
-  return null;
+  const revised = (data as { data?: Array<{ revised_prompt?: unknown }> }).data?.[0]?.revised_prompt;
+  return { url: imageUrl, revisedPrompt: typeof revised === 'string' ? revised : undefined };
 }
 
 /**

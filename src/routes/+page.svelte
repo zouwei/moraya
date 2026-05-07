@@ -1735,7 +1735,6 @@ ${tr('welcome.tip')}
   }
 
   async function doFileSelect(path: string, mySerial: number) {
-    if (mySerial !== fileSelectSerial) return;
     if (mySerial !== fileSelectSerial) return; // Superseded by a newer click
 
     const fileName = getFileNameFromPath(path);
@@ -1747,8 +1746,8 @@ ${tr('welcome.tip')}
       return;
     }
 
-    // Sync current tab state BEFORE loadFile() — loadFile calls editorStore.setContent()
-    // which would pollute the old tab if syncFromEditor runs after it.
+    // Sync current tab state BEFORE the new file is loaded so the previous
+    // tab's editor state (cursor, scroll, dirty) is captured intact.
     tabsStore.syncFromEditor();
     const fileContent = await loadFile(path);
     if (mySerial !== fileSelectSerial) return; // Superseded while IPC was in-flight
@@ -1758,7 +1757,8 @@ ${tr('welcome.tip')}
       const result = await invoke('get_files_mtime', { paths: [path] }) as [string, number][];
       if (result.length > 0) mtime = result[0][1];
     } catch { /* ignore */ }
-    // skipSync=true: we already synced above before loadFile polluted editorStore
+    if (mySerial !== fileSelectSerial) return; // Superseded while mtime IPC was in-flight
+    // skipSync=true: we already synced above before this file was loaded.
     tabsStore.openFileTab(path, fileName, fileContent, mtime, true);
     resetWorkflowState();
 
@@ -2854,7 +2854,7 @@ ${tr('welcome.tip')}
 
       // Helper: load a file by path and open in a tab
       async function openFileByPath(filePath: string) {
-        // Sync current tab BEFORE loadFile() pollutes editorStore
+        // Sync current tab so its editor state is captured before switching.
         tabsStore.syncFromEditor();
         const fileContent = await loadFile(filePath);
         const fileName = getFileNameFromPath(filePath);

@@ -98,11 +98,12 @@ export async function openFolder(): Promise<void> {
 
 export async function loadFile(path: string): Promise<string> {
   const content = await invoke<string>('read_file', { path });
-  // NOTE: setCurrentFile intentionally omitted here.
-  // Callers must call editorStore.setCurrentFile(path) themselves AFTER their
-  // own serial/race guards, so the title never updates when a stale IPC
-  // response loses the race against a newer click.
-  editorStore.setContent(content);
+  // NOTE: editorStore.setContent / setCurrentFile intentionally omitted.
+  // Callers MUST update editorStore themselves AFTER their own serial/race
+  // guards (typically via tabsStore.openFileTab → syncToEditor → batchRestore).
+  // Writing here would pollute editorStore on superseded clicks and cause
+  // the next syncFromEditor to save the wrong file's content into the
+  // previously-active tab.
   filesStore.addRecentFile(path);
   return content;
 }
