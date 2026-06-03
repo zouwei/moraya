@@ -1,11 +1,23 @@
 /* Milkdown / ProseMirror editor styles */
 
+/* Ensure editor root is visible and can render content */
+.editor-root {
+  display: block;
+  visibility: visible;
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background-color: var(--bg-primary);
+}
+
 .moraya-editor {
   outline: none;
   font-family: var(--font-sans);
   font-size: var(--font-size-base);
   line-height: var(--line-height);
   color: var(--text-primary);
+  min-height: 100%;
 }
 
 /* Headings */

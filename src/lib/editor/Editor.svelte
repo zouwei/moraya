@@ -1904,7 +1904,23 @@
 
     let createdEditor: MorayaEditor;
     try {
+      // Ensure the root element exists and is visible before creating the editor
+      if (!editorEl || !editorEl.parentElement) {
+        throw new Error('Editor root element not found in DOM');
+      }
+      editorEl.style.display = 'block';
+      editorEl.style.visibility = 'visible';
+
       createdEditor = await createEditor(editorOptions);
+
+      // Verify editor was actually created and has a view
+      if (!createdEditor || !createdEditor.view) {
+        throw new Error('Editor creation succeeded but view is missing');
+      }
+
+      // Force a DOM update to ensure content renders
+      await tick();
+      createdEditor.view.updateState(createdEditor.view.state);
     } catch (err) {
       console.error('[Editor] createEditor failed:', err);
       clearTimeout(readyTimeout);
