@@ -2827,6 +2827,15 @@ ${tr('welcome.tip')}
 
     // Restore persisted settings, AI config, and MCP servers (Tauri-only: uses plugin-store)
     if (isTauri) {
+      // Dismiss the splash as soon as the editor is ready — settings, AI,
+      // MCP, and KB tree loading all happen in background after the user
+      // sees the editor. `tryDispatchAppReady` waits for both gates;
+      // editorReadyForSplash is the only remaining gate now.
+      requestAnimationFrame(() => {
+        coldStartHydrated = true;
+        tryDispatchAppReady();
+      });
+
       // Start loading the opened file(s) in PARALLEL with store initialization.
       // File read (IPC) is fast; store init (Tauri plugin-store load × 4) is slow.
       // By the time Promise.all resolves, the file content is already available.
@@ -2872,30 +2881,11 @@ ${tr('welcome.tip')}
 
       Promise.all([initSettingsStore(), initAIStore(), initMCPStore(), filesStore.loadPersistedPrefs(), openedFilePromise])
         .then(async () => {
-          // MCP restoration: container manager FIRST, then the general pass.
-          // initContainerManager() loads saved dynamic services and connects
-          // them itself; running both concurrently would race on
-          // `connectServer(id)` and double-spawn stdio processes (the second
-          // one orphans the first, hanging future tool calls — which is why
-          // saved MCPs worked on install but broke after restart).
-          // `connectAllServers` now skips already-connected ids, so this
-          // ordering keeps saved services healthy on every launch.
-          try {
-            await initContainerManager();
-          } catch (e) {
-            console.warn('[Startup] initContainerManager failed:', e);
-          }
-          try {
-            await connectAllServers();
-          } catch (e) {
-            console.warn('[Startup] connectAllServers failed:', e);
-          }
-
           // Restore knowledge base or last opened folder
           const settings = settingsStore.getState();
           const filesState = filesStore.getState();
           if (filesState.knowledgeBases.length > 0) {
-            // Activate most recently used knowledge base
+            // Activate most recently used knowledge base (non-blocking)
             const sorted = [...filesState.knowledgeBases].sort(
               (a, b) => b.lastAccessedAt - a.lastAccessedAt
             );
@@ -2909,17 +2899,11 @@ ${tr('welcome.tip')}
                 filesStore.setOpenFolder(settings.lastOpenedFolder!, tree);
               })
               .catch(() => {
-                // Directory no longer exists — clear saved path silently
                 settingsStore.update({ lastOpenedFolder: null });
               });
           }
 
           // Check if file(s) were passed via OS file association on startup.
-          // Content is loaded in parallel (see openedFilePromise above);
-          // sidebar adjustment needs knowledgeBases to be loaded (which happens
-          // in this .then), so we finalize here. The first path replaces the
-          // initial empty tab; any additional paths open as new tabs. The
-          // LAST file becomes active (matches macOS multi-select expectation).
           if (openedFilesData.length > 0) {
             const [firstFile, ...additionalFiles] = openedFilesData;
             tabsStore.initWithContent(firstFile.fileContent, firstFile.filePath, firstFile.fileName);
@@ -2947,24 +2931,29 @@ ${tr('welcome.tip')}
             adjustSidebarForFile(filePath);
           }
 
-          // Cold-start hydration gate: the OS-handed file (if any) has now
-          // been applied. If no file was handed in, this just flips on
-          // store-load completion, which is the natural splash dismiss
-          // point for a "new empty doc" launch. The companion gate
-          // (`editorReadyForSplash`) is flipped by `handleEditorReady`;
-          // whichever lands last fires the actual dispatch.
+          // Dismiss the splash immediately — user sees the editor now.
+          // Everything below runs in the background without blocking startup.
           requestAnimationFrame(() => {
             coldStartHydrated = true;
             tryDispatchAppReady();
-            // Source-mode / image-preview cold-starts don't mount <Editor>
-            // and therefore never fire handleEditorReady. Give the visual
-            // path 1.2 s to report in; after that we uncover the app
-            // ourselves rather than letting the user wait for the 8 s
-            // splash safety net.
             setTimeout(() => {
               if (!appReadyDispatched) forceDispatchAppReady();
             }, 1200);
           });
+
+          // ── Background initialization (after splash dismiss) ──
+
+          // MCP restoration
+          try {
+            await initContainerManager();
+          } catch (e) {
+            console.warn('[Startup] initContainerManager failed:', e);
+          }
+          try {
+            await connectAllServers();
+          } catch (e) {
+            console.warn('[Startup] connectAllServers failed:', e);
+          }
 
           // Register KB sync intervals (mode=interval) for all bound KBs
           if (settings.kbSyncEnabled !== false) {

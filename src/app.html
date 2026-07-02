@@ -5,95 +5,9 @@
     <link rel="icon" href="%sveltekit.assets%/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Moraya</title>
-    <!--
-      Early-paint loading splash. Inlined so it renders on the FIRST frame the
-      window is visible — before the SvelteKit JS bundle has even started
-      parsing. Without it, double-clicking an .md file shows a fully blank
-      window for ~2–3 seconds while JS + plugin-store + ProseMirror warm up.
-
-      The splash hides as soon as +page.svelte's editor reports ready, via a
-      `moraya:app-ready` event; the small inline script at the bottom of the
-      body listens for it and fades the splash out. An 8 s safety timer
-      hides the splash even if the editor mount throws, so the user is never
-      stuck staring at a spinner.
-    -->
-    <style>
-      #moraya-splash {
-        position: fixed;
-        inset: 0;
-        z-index: 999999;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 16px;
-        background: #fafafb;
-        color: #404048;
-        font: 500 18px -apple-system, BlinkMacSystemFont, "Segoe UI",
-          Roboto, "Helvetica Neue", system-ui, sans-serif;
-        letter-spacing: 0.06em;
-        transition: opacity 0.28s ease-out;
-        -webkit-user-select: none;
-        user-select: none;
-      }
-      @media (prefers-color-scheme: dark) {
-        #moraya-splash { background: #1c1c1f; color: #e8e8ea; }
-      }
-      #moraya-splash.fade-out {
-        opacity: 0;
-        pointer-events: none;
-      }
-      /* Wordmark only — no boxed logo. The pulse on the text itself
-         gives "alive" feedback without the visual weight of an icon. */
-      #moraya-splash .ms-wordmark {
-        animation: ms-wordmark-pulse 1.8s ease-in-out infinite;
-      }
-      @keyframes ms-wordmark-pulse {
-        0%, 100% { opacity: 0.55; }
-        50%      { opacity: 1; }
-      }
-      #moraya-splash .ms-spinner {
-        width: 14px; height: 14px;
-        border: 2px solid rgba(120, 120, 128, 0.18);
-        border-top-color: rgba(120, 120, 128, 0.6);
-        border-radius: 50%;
-        animation: ms-spin 0.85s linear infinite;
-      }
-      @media (prefers-color-scheme: dark) {
-        #moraya-splash .ms-spinner {
-          border-color: rgba(200, 200, 210, 0.15);
-          border-top-color: rgba(200, 200, 210, 0.6);
-        }
-      }
-      @keyframes ms-spin { to { transform: rotate(360deg); } }
-    </style>
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">
-    <div id="moraya-splash" role="status" aria-label="Loading Moraya">
-      <div class="ms-wordmark">Moraya</div>
-      <div class="ms-spinner" aria-hidden="true"></div>
-    </div>
-    <script>
-      (function () {
-        var splash = document.getElementById('moraya-splash');
-        if (!splash) return;
-        var hidden = false;
-        function hide() {
-          if (hidden) return;
-          hidden = true;
-          splash.classList.add('fade-out');
-          // Remove from DOM after the CSS transition so the editor doesn't
-          // have to paint behind a stale 999999 z-index layer.
-          setTimeout(function () { splash.remove(); }, 320);
-        }
-        window.addEventListener('moraya:app-ready', hide, { once: true });
-        // Safety net: never leave the user staring at the spinner. If
-        // first-paint readiness never fires (mount threw, bug, etc.) we
-        // still uncover the underlying app after 8 s.
-        setTimeout(hide, 8000);
-      })();
-    </script>
     <div style="display: contents">%sveltekit.body%</div>
   </body>
 </html>
