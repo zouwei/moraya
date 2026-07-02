@@ -1007,6 +1007,7 @@
 
 <div
   class="sidebar no-select"
+  role="region"
   oncontextmenu={(e) => handleContextMenu(e, 'blank', folderPath || '', '')}
 >
   <div class="sidebar-header">

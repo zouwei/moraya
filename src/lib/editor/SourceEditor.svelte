@@ -627,7 +627,7 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-<div class="source-editor-outer" class:hide-scrollbar={hideScrollbar} class:has-outline={showOutline} bind:clientHeight={outerHeight} onclick={(e) => {
+<div class="source-editor-outer" role="region" aria-label="Source editor" class:hide-scrollbar={hideScrollbar} class:has-outline={showOutline} bind:clientHeight={outerHeight} onclick={(e) => {
   // Click on empty area below content → refocus textarea (prevent losing focus)
   const target = e.target as HTMLElement;
   if (target.closest('.source-textarea') || target.closest('.outline-wrapper') || target.closest('.resize-handle')) return;

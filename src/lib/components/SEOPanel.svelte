@@ -85,9 +85,11 @@
   }
 
   // Auto-generate on mount (only if AI is configured)
-  if (providerConfig && providerConfig.apiKey) {
-    generate();
-  }
+  $effect(() => {
+    if (providerConfig && providerConfig.apiKey) {
+      generate();
+    }
+  });
 </script>
 
 <div class="seo-panel">

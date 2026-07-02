@@ -475,7 +475,7 @@
 
 <div class="tabbar no-select">
   {#if canScrollLeft}
-    <button class="scroll-arrow scroll-left" onclick={() => scrollTabs('left')}>
+    <button class="scroll-arrow scroll-left" onclick={() => scrollTabs('left')} aria-label="Scroll tabs left">
       <svg width="8" height="10" viewBox="0 0 8 10"><path fill="currentColor" d="M7 0L0 5l7 5z"/></svg>
     </button>
   {/if}
@@ -519,7 +519,7 @@
   </div>
 
   {#if canScrollRight}
-    <button class="scroll-arrow scroll-right" onclick={() => scrollTabs('right')}>
+    <button class="scroll-arrow scroll-right" onclick={() => scrollTabs('right')} aria-label="Scroll tabs right">
       <svg width="8" height="10" viewBox="0 0 8 10"><path fill="currentColor" d="M0 0l7 5-7 5z"/></svg>
     </button>
   {/if}

@@ -547,7 +547,7 @@
     {#if showInlineTabs}
       <!-- macOS: tabs embedded in 28px overlay -->
       {#if canScrollLeft}
-        <button class="scroll-arrow scroll-left" onclick={() => scrollTabs('left')}>
+        <button class="scroll-arrow scroll-left" onclick={() => scrollTabs('left')} aria-label="Scroll tabs left">
           <svg width="6" height="8" viewBox="0 0 6 8"><path fill="currentColor" d="M5 0L0 4l5 4z"/></svg>
         </button>
       {/if}
@@ -569,7 +569,8 @@
               {tab.fileName}
             </span>
             <span class="tab-close" role="button" tabindex="-1"
-              onclick={(e) => handleTabClose(e, tab)}>×</span>
+              onclick={(e) => handleTabClose(e, tab)}
+              onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); onCloseTab(tab); } }}>×</span>
           </button>
         {/each}
         {#if externalDropIndex >= tabs.length}
@@ -577,7 +578,7 @@
         {/if}
       </div>
       {#if canScrollRight}
-        <button class="scroll-arrow scroll-right" onclick={() => scrollTabs('right')}>
+        <button class="scroll-arrow scroll-right" onclick={() => scrollTabs('right')} aria-label="Scroll tabs right">
           <svg width="6" height="8" viewBox="0 0 6 8"><path fill="currentColor" d="M0 0l6 4-6 4z"/></svg>
         </button>
       {/if}

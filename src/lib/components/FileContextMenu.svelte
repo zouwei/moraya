@@ -55,7 +55,9 @@
 
   // Auto-flip: measure menu after render and flip upward if it would overflow viewport
   let menuEl: HTMLDivElement | undefined = $state();
+  // svelte-ignore state_referenced_locally
   let adjustedTop = $state(position.top);
+  // svelte-ignore state_referenced_locally
   let adjustedLeft = $state(position.left);
 
   $effect(() => {
