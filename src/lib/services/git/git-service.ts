@@ -7,11 +7,21 @@ import type {
 	GitBlameEntry,
 } from './types';
 
+let _gitInstalled: boolean | null = null;
+let _gitCheckPromise: Promise<boolean> | null = null;
+
 /**
  * Check if git is installed on the system.
+ * Result is cached and checked only once per session.
  */
 export async function checkGitInstalled(): Promise<boolean> {
-	return invoke<boolean>('git_check_installed');
+	if (_gitInstalled !== null) return _gitInstalled;
+	if (_gitCheckPromise) return _gitCheckPromise;
+	_gitCheckPromise = invoke<boolean>('git_check_installed').then(
+		(result) => { _gitInstalled = result; return result; },
+		() => { _gitInstalled = false; return false; }
+	);
+	return _gitCheckPromise;
 }
 
 /**

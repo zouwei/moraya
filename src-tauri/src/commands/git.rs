@@ -2,6 +2,8 @@ use serde::Serialize;
 use std::io::Write;
 use std::path::Path;
 use std::process::Command;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 
 use super::file::validate_path;
 
@@ -132,6 +134,8 @@ fn sanitize_stderr(stderr: &str) -> String {
 /// Create a base git Command with safe environment and working directory.
 fn git_cmd(work_dir: &Path) -> Command {
     let mut cmd = Command::new("git");
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
     cmd.current_dir(work_dir);
 
     // Filter environment variables
@@ -349,17 +353,22 @@ fn run_git(cmd: &mut Command, timeout_secs: u64) -> Result<String, String> {
 // ───────────────────────────── commands ──────────────────────────
 
 #[tauri::command]
-pub fn git_check_installed() -> Result<bool, String> {
-    match Command::new("git").arg("--version").output() {
-        Ok(output) => Ok(output.status.success()),
-        Err(e) => {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                Ok(false)
-            } else {
-                Err("Failed to check git installation".to_string())
+pub async fn git_check_installed() -> Result<bool, String> {
+    tokio::task::spawn_blocking(|| {
+        let mut cmd = Command::new("git");
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        match cmd.arg("--version").output() {
+            Ok(output) => Ok(output.status.success()),
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    Ok(false)
+                } else {
+                    Err("Failed to check git installation".to_string())
+                }
             }
         }
-    }
+    }).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

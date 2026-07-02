@@ -24,6 +24,8 @@
     toggleUnderline,
     toggleStrikethrough,
     toggleCode,
+    wrapInBulletList,
+    wrapInOrderedList,
   } from './commands';
   import { docCache } from './doc-cache';
   import { editorStore } from '../stores/editor-store';
@@ -612,6 +614,22 @@
     if (!editor) return;
     try {
       toggleCode(editor.view.state, editor.view.dispatch);
+      editor.view.focus();
+    } catch { /* format failed */ }
+  }
+
+  function handleBulletList() {
+    if (!editor) return;
+    try {
+      wrapInBulletList(editor.view.state, editor.view.dispatch);
+      editor.view.focus();
+    } catch { /* format failed */ }
+  }
+
+  function handleOrderedList() {
+    if (!editor) return;
+    try {
+      wrapInOrderedList(editor.view.state, editor.view.dispatch);
       editor.view.focus();
     } catch { /* format failed */ }
   }
@@ -3025,6 +3043,8 @@
     onUnderline={handleUnderline}
     onStrikethrough={handleStrikethrough}
     onCode={handleCode}
+    onBulletList={handleBulletList}
+    onOrderedList={handleOrderedList}
     onUploadAllImages={handleUploadAllImages}
     onSEO={() => { onWorkflowSEO?.(); }}
     onImageGen={() => { onWorkflowImageGen?.(); }}

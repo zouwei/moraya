@@ -434,11 +434,14 @@ pub fn read_file_previews(
 const MAX_DIR_DEPTH: u32 = 10;
 
 #[tauri::command]
-pub fn read_dir_recursive(path: String, depth: Option<u32>, all_files: Option<bool>) -> Result<Vec<FileEntry>, String> {
+pub async fn read_dir_recursive(path: String, depth: Option<u32>, all_files: Option<bool>) -> Result<Vec<FileEntry>, String> {
     let safe_path = validate_path(&path)?;
     let max_depth = depth.unwrap_or(3).min(MAX_DIR_DEPTH);
     let show_all = all_files.unwrap_or(false);
-    read_dir_inner(safe_path.to_str().unwrap_or(""), 0, max_depth, show_all)
+    let path_str = safe_path.to_str().unwrap_or("").to_string();
+    tokio::task::spawn_blocking(move || {
+        read_dir_inner(&path_str, 0, max_depth, show_all)
+    }).await.map_err(|e| e.to_string())?
 }
 
 fn read_dir_inner(
