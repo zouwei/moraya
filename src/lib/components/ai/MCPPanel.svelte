@@ -705,13 +705,14 @@
           {#if presetInstalling.envVars && presetInstalling.envVars.length > 0}
             <div class="mp-env-section">
               <div class="section-label">{$t('mcp.servers.presetEnvTitle')}</div>
-              {#each presetInstalling.envVars as ev}
+              {#each presetInstalling.envVars as ev, i}
                 <div class="mp-env-row">
-                  <label class="mp-env-label">
+                  <label class="mp-env-label" for="mp-preset-env-{i}">
                     {ev.name}
                     {#if ev.required}<span class="mp-env-secret">*</span>{/if}
                   </label>
                   <input
+                    id="mp-preset-env-{i}"
                     type={ev.isSecret ? 'password' : 'text'}
                     class="form-input"
                     placeholder={$t(ev.descriptionKey)}
@@ -1107,13 +1108,14 @@
           {#if mpInstalling.install?.envVars && mpInstalling.install.envVars.length > 0}
             <div class="mp-env-section">
               <div class="section-label">{$t('mcp.marketplace.envVars')}</div>
-              {#each mpInstalling.install.envVars as ev}
+              {#each mpInstalling.install.envVars as ev, i}
                 <div class="mp-env-row">
-                  <label class="mp-env-label">
+                  <label class="mp-env-label" for="mp-market-env-{i}">
                     {ev.name}
                     {#if ev.isSecret}<span class="mp-env-secret">*</span>{/if}
                   </label>
                   <input
+                    id="mp-market-env-{i}"
                     type={ev.isSecret ? 'password' : 'text'}
                     class="form-input"
                     placeholder={ev.description}
@@ -1637,6 +1639,7 @@
     margin: 0;
     display: -webkit-box;
     -webkit-line-clamp: 2;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
     line-height: 1.4;
@@ -1882,6 +1885,7 @@
     color: var(--text-secondary);
     display: -webkit-box;
     -webkit-line-clamp: 2;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }

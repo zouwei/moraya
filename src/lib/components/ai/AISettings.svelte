@@ -421,8 +421,8 @@
       {#if editingChatId === config.id}
         <div class="config-form">
           <div class="setting-group">
-            <label class="setting-label">{$t('ai.config.provider')}</label>
-            <select class="setting-input" value={formProvider} onchange={handleChatProviderChange}>
+            <label class="setting-label" for="ais-edit-provider">{$t('ai.config.provider')}</label>
+            <select id="ais-edit-provider" class="setting-input" value={formProvider} onchange={handleChatProviderChange}>
               {#each CHAT_PROVIDERS as p}
                 <option value={p}>{$t(`ai.providers.${p}`)}</option>
               {/each}
@@ -430,8 +430,9 @@
           </div>
 
           <div class="setting-group">
-            <label class="setting-label">{$t('ai.config.apiKey')}</label>
+            <label class="setting-label" for="ais-edit-apikey">{$t('ai.config.apiKey')}</label>
             <input
+              id="ais-edit-apikey"
               type="password"
               class="setting-input"
               bind:value={formApiKey}
@@ -440,8 +441,9 @@
           </div>
 
           <div class="setting-group">
-            <label class="setting-label">{$t('ai.config.baseUrl')}</label>
+            <label class="setting-label" for="ais-edit-baseurl">{$t('ai.config.baseUrl')}</label>
             <input
+              id="ais-edit-baseurl"
               type="text"
               class="setting-input"
               bind:value={formBaseUrl}
@@ -459,9 +461,10 @@
 
           <div class="model-tokens-row">
             <div class="setting-group" style="flex:1;min-width:0">
-              <label class="setting-label">{$t('ai.config.model')}</label>
+              <label class="setting-label" for="ais-edit-model">{$t('ai.config.model')}</label>
               <div class="combo-wrapper">
                 <input
+                  id="ais-edit-model"
                   type="text"
                   class="setting-input"
                   bind:value={formModel}
@@ -483,15 +486,15 @@
               </div>
             </div>
             <div class="setting-group" style="width:5.5rem;flex-shrink:0">
-              <label class="setting-label">{$t('ai.config.maxTokens')}</label>
-              <input type="number" class="setting-input" bind:value={formMaxTokens} min={256} max={128000} step={256} />
+              <label class="setting-label" for="ais-edit-maxtokens">{$t('ai.config.maxTokens')}</label>
+              <input id="ais-edit-maxtokens" type="number" class="setting-input" bind:value={formMaxTokens} min={256} max={128000} step={256} />
             </div>
           </div>
 
           <div class="setting-group">
-            <label class="setting-label">{$t('ai.config.temperature')}</label>
+            <label class="setting-label" for="ais-edit-temperature">{$t('ai.config.temperature')}</label>
             <div class="setting-row">
-              <input type="range" class="setting-range" bind:value={formTemperature} min={0} max={1} step={0.1} />
+              <input id="ais-edit-temperature" type="range" class="setting-range" bind:value={formTemperature} min={0} max={1} step={0.1} />
               <span class="setting-value">{formTemperature}</span>
             </div>
           </div>
@@ -545,8 +548,8 @@
     {#if addingChat}
       <div class="config-form">
         <div class="setting-group">
-          <label class="setting-label">{$t('ai.config.provider')}</label>
-          <select class="setting-input" value={formProvider} onchange={handleChatProviderChange}>
+          <label class="setting-label" for="ais-add-provider">{$t('ai.config.provider')}</label>
+          <select id="ais-add-provider" class="setting-input" value={formProvider} onchange={handleChatProviderChange}>
             {#each CHAT_PROVIDERS as p}
               <option value={p}>{$t(`ai.providers.${p}`)}</option>
             {/each}
@@ -554,8 +557,9 @@
         </div>
 
         <div class="setting-group">
-          <label class="setting-label">{$t('ai.config.apiKey')}</label>
+          <label class="setting-label" for="ais-add-apikey">{$t('ai.config.apiKey')}</label>
           <input
+            id="ais-add-apikey"
             type="password"
             class="setting-input"
             bind:value={formApiKey}
@@ -564,8 +568,9 @@
         </div>
 
         <div class="setting-group">
-          <label class="setting-label">{$t('ai.config.baseUrl')}</label>
+          <label class="setting-label" for="ais-add-baseurl">{$t('ai.config.baseUrl')}</label>
           <input
+            id="ais-add-baseurl"
             type="text"
             class="setting-input"
             bind:value={formBaseUrl}
@@ -583,9 +588,10 @@
 
         <div class="model-tokens-row">
           <div class="setting-group" style="flex:1;min-width:0">
-            <label class="setting-label">{$t('ai.config.model')}</label>
+            <label class="setting-label" for="ais-add-model">{$t('ai.config.model')}</label>
             <div class="combo-wrapper">
               <input
+                id="ais-add-model"
                 type="text"
                 class="setting-input"
                 bind:value={formModel}
@@ -607,15 +613,15 @@
             </div>
           </div>
           <div class="setting-group" style="width:5.5rem;flex-shrink:0">
-            <label class="setting-label">{$t('ai.config.maxTokens')}</label>
-            <input type="number" class="setting-input" bind:value={formMaxTokens} min={256} max={128000} step={256} />
+            <label class="setting-label" for="ais-add-maxtokens">{$t('ai.config.maxTokens')}</label>
+            <input id="ais-add-maxtokens" type="number" class="setting-input" bind:value={formMaxTokens} min={256} max={128000} step={256} />
           </div>
         </div>
 
         <div class="setting-group">
-          <label class="setting-label">{$t('ai.config.temperature')}</label>
+          <label class="setting-label" for="ais-add-temperature">{$t('ai.config.temperature')}</label>
           <div class="setting-row">
-            <input type="range" class="setting-range" bind:value={formTemperature} min={0} max={1} step={0.1} />
+            <input id="ais-add-temperature" type="range" class="setting-range" bind:value={formTemperature} min={0} max={1} step={0.1} />
             <span class="setting-value">{formTemperature}</span>
           </div>
         </div>
@@ -669,8 +675,8 @@
       {#if editingRealtimeId === config.id}
         <div class="config-form">
           <div class="setting-group">
-            <label class="setting-label">{$t('ai.config.provider')}</label>
-            <select class="setting-input" value={realtimeProvider} onchange={handleRealtimeProviderChange}>
+            <label class="setting-label" for="ais-rt-edit-provider">{$t('ai.config.provider')}</label>
+            <select id="ais-rt-edit-provider" class="setting-input" value={realtimeProvider} onchange={handleRealtimeProviderChange}>
               {#each REALTIME_PROVIDERS as p}
                 <option value={p}>{getRealtimeProviderLabel(p)}</option>
               {/each}
@@ -679,36 +685,37 @@
 
           {#if providerNeedsAwsCredential(realtimeProvider)}
             <div class="setting-group">
-              <label class="setting-label">{$t('ai.realtime.config.accessKeyId')}</label>
-              <input type="password" class="setting-input" bind:value={realtimeAccessKeyId} placeholder="AKIA..." />
+              <label class="setting-label" for="ais-rt-edit-accesskeyid">{$t('ai.realtime.config.accessKeyId')}</label>
+              <input id="ais-rt-edit-accesskeyid" type="password" class="setting-input" bind:value={realtimeAccessKeyId} placeholder="AKIA..." />
             </div>
             <div class="setting-group">
-              <label class="setting-label">{$t('ai.realtime.config.secretAccessKey')}</label>
-              <input type="password" class="setting-input" bind:value={realtimeSecretAccessKey} placeholder={$t('ai.realtime.config.secretPlaceholder')} />
+              <label class="setting-label" for="ais-rt-edit-secretaccesskey">{$t('ai.realtime.config.secretAccessKey')}</label>
+              <input id="ais-rt-edit-secretaccesskey" type="password" class="setting-input" bind:value={realtimeSecretAccessKey} placeholder={$t('ai.realtime.config.secretPlaceholder')} />
             </div>
             <div class="setting-group">
-              <label class="setting-label">{$t('ai.realtime.config.sessionToken')}</label>
-              <input type="password" class="setting-input" bind:value={realtimeSessionToken} placeholder={$t('ai.realtime.config.optional')} />
+              <label class="setting-label" for="ais-rt-edit-sessiontoken">{$t('ai.realtime.config.sessionToken')}</label>
+              <input id="ais-rt-edit-sessiontoken" type="password" class="setting-input" bind:value={realtimeSessionToken} placeholder={$t('ai.realtime.config.optional')} />
             </div>
           {:else if providerNeedsDoubaoCredential(realtimeProvider)}
             <div class="setting-group">
-              <label class="setting-label">{$t('ai.realtime.config.doubaoAppId')}</label>
-              <input type="text" class="setting-input" bind:value={realtimeAppId} placeholder="123456789" />
+              <label class="setting-label" for="ais-rt-edit-appid">{$t('ai.realtime.config.doubaoAppId')}</label>
+              <input id="ais-rt-edit-appid" type="text" class="setting-input" bind:value={realtimeAppId} placeholder="123456789" />
             </div>
             <div class="setting-group">
-              <label class="setting-label">{$t('ai.realtime.config.doubaoAccessKey')}</label>
-              <input type="password" class="setting-input" bind:value={realtimeApiKey} placeholder="your-access-token" />
+              <label class="setting-label" for="ais-rt-edit-accesskey">{$t('ai.realtime.config.doubaoAccessKey')}</label>
+              <input id="ais-rt-edit-accesskey" type="password" class="setting-input" bind:value={realtimeApiKey} placeholder="your-access-token" />
             </div>
           {:else}
             <div class="setting-group">
-              <label class="setting-label">{$t('ai.config.apiKey')}</label>
-              <input type="password" class="setting-input" bind:value={realtimeApiKey} placeholder={$t('ai.config.apiKeyPlaceholder', { provider: realtimeProvider })} />
+              <label class="setting-label" for="ais-rt-edit-apikey">{$t('ai.config.apiKey')}</label>
+              <input id="ais-rt-edit-apikey" type="password" class="setting-input" bind:value={realtimeApiKey} placeholder={$t('ai.config.apiKeyPlaceholder', { provider: realtimeProvider })} />
             </div>
           {/if}
 
           <div class="setting-group">
-            <label class="setting-label">{$t('ai.config.baseUrl')}</label>
+            <label class="setting-label" for="ais-rt-edit-baseurl">{$t('ai.config.baseUrl')}</label>
             <input
+              id="ais-rt-edit-baseurl"
               type="text"
               class="setting-input"
               bind:value={realtimeBaseUrl}
@@ -725,9 +732,10 @@
           </div>
 
           <div class="setting-group">
-            <label class="setting-label">{$t('ai.config.model')}</label>
+            <label class="setting-label" for="ais-rt-edit-model">{$t('ai.config.model')}</label>
             <div class="combo-wrapper">
               <input
+                id="ais-rt-edit-model"
                 type="text"
                 class="setting-input"
                 bind:value={realtimeModel}
@@ -751,12 +759,12 @@
 
           <div class="model-tokens-row">
             <div class="setting-group" style="flex:1;min-width:0">
-              <label class="setting-label">{$t('ai.realtime.config.voice')}</label>
-              <input type="text" class="setting-input" bind:value={realtimeVoice} placeholder={$t('ai.realtime.config.optional')} />
+              <label class="setting-label" for="ais-rt-edit-voice">{$t('ai.realtime.config.voice')}</label>
+              <input id="ais-rt-edit-voice" type="text" class="setting-input" bind:value={realtimeVoice} placeholder={$t('ai.realtime.config.optional')} />
             </div>
             <div class="setting-group" style="width:8rem;flex-shrink:0">
-              <label class="setting-label">{$t('ai.realtime.config.region')}</label>
-              <input type="text" class="setting-input" bind:value={realtimeRegion} placeholder={$t('ai.realtime.config.optional')} />
+              <label class="setting-label" for="ais-rt-edit-region">{$t('ai.realtime.config.region')}</label>
+              <input id="ais-rt-edit-region" type="text" class="setting-input" bind:value={realtimeRegion} placeholder={$t('ai.realtime.config.optional')} />
             </div>
           </div>
 
@@ -809,8 +817,8 @@
     {#if addingRealtime}
       <div class="config-form">
         <div class="setting-group">
-          <label class="setting-label">{$t('ai.config.provider')}</label>
-          <select class="setting-input" value={realtimeProvider} onchange={handleRealtimeProviderChange}>
+          <label class="setting-label" for="ais-rt-add-provider">{$t('ai.config.provider')}</label>
+          <select id="ais-rt-add-provider" class="setting-input" value={realtimeProvider} onchange={handleRealtimeProviderChange}>
             {#each REALTIME_PROVIDERS as p}
               <option value={p}>{getRealtimeProviderLabel(p)}</option>
             {/each}
@@ -819,36 +827,37 @@
 
         {#if providerNeedsAwsCredential(realtimeProvider)}
           <div class="setting-group">
-            <label class="setting-label">{$t('ai.realtime.config.accessKeyId')}</label>
-            <input type="password" class="setting-input" bind:value={realtimeAccessKeyId} placeholder="AKIA..." />
+            <label class="setting-label" for="ais-rt-add-accesskeyid">{$t('ai.realtime.config.accessKeyId')}</label>
+            <input id="ais-rt-add-accesskeyid" type="password" class="setting-input" bind:value={realtimeAccessKeyId} placeholder="AKIA..." />
           </div>
           <div class="setting-group">
-            <label class="setting-label">{$t('ai.realtime.config.secretAccessKey')}</label>
-            <input type="password" class="setting-input" bind:value={realtimeSecretAccessKey} placeholder={$t('ai.realtime.config.secretPlaceholder')} />
+            <label class="setting-label" for="ais-rt-add-secretaccesskey">{$t('ai.realtime.config.secretAccessKey')}</label>
+            <input id="ais-rt-add-secretaccesskey" type="password" class="setting-input" bind:value={realtimeSecretAccessKey} placeholder={$t('ai.realtime.config.secretPlaceholder')} />
           </div>
           <div class="setting-group">
-            <label class="setting-label">{$t('ai.realtime.config.sessionToken')}</label>
-            <input type="password" class="setting-input" bind:value={realtimeSessionToken} placeholder={$t('ai.realtime.config.optional')} />
+            <label class="setting-label" for="ais-rt-add-sessiontoken">{$t('ai.realtime.config.sessionToken')}</label>
+            <input id="ais-rt-add-sessiontoken" type="password" class="setting-input" bind:value={realtimeSessionToken} placeholder={$t('ai.realtime.config.optional')} />
           </div>
         {:else if providerNeedsDoubaoCredential(realtimeProvider)}
           <div class="setting-group">
-            <label class="setting-label">{$t('ai.realtime.config.doubaoAppId')}</label>
-            <input type="text" class="setting-input" bind:value={realtimeAppId} placeholder="123456789" />
+            <label class="setting-label" for="ais-rt-add-appid">{$t('ai.realtime.config.doubaoAppId')}</label>
+            <input id="ais-rt-add-appid" type="text" class="setting-input" bind:value={realtimeAppId} placeholder="123456789" />
           </div>
           <div class="setting-group">
-            <label class="setting-label">{$t('ai.realtime.config.doubaoAccessKey')}</label>
-            <input type="password" class="setting-input" bind:value={realtimeApiKey} placeholder="your-access-token" />
+            <label class="setting-label" for="ais-rt-add-accesskey">{$t('ai.realtime.config.doubaoAccessKey')}</label>
+            <input id="ais-rt-add-accesskey" type="password" class="setting-input" bind:value={realtimeApiKey} placeholder="your-access-token" />
           </div>
         {:else}
           <div class="setting-group">
-            <label class="setting-label">{$t('ai.config.apiKey')}</label>
-            <input type="password" class="setting-input" bind:value={realtimeApiKey} placeholder={$t('ai.config.apiKeyPlaceholder', { provider: realtimeProvider })} />
+            <label class="setting-label" for="ais-rt-add-apikey">{$t('ai.config.apiKey')}</label>
+            <input id="ais-rt-add-apikey" type="password" class="setting-input" bind:value={realtimeApiKey} placeholder={$t('ai.config.apiKeyPlaceholder', { provider: realtimeProvider })} />
           </div>
         {/if}
 
         <div class="setting-group">
-          <label class="setting-label">{$t('ai.config.baseUrl')}</label>
+          <label class="setting-label" for="ais-rt-add-baseurl">{$t('ai.config.baseUrl')}</label>
           <input
+            id="ais-rt-add-baseurl"
             type="text"
             class="setting-input"
             bind:value={realtimeBaseUrl}
@@ -865,9 +874,10 @@
         </div>
 
         <div class="setting-group">
-          <label class="setting-label">{$t('ai.config.model')}</label>
+          <label class="setting-label" for="ais-rt-add-model">{$t('ai.config.model')}</label>
           <div class="combo-wrapper">
             <input
+              id="ais-rt-add-model"
               type="text"
               class="setting-input"
               bind:value={realtimeModel}
@@ -891,12 +901,12 @@
 
         <div class="model-tokens-row">
           <div class="setting-group" style="flex:1;min-width:0">
-            <label class="setting-label">{$t('ai.realtime.config.voice')}</label>
-            <input type="text" class="setting-input" bind:value={realtimeVoice} placeholder={$t('ai.realtime.config.optional')} />
+            <label class="setting-label" for="ais-rt-add-voice">{$t('ai.realtime.config.voice')}</label>
+            <input id="ais-rt-add-voice" type="text" class="setting-input" bind:value={realtimeVoice} placeholder={$t('ai.realtime.config.optional')} />
           </div>
           <div class="setting-group" style="width:8rem;flex-shrink:0">
-            <label class="setting-label">{$t('ai.realtime.config.region')}</label>
-            <input type="text" class="setting-input" bind:value={realtimeRegion} placeholder={$t('ai.realtime.config.optional')} />
+            <label class="setting-label" for="ais-rt-add-region">{$t('ai.realtime.config.region')}</label>
+            <input id="ais-rt-add-region" type="text" class="setting-input" bind:value={realtimeRegion} placeholder={$t('ai.realtime.config.optional')} />
           </div>
         </div>
 

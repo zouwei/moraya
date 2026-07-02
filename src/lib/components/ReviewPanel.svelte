@@ -319,6 +319,7 @@
 			class="disclaimer-card"
 			role="dialog"
 			aria-modal="true"
+			tabindex="-1"
 			aria-label={$t('review.aiDisclaimerTitle')}
 			onclick={(e) => e.stopPropagation()}
 			onkeydown={(e) => e.stopPropagation()}

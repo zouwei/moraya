@@ -162,8 +162,8 @@
     {#if editingImageId === config.id}
       <div class="config-form">
         <div class="setting-group">
-          <label class="setting-label">{$t('ai.imageConfig.provider')}</label>
-          <select class="setting-input" value={imgFormProvider} onchange={handleImgProviderChange}>
+          <label class="setting-label" for="ias-provider">{$t('ai.imageConfig.provider')}</label>
+          <select class="setting-input" id="ias-provider" value={imgFormProvider} onchange={handleImgProviderChange}>
             <option value="openai">{$t('ai.imageConfig.providerOpenai')}</option>
             <option value="grok">{$t('ai.imageConfig.providerGrok')}</option>
             <option value="gemini">{$t('ai.imageConfig.providerGemini')}</option>
@@ -174,19 +174,19 @@
         </div>
 
         <div class="setting-group">
-          <label class="setting-label">{$t('ai.imageConfig.apiKey')}</label>
-          <input type="password" class="setting-input" bind:value={imgFormApiKey} placeholder={$t('ai.imageConfig.apiKeyPlaceholder')} />
+          <label class="setting-label" for="ias-apikey">{$t('ai.imageConfig.apiKey')}</label>
+          <input type="password" class="setting-input" id="ias-apikey" bind:value={imgFormApiKey} placeholder={$t('ai.imageConfig.apiKeyPlaceholder')} />
         </div>
 
         <div class="setting-group">
-          <label class="setting-label">{$t('ai.imageConfig.baseUrl')}</label>
-          <input type="text" class="setting-input" bind:value={imgFormBaseUrl} placeholder="https://api.openai.com/v1" />
+          <label class="setting-label" for="ias-baseurl">{$t('ai.imageConfig.baseUrl')}</label>
+          <input type="text" class="setting-input" id="ias-baseurl" bind:value={imgFormBaseUrl} placeholder="https://api.openai.com/v1" />
         </div>
 
         <div class="setting-group">
-          <label class="setting-label">{$t('ai.imageConfig.model')}</label>
+          <label class="setting-label" for="ias-model">{$t('ai.imageConfig.model')}</label>
           <div class="combo-wrapper">
-            <input type="text" class="setting-input" bind:value={imgFormModel}
+            <input type="text" class="setting-input" id="ias-model" bind:value={imgFormModel}
               onfocus={() => { if (getImageModels().length > 0) showImageModelDropdown = true; }}
               onblur={() => { setTimeout(() => { showImageModelDropdown = false; }, 150); }}
               placeholder={$t('ai.imageConfig.modelPlaceholder')} />
@@ -203,8 +203,8 @@
         </div>
 
         <div class="setting-group">
-          <label class="setting-label">{$t('ai.imageConfig.ratio')}</label>
-          <select class="setting-input" bind:value={imgFormRatio}>
+          <label class="setting-label" for="ias-ratio">{$t('ai.imageConfig.ratio')}</label>
+          <select class="setting-input" id="ias-ratio" bind:value={imgFormRatio}>
             {#each RATIO_OPTIONS as r}
               <option value={r}>{r}</option>
             {/each}
@@ -212,9 +212,9 @@
         </div>
 
         <div class="setting-group">
-          <label class="setting-label">{$t('ai.imageConfig.sizeLevel')}</label>
+          <label class="setting-label" for="ias-sizelevel">{$t('ai.imageConfig.sizeLevel')}</label>
           <div class="setting-row">
-            <select class="setting-input" style="flex:1" bind:value={imgFormSizeLevel}>
+            <select class="setting-input" id="ias-sizelevel" style="flex:1" bind:value={imgFormSizeLevel}>
               {#each SIZE_LEVEL_OPTIONS as s}
                 <option value={s}>{$t(`ai.imageConfig.size_${s}`)}</option>
               {/each}
@@ -269,8 +269,8 @@
   {#if addingImage}
     <div class="config-form">
       <div class="setting-group">
-        <label class="setting-label">{$t('ai.imageConfig.provider')}</label>
-        <select class="setting-input" value={imgFormProvider} onchange={handleImgProviderChange}>
+        <label class="setting-label" for="ias-add-provider">{$t('ai.imageConfig.provider')}</label>
+        <select class="setting-input" id="ias-add-provider" value={imgFormProvider} onchange={handleImgProviderChange}>
           <option value="openai">{$t('ai.imageConfig.providerOpenai')}</option>
           <option value="grok">{$t('ai.imageConfig.providerGrok')}</option>
           <option value="gemini">{$t('ai.imageConfig.providerGemini')}</option>
@@ -281,23 +281,23 @@
       </div>
 
       <div class="setting-group">
-        <label class="setting-label">{$t('ai.imageConfig.apiKey')}</label>
-        <input type="password" class="setting-input" bind:value={imgFormApiKey} placeholder={$t('ai.imageConfig.apiKeyPlaceholder')} />
+        <label class="setting-label" for="ias-add-apikey">{$t('ai.imageConfig.apiKey')}</label>
+        <input type="password" class="setting-input" id="ias-add-apikey" bind:value={imgFormApiKey} placeholder={$t('ai.imageConfig.apiKeyPlaceholder')} />
       </div>
 
       <div class="setting-group">
-        <label class="setting-label">{$t('ai.imageConfig.baseUrl')}</label>
-        <input type="text" class="setting-input" bind:value={imgFormBaseUrl} placeholder="https://api.openai.com/v1" />
+        <label class="setting-label" for="ias-add-baseurl">{$t('ai.imageConfig.baseUrl')}</label>
+        <input type="text" class="setting-input" id="ias-add-baseurl" bind:value={imgFormBaseUrl} placeholder="https://api.openai.com/v1" />
       </div>
 
       <div class="setting-group">
-        <label class="setting-label">{$t('ai.imageConfig.model')}</label>
-        <input type="text" class="setting-input" bind:value={imgFormModel} placeholder={$t('ai.imageConfig.modelPlaceholder')} />
+        <label class="setting-label" for="ias-add-model">{$t('ai.imageConfig.model')}</label>
+        <input type="text" class="setting-input" id="ias-add-model" bind:value={imgFormModel} placeholder={$t('ai.imageConfig.modelPlaceholder')} />
       </div>
 
       <div class="setting-group">
-        <label class="setting-label">{$t('ai.imageConfig.ratio')}</label>
-        <select class="setting-input" bind:value={imgFormRatio}>
+        <label class="setting-label" for="ias-add-ratio">{$t('ai.imageConfig.ratio')}</label>
+        <select class="setting-input" id="ias-add-ratio" bind:value={imgFormRatio}>
           {#each RATIO_OPTIONS as r}
             <option value={r}>{r}</option>
           {/each}
@@ -305,9 +305,9 @@
       </div>
 
       <div class="setting-group">
-        <label class="setting-label">{$t('ai.imageConfig.sizeLevel')}</label>
+        <label class="setting-label" for="ias-add-sizelevel">{$t('ai.imageConfig.sizeLevel')}</label>
         <div class="setting-row">
-          <select class="setting-input" style="flex:1" bind:value={imgFormSizeLevel}>
+          <select class="setting-input" id="ias-add-sizelevel" style="flex:1" bind:value={imgFormSizeLevel}>
             {#each SIZE_LEVEL_OPTIONS as s}
               <option value={s}>{$t(`ai.imageConfig.size_${s}`)}</option>
             {/each}

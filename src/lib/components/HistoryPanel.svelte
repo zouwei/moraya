@@ -429,6 +429,7 @@
 		{#if snapshotLoading}
 			<div class="state">⟳ {$t('history.loading')}</div>
 		{:else}
+			<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 			<pre class="snapshot-body" tabindex="0">{snapshotContent}</pre>
 			<div class="snapshot-actions">
 				<button class="btn" onclick={copySnapshot}>📋 {$t('history.snapshot.copy')}</button>

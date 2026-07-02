@@ -335,16 +335,17 @@
         <!-- Edit form replaces the card inline (same pattern as AI settings) -->
         <div class="config-form">
           <div class="field">
-            <label>{$t('settings.voice.provider')}</label>
-            <select bind:value={form.provider} onchange={onProviderChange}>
+            <label for="voice-edit-provider">{$t('settings.voice.provider')}</label>
+            <select id="voice-edit-provider" bind:value={form.provider} onchange={onProviderChange}>
               {#each PROVIDERS as p}
                 <option value={p.value}>{p.label}</option>
               {/each}
             </select>
           </div>
           <div class="field">
-            <label>{$t('settings.voice.apiKey')}</label>
+            <label for="voice-edit-apikey">{$t('settings.voice.apiKey')}</label>
             <input
+              id="voice-edit-apikey"
               type="password"
               bind:value={form.apiKey}
               placeholder={form.provider === 'aws-transcribe' ? $t('settings.voice.apiKeyOptional') : ''}
@@ -352,27 +353,29 @@
           </div>
           {#if form.provider === 'aws-transcribe'}
             <div class="field">
-              <label>{$t('settings.voice.awsAccessKey')}</label>
-              <input type="password" bind:value={form.awsAccessKey} />
+                <label for="voice-edit-aws-access-key">{$t('settings.voice.awsAccessKey')}</label>
+                <input id="voice-edit-aws-access-key" type="password" bind:value={form.awsAccessKey} />
             </div>
             <div class="field">
-              <label>{$t('settings.voice.awsSecretKey')}</label>
-              <input type="password" bind:value={form.awsSecretKey} />
+                <label for="voice-edit-aws-secret-key">{$t('settings.voice.awsSecretKey')}</label>
+                <input id="voice-edit-aws-secret-key" type="password" bind:value={form.awsSecretKey} />
             </div>
           {/if}
           {#if form.provider === 'azure-speech' || form.provider === 'aws-transcribe'}
             <div class="field">
-              <label>{$t('settings.voice.region')}</label>
-              <input
-                type="text"
-                bind:value={form.region}
-                placeholder={form.provider === 'azure-speech' ? 'eastus' : 'us-east-1'}
-              />
+                <label for="voice-edit-region">{$t('settings.voice.region')}</label>
+                <input
+                  id="voice-edit-region"
+                  type="text"
+                  bind:value={form.region}
+                  placeholder={form.provider === 'azure-speech' ? 'eastus' : 'us-east-1'}
+                />
             </div>
           {/if}
           <div class="field">
-            <label>{$t('settings.voice.model')}</label>
+            <label for="voice-edit-model">{$t('settings.voice.model')}</label>
             <input
+              id="voice-edit-model"
               list="voice-model-list-{form.provider}"
               type="text"
               bind:value={form.model}
@@ -380,13 +383,13 @@
             />
             <datalist id="voice-model-list-{form.provider}">
               {#each availableModels as m}
-                <option value={m} />
+                  <option value={m}></option>
               {/each}
             </datalist>
           </div>
           <div class="field">
-            <label>{$t('settings.voice.language')}</label>
-            <select bind:value={form.language}>
+            <label for="voice-edit-language">{$t('settings.voice.language')}</label>
+            <select id="voice-edit-language" bind:value={form.language}>
               {#each LANGUAGES as lang}
                 <option value={lang.value}>{lang.label}</option>
               {/each}
@@ -394,8 +397,8 @@
           </div>
           {#if form.provider === 'custom'}
             <div class="field">
-              <label>{$t('settings.voice.baseUrl')}</label>
-              <input type="text" bind:value={form.baseUrl} list="speech-baseurl-edit" placeholder="wss://..." />
+              <label for="voice-edit-baseurl">{$t('settings.voice.baseUrl')}</label>
+              <input id="voice-edit-baseurl" type="text" bind:value={form.baseUrl} list="speech-baseurl-edit" placeholder="wss://..." />
               {#if getBaseUrlPresets(form.provider).length > 0}
                 <datalist id="speech-baseurl-edit">
                   {#each getBaseUrlPresets(form.provider) as opt (opt.value)}
@@ -452,16 +455,17 @@
     {#if showAddForm && !editingId}
       <div class="config-form">
         <div class="field">
-          <label>{$t('settings.voice.provider')}</label>
-          <select bind:value={form.provider} onchange={onProviderChange}>
+          <label for="voice-add-provider">{$t('settings.voice.provider')}</label>
+          <select id="voice-add-provider" bind:value={form.provider} onchange={onProviderChange}>
             {#each PROVIDERS as p}
               <option value={p.value}>{p.label}</option>
             {/each}
           </select>
         </div>
         <div class="field">
-          <label>{$t('settings.voice.apiKey')}</label>
+          <label for="voice-add-apikey">{$t('settings.voice.apiKey')}</label>
           <input
+            id="voice-add-apikey"
             type="password"
             bind:value={form.apiKey}
             placeholder={form.provider === 'aws-transcribe' ? $t('settings.voice.apiKeyOptional') : ''}
@@ -469,27 +473,29 @@
         </div>
         {#if form.provider === 'aws-transcribe'}
           <div class="field">
-            <label>{$t('settings.voice.awsAccessKey')}</label>
-            <input type="password" bind:value={form.awsAccessKey} />
+              <label for="voice-add-aws-access-key">{$t('settings.voice.awsAccessKey')}</label>
+              <input id="voice-add-aws-access-key" type="password" bind:value={form.awsAccessKey} />
           </div>
           <div class="field">
-            <label>{$t('settings.voice.awsSecretKey')}</label>
-            <input type="password" bind:value={form.awsSecretKey} />
+              <label for="voice-add-aws-secret-key">{$t('settings.voice.awsSecretKey')}</label>
+              <input id="voice-add-aws-secret-key" type="password" bind:value={form.awsSecretKey} />
           </div>
         {/if}
         {#if form.provider === 'azure-speech' || form.provider === 'aws-transcribe'}
           <div class="field">
-            <label>{$t('settings.voice.region')}</label>
-            <input
-              type="text"
-              bind:value={form.region}
-              placeholder={form.provider === 'azure-speech' ? 'eastus' : 'us-east-1'}
-            />
+              <label for="voice-add-region">{$t('settings.voice.region')}</label>
+              <input
+                id="voice-add-region"
+                type="text"
+                bind:value={form.region}
+                placeholder={form.provider === 'azure-speech' ? 'eastus' : 'us-east-1'}
+              />
           </div>
         {/if}
         <div class="field">
-          <label>{$t('settings.voice.model')}</label>
+          <label for="voice-add-model">{$t('settings.voice.model')}</label>
           <input
+            id="voice-add-model"
             list="voice-model-list-add-{form.provider}"
             type="text"
             bind:value={form.model}
@@ -497,13 +503,13 @@
           />
           <datalist id="voice-model-list-add-{form.provider}">
             {#each availableModels as m}
-              <option value={m} />
+                <option value={m}></option>
             {/each}
           </datalist>
         </div>
         <div class="field">
-          <label>{$t('settings.voice.language')}</label>
-          <select bind:value={form.language}>
+          <label for="voice-add-language">{$t('settings.voice.language')}</label>
+          <select id="voice-add-language" bind:value={form.language}>
             {#each LANGUAGES as lang}
               <option value={lang.value}>{lang.label}</option>
             {/each}
@@ -511,8 +517,8 @@
         </div>
         {#if form.provider === 'custom'}
           <div class="field">
-            <label>{$t('settings.voice.baseUrl')}</label>
-            <input type="text" bind:value={form.baseUrl} list="speech-baseurl-add" placeholder="wss://..." />
+              <label for="voice-add-baseurl">{$t('settings.voice.baseUrl')}</label>
+              <input id="voice-add-baseurl" type="text" bind:value={form.baseUrl} list="speech-baseurl-add" placeholder="wss://..." />
             {#if getBaseUrlPresets(form.provider).length > 0}
               <datalist id="speech-baseurl-add">
                 {#each getBaseUrlPresets(form.provider) as opt (opt.value)}
@@ -580,7 +586,7 @@
 
     <!-- Voice Sync Dir: always shown, Change migrates files to new location -->
     <div class="field">
-      <label>{$t('settings.voice.voiceSyncDir')}</label>
+      <span class="field-label">{$t('settings.voice.voiceSyncDir')}</span>
       <div class="path-row">
         <span class="path-text">{voiceSyncDir || defaultSyncDir || $t('settings.voice.syncDefault')}</span>
         <button class="path-btn" onclick={changeSyncDir} disabled={migrating}>
@@ -855,22 +861,6 @@
   .add-model-btn:hover {
     border-color: var(--accent-color);
     color: var(--accent-color);
-  }
-
-  .add-btn {
-    padding: 0.2rem 0.6rem;
-    font-size: var(--font-size-xs);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    background: var(--bg-primary);
-    color: var(--text-secondary);
-    cursor: pointer;
-    transition: background var(--transition-fast);
-  }
-
-  .add-btn:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
   }
 
   .empty-hint {

@@ -26,8 +26,10 @@
   let selectedIds = $state<Set<string>>(new Set());
 
   // SEO state
+  // svelte-ignore state_referenced_locally
   let enableSEO = $state(!!currentSEOData);
   let stage = $state<'targets' | 'seo'>('targets');
+  // svelte-ignore state_referenced_locally
   let seoData = $state<SEOData>(currentSEOData ?? {
     titles: [],
     selectedTitle: '',
@@ -144,9 +146,10 @@
         {:else}
           <div class="target-list">
             {#each targets as target (target.id)}
-              <label class="target-item">
+              <label class="target-item" for="target-{target.id}">
                 <input
                   type="checkbox"
+                  id="target-{target.id}"
                   checked={selectedIds.has(target.id)}
                   onchange={() => toggleTarget(target.id)}
                 />
@@ -164,8 +167,8 @@
           </div>
 
           <div class="seo-toggle">
-            <label class="seo-checkbox">
-              <input type="checkbox" bind:checked={enableSEO} />
+            <label class="seo-checkbox" for="seo-enable">
+              <input type="checkbox" id="seo-enable" bind:checked={enableSEO} />
               <span>{tr('publish.enableSEO')}</span>
             </label>
             <span class="seo-hint">{tr('publish.enableSEOHint')}</span>
@@ -206,11 +209,12 @@
         {:else}
           <!-- Title suggestions -->
           <div class="seo-field">
-            <label class="field-label">{tr('seo.titles')}</label>
+            <label class="field-label" for="seo-titles">{tr('seo.titles')}</label>
             {#each seoData.titles as title, i}
-              <label class="title-option">
+              <label class="title-option" for="seo-title-{i}">
                 <input
                   type="radio"
+                  id="seo-title-{i}"
                   name="seo-title"
                   checked={seoData.selectedTitle === title}
                   onchange={() => selectTitle(title)}
@@ -221,6 +225,7 @@
             <input
               type="text"
               class="form-input"
+              id="seo-titles"
               placeholder={tr('seo.customTitle')}
               value={seoData.selectedTitle}
               oninput={(e) => { seoData = { ...seoData, selectedTitle: (e.target as HTMLInputElement).value }; }}
@@ -229,9 +234,10 @@
 
           <!-- Excerpt -->
           <div class="seo-field">
-            <label class="field-label">{tr('seo.excerpt')}</label>
+            <label class="field-label" for="seo-excerpt">{tr('seo.excerpt')}</label>
             <textarea
               class="form-input seo-textarea"
+              id="seo-excerpt"
               maxlength="120"
               value={seoData.excerpt}
               oninput={(e) => { seoData = { ...seoData, excerpt: (e.target as HTMLTextAreaElement).value }; }}
@@ -241,7 +247,7 @@
 
           <!-- Tags -->
           <div class="seo-field">
-            <label class="field-label">{tr('seo.tags')}</label>
+            <label class="field-label" for="seo-tags">{tr('seo.tags')}</label>
             <div class="tags-container">
               {#each seoData.tags as tag}
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -253,6 +259,7 @@
               <input
                 type="text"
                 class="tag-input"
+                id="seo-tags"
                 placeholder={tr('seo.addTag')}
                 bind:value={tagInput}
                 onkeydown={handleTagKeydown}
@@ -262,10 +269,11 @@
 
           <!-- Slug -->
           <div class="seo-field">
-            <label class="field-label">{tr('seo.slug')}</label>
+            <label class="field-label" for="seo-slug">{tr('seo.slug')}</label>
             <input
               type="text"
               class="form-input"
+              id="seo-slug"
               value={seoData.slug}
               oninput={(e) => { seoData = { ...seoData, slug: (e.target as HTMLInputElement).value }; }}
             />
@@ -273,9 +281,10 @@
 
           <!-- Meta Description -->
           <div class="seo-field">
-            <label class="field-label">{tr('seo.metaDescription')}</label>
+            <label class="field-label" for="seo-meta">{tr('seo.metaDescription')}</label>
             <textarea
               class="form-input seo-textarea"
+              id="seo-meta"
               maxlength="160"
               value={seoData.metaDescription}
               oninput={(e) => { seoData = { ...seoData, metaDescription: (e.target as HTMLTextAreaElement).value }; }}

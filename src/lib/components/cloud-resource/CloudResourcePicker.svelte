@@ -73,6 +73,7 @@
     }
   });
 
+  // svelte-ignore state_referenced_locally
   let selectedTargetId = $state(
     boundPicoraTargetId
       ? (picoraTargets.find(t => t.id === boundPicoraTargetId)?.id ?? getDefaultTargetId())

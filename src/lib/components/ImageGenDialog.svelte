@@ -711,10 +711,6 @@
     margin-bottom: 0.75rem;
   }
 
-  .step-header h4 {
-    margin: 0;
-  }
-
   .step-controls {
     display: flex;
     align-items: center;

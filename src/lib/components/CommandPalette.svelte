@@ -18,6 +18,7 @@
   } = $props();
 
   let inputEl: HTMLInputElement | undefined = $state();
+  // svelte-ignore state_referenced_locally
   let query = $state(initialMode === 'commands' ? '>' : '');
   let selectedIndex = $state(0);
   let resultListEl: HTMLDivElement | undefined = $state();
@@ -303,8 +304,8 @@
   });
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-<div class="palette-backdrop" onclick={handleBackdropClick}>
+<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions a11y_no_noninteractive_element_interactions -->
+<div class="palette-backdrop" role="presentation" onclick={handleBackdropClick}>
   <div class="palette-container">
     <div class="palette-input-row">
       <input
@@ -333,6 +334,8 @@
             class="palette-item"
             class:selected={i === selectedIndex}
             data-index={i}
+            role="option"
+            aria-selected={i === selectedIndex}
             tabindex="-1"
             onclick={() => {
               selectedIndex = i;

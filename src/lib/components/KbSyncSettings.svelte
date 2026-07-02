@@ -194,8 +194,9 @@
           {@const binding = kb.picoraBinding}
           <div class="strategy-editor">
             <div class="strategy-row">
-              <label class="strategy-label">{$t('kbSync.strategy.mode')}</label>
+              <label class="strategy-label" for="sync-strategy-mode">{$t('kbSync.strategy.mode')}</label>
               <select
+                id="sync-strategy-mode"
                 class="select-input"
                 value={binding.strategy.mode}
                 onchange={(e) => filesStore.updateKbStrategy(kb.id, { ...binding.strategy, mode: (e.target as HTMLSelectElement).value as SyncStrategy['mode'] })}
@@ -219,8 +220,9 @@
               {/if}
             </div>
             <div class="strategy-row">
-              <label class="strategy-label">{$t('kbSync.strategy.scope')}</label>
+              <label class="strategy-label" for="sync-strategy-scope">{$t('kbSync.strategy.scope')}</label>
               <select
+                id="sync-strategy-scope"
                 class="select-input"
                 value={binding.strategy.scope}
                 onchange={(e) => filesStore.updateKbStrategy(kb.id, { ...binding.strategy, scope: (e.target as HTMLSelectElement).value as SyncStrategy['scope'] })}
@@ -231,8 +233,9 @@
               </select>
             </div>
             <div class="strategy-row">
-              <label class="strategy-label">{$t('kbSync.strategy.conflict')}</label>
+              <label class="strategy-label" for="sync-strategy-conflict">{$t('kbSync.strategy.conflict')}</label>
               <select
+                id="sync-strategy-conflict"
                 class="select-input"
                 value={binding.strategy.conflictPolicy}
                 onchange={(e) => filesStore.updateKbStrategy(kb.id, { ...binding.strategy, conflictPolicy: (e.target as HTMLSelectElement).value as SyncStrategy['conflictPolicy'] })}

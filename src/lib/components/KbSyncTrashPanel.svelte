@@ -150,7 +150,7 @@
 </script>
 
 <div class="modal-overlay" onclick={onClose} onkeydown={(e) => e.key === 'Escape' && onClose()} role="presentation">
-  <div class="modal-panel" role="dialog" aria-labelledby="trash-title" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
+  <div class="modal-panel" role="dialog" aria-labelledby="trash-title" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
     <header>
       <h2 id="trash-title">{$t('kbSync.trash.title')}</h2>
       <button class="close-btn" onclick={onClose} aria-label="Close" type="button">×</button>

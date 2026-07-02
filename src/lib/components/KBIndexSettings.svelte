@@ -275,8 +275,8 @@
   <div class="section-divider"></div>
 
   <div class="setting-group">
-    <label class="setting-label">{$t('kb.provider')}</label>
-    <select class="setting-input" value={embeddingSource} onchange={(e) => {
+    <label class="setting-label" for="kb-provider">{$t('kb.provider')}</label>
+    <select id="kb-provider" class="setting-input" value={embeddingSource} onchange={(e) => {
       const val = (e.target as HTMLSelectElement).value as 'online' | 'local';
       embeddingSource = val;
       settingsStore.update({ embeddingProvider: val === 'local' ? 'local' : (embeddingProvider || null) });
@@ -288,9 +288,10 @@
   </div>
 
   <div class="setting-group">
-    <label class="setting-label">{$t('kb.model')}</label>
+    <label class="setting-label" for="kb-model">{$t('kb.model')}</label>
     <div class="model-combo">
       <input
+        id="kb-model"
         class="setting-input model-input"
         type="text"
         value={embeddingSource === 'local' ? (localModels.find(m => m.id === localEmbeddingModelId)?.name || '') : embeddingModel}
@@ -643,8 +644,7 @@
     cursor: pointer;
   }
 
-  .dim-warning,
-  .provider-warning {
+  .dim-warning {
     font-size: var(--font-size-xs);
     color: var(--text-warning, #e0a800);
     margin-top: 4px;

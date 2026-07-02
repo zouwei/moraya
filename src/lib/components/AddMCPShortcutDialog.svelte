@@ -23,6 +23,7 @@
     onAdd: (payload: { serverId: string; toolName: string }) => void;
   } = $props();
 
+  // svelte-ignore state_referenced_locally
   let serverId = $state(servers[0]?.id ?? '');
   let toolName = $state('');
 
@@ -54,7 +55,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="dialog-overlay" onclick={onClose}>
-  <div class="dialog" role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()}>
+  <div class="dialog" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()}>
     <header class="dialog-head">
       <h3>{$t('shortcuts.mcp.dialog.title')}</h3>
       <button class="close-btn" onclick={onClose} type="button" aria-label="Close">✕</button>

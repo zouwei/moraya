@@ -22,7 +22,9 @@
   let loadingKbs = $state(false);
   let kbsError = $state('');
   let createMode = $state(true);
+  // svelte-ignore state_referenced_locally
   let newKbName = $state(kb.name);
+  // svelte-ignore state_referenced_locally
   let newKbSlug = $state(slugify(kb.name));
   let selectedRemoteKbId = $state('');
   let strategy = $state<SyncStrategy>({ ...DEFAULT_SYNC_STRATEGY });
@@ -266,8 +268,8 @@
       {:else if step === 3}
         <h4>{$t('kbSync.bindDialog.step3Title')}</h4>
         <div class="form-section">
-          <label class="form-label">{$t('kbSync.strategy.mode')}</label>
-          <select class="select-input" bind:value={strategy.mode}>
+          <label class="form-label" for="kb-strategy-mode">{$t('kbSync.strategy.mode')}</label>
+          <select id="kb-strategy-mode" class="select-input" bind:value={strategy.mode}>
             <option value="manual">{$t('kbSync.strategy.modeManual')}</option>
             <option value="on-save">{$t('kbSync.strategy.modeOnSave')}</option>
             <option value="interval">{$t('kbSync.strategy.modeInterval')}</option>
@@ -283,16 +285,16 @@
           {/if}
         </div>
         <div class="form-section">
-          <label class="form-label">{$t('kbSync.strategy.scope')}</label>
-          <select class="select-input" bind:value={strategy.scope}>
+          <label class="form-label" for="kb-strategy-scope">{$t('kbSync.strategy.scope')}</label>
+          <select id="kb-strategy-scope" class="select-input" bind:value={strategy.scope}>
             <option value="markdown-only">{$t('kbSync.strategy.scopeMdOnly')}</option>
             <option value="markdown-plus-rules">{$t('kbSync.strategy.scopeMdRules')}</option>
             <option value="all-including-hidden">{$t('kbSync.strategy.scopeAll')}</option>
           </select>
         </div>
         <div class="form-section">
-          <label class="form-label">{$t('kbSync.strategy.conflict')}</label>
-          <select class="select-input" bind:value={strategy.conflictPolicy}>
+          <label class="form-label" for="kb-strategy-conflict">{$t('kbSync.strategy.conflict')}</label>
+          <select id="kb-strategy-conflict" class="select-input" bind:value={strategy.conflictPolicy}>
             <option value="prompt">{$t('kbSync.strategy.conflictPrompt')}</option>
             <option value="prefer-local">{$t('kbSync.strategy.conflictLocal')}</option>
             <option value="prefer-remote">{$t('kbSync.strategy.conflictRemote')}</option>

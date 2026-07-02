@@ -679,9 +679,6 @@
   .preset-langs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
   .lang-chip { font-size: 11px; background: var(--bg-tertiary); color: var(--text-secondary); padding: 2px 6px; border-radius: 4px; font-family: var(--font-mono); }
 
-  .plugin-link { font-size: 11px; color: var(--accent-color); text-decoration: none; }
-  .plugin-link:hover { text-decoration: underline; }
-
   .plugin-homepage { font-size: 11px; color: var(--accent-color); text-decoration: none; cursor: pointer; }
   .plugin-homepage:hover { text-decoration: underline; }
 
@@ -690,8 +687,6 @@
   .status-badge.loading { color: var(--text-secondary); background: var(--bg-tertiary); }
 
   /* Buttons */
-  .btn-sm { padding: 4px 10px !important; }
-
   .plugin-card-header { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
   .plugin-name { font-weight: 600; font-size: var(--font-size-sm); color: var(--text-primary); flex: 1; min-width: 0; }
   .plugin-version { color: var(--text-secondary); font-size: var(--font-size-xs); }
