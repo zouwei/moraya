@@ -1,5 +1,6 @@
 <script lang="ts">
   import { editorStore, type EditorMode } from '../stores/editor-store';
+  import { settingsStore } from '../stores/settings-store';
   import { updateStore } from '$lib/services/update-service';
   import { t } from '$lib/i18n';
   import { isMacOS, isIPadOS } from '$lib/utils/platform';
@@ -60,6 +61,14 @@
   let updateAvailable = $state(false);
   let activeKbSyncState = $state<KbSyncState | null>(null);
   let showSyncPopover = $state(false);
+
+  let showSidebar = $state(false);
+  let showOutline = $state(false);
+
+  settingsStore.subscribe(state => {
+    showSidebar = state.showSidebar;
+    showOutline = state.showOutline;
+  });
 
   // Top-level store subscriptions — do NOT wrap in $effect().
   // Svelte 5 $effect tracks reads in subscribe callbacks, causing infinite loops.
@@ -123,10 +132,48 @@
     };
     return labelMap[mode];
   }
+
+  function toggleSidebar() {
+    settingsStore.toggleSidebar();
+  }
+
+  function toggleOutline() {
+    settingsStore.update({ showOutline: !showOutline });
+  }
 </script>
 
 <div class="statusbar no-select">
   <div class="statusbar-left">
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <span
+      class="status-icon"
+      class:active={showSidebar}
+      onclick={toggleSidebar}
+      title={$t('menu.toggleSidebar')}
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+        <line x1="9" y1="3" x2="9" y2="21"/>
+      </svg>
+    </span>
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <span
+      class="status-icon"
+      class:active={showOutline}
+      onclick={toggleOutline}
+      title={$t('menu.toggleOutline')}
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="8" y1="6" x2="21" y2="6"/>
+        <line x1="8" y1="12" x2="21" y2="12"/>
+        <line x1="8" y1="18" x2="21" y2="18"/>
+        <line x1="3" y1="6" x2="3.01" y2="6"/>
+        <line x1="3" y1="12" x2="3.01" y2="12"/>
+        <line x1="3" y1="18" x2="3.01" y2="18"/>
+      </svg>
+    </span>
     <span class="status-item">{$t('statusbar.words')}: {wordCount}</span>
     <span class="status-item">{$t('statusbar.characters')}: {charCount}</span>
     {#if searchActive}
@@ -336,6 +383,26 @@
     white-space: nowrap;
   }
 
+  .status-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 2px;
+    border-radius: 3px;
+    color: var(--text-muted);
+    transition: background var(--transition-fast), color var(--transition-fast);
+  }
+
+  .status-icon:hover {
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+  }
+
+  .status-icon.active {
+    color: var(--accent-color);
+  }
+
   .search-status {
     color: var(--accent-color);
   }
@@ -444,7 +511,8 @@
 
   .mode-btn.active {
     background: var(--accent-color);
-    color: white;
+    color: var(--bg-primary);
+    opacity: 0.85;
   }
 
   .update-indicator {
