@@ -18,6 +18,13 @@
   import { createEditor } from './setup';
   import { schema, setDocumentBaseDir } from './schema';
   import { parseMarkdown, parseMarkdownAsync, serializeMarkdown } from './markdown';
+  import {
+    toggleBold,
+    toggleItalic,
+    toggleUnderline,
+    toggleStrikethrough,
+    toggleCode,
+  } from './commands';
   import { docCache } from './doc-cache';
   import { editorStore } from '../stores/editor-store';
   import { settingsStore } from '../stores/settings-store';
@@ -567,6 +574,46 @@
     } catch {
       // Delete column failed
     }
+  }
+
+  function handleBold() {
+    if (!editor) return;
+    try {
+      toggleBold(editor.view.state, editor.view.dispatch);
+      editor.view.focus();
+    } catch { /* format failed */ }
+  }
+
+  function handleItalic() {
+    if (!editor) return;
+    try {
+      toggleItalic(editor.view.state, editor.view.dispatch);
+      editor.view.focus();
+    } catch { /* format failed */ }
+  }
+
+  function handleUnderline() {
+    if (!editor) return;
+    try {
+      toggleUnderline(editor.view.state, editor.view.dispatch);
+      editor.view.focus();
+    } catch { /* format failed */ }
+  }
+
+  function handleStrikethrough() {
+    if (!editor) return;
+    try {
+      toggleStrikethrough(editor.view.state, editor.view.dispatch);
+      editor.view.focus();
+    } catch { /* format failed */ }
+  }
+
+  function handleCode() {
+    if (!editor) return;
+    try {
+      toggleCode(editor.view.state, editor.view.dispatch);
+      editor.view.focus();
+    } catch { /* format failed */ }
   }
 
   function handleSetAlign(align: string) {
@@ -2973,6 +3020,11 @@
         );
       } catch { /* clipboard permission denied */ }
     }}
+    onBold={handleBold}
+    onItalic={handleItalic}
+    onUnderline={handleUnderline}
+    onStrikethrough={handleStrikethrough}
+    onCode={handleCode}
     onUploadAllImages={handleUploadAllImages}
     onSEO={() => { onWorkflowSEO?.(); }}
     onImageGen={() => { onWorkflowImageGen?.(); }}

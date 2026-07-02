@@ -11,13 +11,34 @@
  * the injected MediaResolver instead of being hard-coded inside the schema.
  */
 
+import { Schema } from 'prosemirror-model'
 import { createSchema, setDocumentBaseDir, getDocumentBaseDir } from '@moraya/core'
 import { tauriMediaResolver } from './adapters/tauri-media-resolver'
 import { tauriLinkOpener } from './adapters/tauri-link-opener'
 
-export const schema = createSchema({
+const baseSchema = createSchema({
   mediaResolver: tauriMediaResolver,
   linkOpener: tauriLinkOpener,
+})
+
+const marks: Record<string, import('prosemirror-model').MarkSpec> = {}
+baseSchema.spec.marks.forEach((key: string, spec: import('prosemirror-model').MarkSpec) => {
+  marks[key] = spec
+})
+
+marks.underline = {
+  parseDOM: [
+    { tag: 'u' },
+    { style: 'text-decoration=underline' },
+  ],
+  toDOM() {
+    return ['u', 0]
+  },
+}
+
+export const schema = new Schema({
+  nodes: baseSchema.spec.nodes,
+  marks,
 })
 
 export { setDocumentBaseDir, getDocumentBaseDir }

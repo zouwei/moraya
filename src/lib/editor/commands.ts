@@ -32,6 +32,7 @@ import { schema } from './schema';
 export const toggleBold: Command = toggleMark(schema.marks.strong);
 export const toggleItalic: Command = toggleMark(schema.marks.em);
 export const toggleStrikethrough: Command = toggleMark(schema.marks.strike_through);
+export const toggleUnderline: Command = toggleMark(schema.marks.underline);
 
 /**
  * Toggle inline code mark.

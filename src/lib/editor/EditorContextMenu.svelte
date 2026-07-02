@@ -11,6 +11,11 @@
     onCut,
     onCopy,
     onPaste,
+    onBold,
+    onItalic,
+    onUnderline,
+    onStrikethrough,
+    onCode,
     onUploadAllImages,
     onSEO,
     onImageGen,
@@ -29,6 +34,11 @@
     onCut: () => void;
     onCopy: () => void;
     onPaste: () => void;
+    onBold?: () => void;
+    onItalic?: () => void;
+    onUnderline?: () => void;
+    onStrikethrough?: () => void;
+    onCode?: () => void;
     onUploadAllImages?: () => void;
     onSEO: () => void;
     onImageGen: () => void;
@@ -86,9 +96,67 @@
     </button>
 
     <button class="menu-item" onclick={() => handleAction(onPaste)}>
-      <span>{$t('contextMenu.paste')}</span>
+      <span class="menu-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+        </svg>
+      </span>
+      <span class="menu-label">{$t('contextMenu.paste')}</span>
       <span class="shortcut">{modKey}V</span>
     </button>
+
+    {#if hasSelection && (onBold || onItalic || onUnderline || onStrikethrough || onCode)}
+      <div class="menu-divider"></div>
+      <div class="format-group">
+        {#if onBold}
+          <button class="menu-item format-btn" onclick={() => handleAction(onBold)} title={$t('contextMenu.bold')}>
+            <span class="menu-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M15.6 10.79c.97-.67 1.65-1.77 1.65-2.79 0-2.26-1.75-4-4-4H7v14h7.04c2.09 0 3.71-1.7 3.71-3.79 0-1.52-.86-2.82-2.15-3.42zM10 6.5h3c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5h-3v-3zm3.5 9H10v-3h3.5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5z"/>
+              </svg>
+            </span>
+          </button>
+        {/if}
+        {#if onItalic}
+          <button class="menu-item format-btn" onclick={() => handleAction(onItalic)} title={$t('contextMenu.italic')}>
+            <span class="menu-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M10 4v3h2.21l-3.42 8H6v3h8v-3h-2.21l3.42-8H18V4z"/>
+              </svg>
+            </span>
+          </button>
+        {/if}
+        {#if onUnderline}
+          <button class="menu-item format-btn" onclick={() => handleAction(onUnderline)} title={$t('contextMenu.underline')}>
+            <span class="menu-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 17c3.31 0 6-2.69 6-6V3h-2.5v8c0 1.93-1.57 3.5-3.5 3.5S8.5 12.93 8.5 11V3H6v8c0 3.31 2.69 6 6 6zm-7 2v2h14v-2H5z"/>
+              </svg>
+            </span>
+          </button>
+        {/if}
+        {#if onStrikethrough}
+          <button class="menu-item format-btn" onclick={() => handleAction(onStrikethrough)} title={$t('contextMenu.strikethrough')}>
+            <span class="menu-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M6.85 7.08C6.85 4.37 9.45 3 12.24 3c1.64 0 3 .49 3.9 1.28.77.65 1.46 1.73 1.46 3.24h-3.81c0-.93-.37-1.55-.95-1.88-.55-.3-1.22-.42-1.93-.31-.81.13-1.56.49-1.93 1-.35.49-.33 1.01-.33 1.14 0 1.04.39 1.73 1.2 2.26l.12.08H3v2h18v-2h-4.65c-.35-.22-.66-.47-.95-.73.64-.55 1.14-1.28 1.14-2.25 0-1.04-.35-1.94-.99-2.62C14.85 4.18 13.67 3.5 12.24 3.5c-1.38 0-2.51.49-3.29 1.33-.76.82-1.1 1.89-1.1 3.05h2.81c0-.26.05-.54.19-.8zM4.5 5.05l-1.41 1.41L7.34 10.7a5.24 5.24 0 0 0-.19 2.22c0 2.06.94 3.75 2.43 4.81 1.45 1.02 3.27 1.27 4.73 1.27 1.33 0 2.63-.42 3.68-1.14l3.56 3.56 1.41-1.41L4.5 5.05z"/>
+              </svg>
+            </span>
+          </button>
+        {/if}
+        {#if onCode}
+          <button class="menu-item format-btn" onclick={() => handleAction(onCode)} title={$t('contextMenu.code')}>
+            <span class="menu-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="16 18 22 12 16 6"/>
+                <polyline points="8 6 2 12 8 18"/>
+              </svg>
+            </span>
+          </button>
+        {/if}
+      </div>
+    {/if}
 
     {#if onAddReview}
       <div class="menu-divider"></div>
@@ -197,5 +265,35 @@
     height: 1px;
     background: var(--border-light);
     margin: 0.25rem 0.5rem;
+  }
+
+  .menu-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: var(--text-secondary);
+  }
+
+  .menu-label {
+    flex: 1;
+  }
+
+  .format-group {
+    display: flex;
+    gap: 0.125rem;
+    padding: 0.25rem;
+  }
+
+  .format-btn {
+    justify-content: center;
+    width: 34px;
+    height: 32px;
+    padding: 0;
+    border-radius: 4px;
+  }
+
+  .format-btn:hover {
+    background: var(--bg-hover);
   }
 </style>
