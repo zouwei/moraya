@@ -58,11 +58,20 @@ jobs:
             echo "::error::pnpm-workspace.yaml must not reference moraya-core."
             exit 1
           fi
-          if grep -nE "\"@moraya/core\":[[:space:]]*\"(file:\.\.?/|link:|workspace:)" package.json; then
-            echo "::error::package.json must depend on @moraya/core via the registry or a frozen tarball under ./vendor/, not file:./.. paths or link:/workspace:."
-            exit 1
-          fi
-          echo "OK: no sibling-path imports of @moraya/core."
+          # Allow registry semver (^0.5.0) OR a frozen tarball under ./vendor/*.tgz
+          # (the pre-publication bridge, per §1.3). Forbid link:/workspace: and any
+          # other file: path (e.g. a sibling repo like file:../moraya-core).
+          core_spec=$(grep -oE '"@moraya/core":[[:space:]]*"[^"]+"' package.json | grep -oE '"[^"]+"$' | tr -d '"')
+          case "$core_spec" in
+            file:./vendor/*.tgz|file:vendor/*.tgz)
+              : ;; # allowed: frozen vendored tarball bridge
+            file:*|link:*|workspace:*)
+              echo "::error::package.json must depend on @moraya/core via the registry or a frozen tarball under ./vendor/*.tgz, not '$core_spec'."
+              exit 1 ;;
+            *)
+              : ;; # allowed: registry semver
+          esac
+          echo "OK: @moraya/core dependency form is allowed ($core_spec)."
 
   build:
     runs-on: ubuntu-22.04
