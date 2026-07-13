@@ -1,9 +1,9 @@
 {
-  "wavedrom": "3.6.1",
+  "wavedrom": "3.6.2",
   "nomnoml": "1.7.0",
   "echarts": "6.1.0",
   "vega-embed": "7.1.0",
-  "abcjs": "6.6.3",
+  "abcjs": "6.6.4",
   "jsmind": "0.9.1",
   "@pintora/standalone": "0.8.1",
   "chart.js": "4.5.1",
