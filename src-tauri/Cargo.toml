@@ -1,6 +1,6 @@
 [package]
 name = "moraya"
-version = "0.44.0"
+version = "0.45.0"
 description = "A minimal, AI-ready Markdown editor"
 authors = ["Moraya Contributors"]
 edition = "2021"
@@ -54,6 +54,9 @@ tokenizers = { version = "0.22", default-features = false, features = ["onig"] }
 ndarray = "0.16"
 flate2 = "1"
 tar = "0.4"
+# Pure-Rust xz decoder for extracting the on-demand Typst engine (.tar.xz
+# release assets). Decode-only, no C/liblzma dependency.
+lzma-rs = "0.3"
 open = "5"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-deep-link = "2"

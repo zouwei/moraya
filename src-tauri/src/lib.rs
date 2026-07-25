@@ -27,10 +27,35 @@ pub struct TabTransferData {
     pub cursor_offset: usize,
     pub scroll_fraction: f64,
     pub last_mtime: Option<f64>,
+    /// Markup language the document is authored in (`"markdown"` / `"typst"`).
+    /// Must travel with the tab: an unsaved Typst document has no `.typ` path to
+    /// re-detect from, so dropping this would silently reopen it as markdown in
+    /// the destination window and lose the compiled preview.
+    /// Optional for backward compatibility with in-flight payloads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub flavor: Option<String>,
 }
 
 /// Maps window labels to pending tab data for newly created windows (tab detach).
 pub struct PendingTabData(pub Mutex<HashMap<String, TabTransferData>>);
+
+/// File extension for the scratch file used when detaching a tab on
+/// Windows/Linux (those platforms spawn a new process with the file as an
+/// argument, and the receiving window re-detects the document flavor from the
+/// extension). Lives outside the `cfg` block so it is compiled — and tested —
+/// on every platform.
+///
+/// `allow(dead_code)`: only the Windows/Linux detach path calls this (macOS
+/// builds the window directly and passes `TabTransferData` in memory), but the
+/// function stays platform-independent so its behavior is unit-tested wherever
+/// the suite runs, rather than only on the platforms that use it.
+#[allow(dead_code)]
+fn detach_temp_extension(flavor: Option<&str>) -> &'static str {
+    match flavor {
+        Some("typst") => "typ",
+        _ => "md",
+    }
+}
 
 /// Tracks whether the main window has called get_opened_files (i.e. frontend is ready).
 /// Used to distinguish cold-start file association from runtime file opens.
@@ -334,12 +359,18 @@ fn detach_tab_to_window(
     #[cfg(all(not(target_os = "macos"), not(target_os = "ios")))]
     {
         let temp_dir = std::env::temp_dir();
+        // The spawned process re-detects the document flavor from the file
+        // extension, so the scratch file must carry the ORIGINAL flavor's
+        // extension — writing a Typst document to `.md` would reopen it in the
+        // markdown editor and lose the compiled preview.
+        let ext = detach_temp_extension(tab_data.flavor.as_deref());
         let temp_name = format!(
-            "moraya-detach-{}.md",
+            "moraya-detach-{}.{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
-                .as_millis()
+                .as_millis(),
+            ext
         );
         let temp_path = temp_dir.join(&temp_name);
         std::fs::write(&temp_path, &tab_data.content)
@@ -671,6 +702,26 @@ fn take_pending_picora_import(
 }
 
 #[cfg(test)]
+mod detach_tests {
+    use super::detach_temp_extension;
+
+    #[test]
+    fn typst_tabs_detach_as_typ() {
+        // A `.md` scratch file would make the spawned window reopen the
+        // document in the markdown editor, losing the compiled preview.
+        assert_eq!(detach_temp_extension(Some("typst")), "typ");
+    }
+
+    #[test]
+    fn markdown_and_unknown_flavors_detach_as_md() {
+        assert_eq!(detach_temp_extension(Some("markdown")), "md");
+        // Payloads predating the `flavor` field carry None.
+        assert_eq!(detach_temp_extension(None), "md");
+        assert_eq!(detach_temp_extension(Some("something-else")), "md");
+    }
+}
+
+#[cfg(test)]
 mod deeplink_tests {
     use super::parse_picora_deeplink;
 
@@ -934,6 +985,10 @@ pub fn run() {
             commands::file::write_file_bytes,
             commands::pdf_export::export_pdf_native,
             commands::pdf_export::export_print_ready,
+            commands::typst_engine::typst_engine_status,
+            commands::typst_engine::typst_ensure_engine,
+            commands::typst_engine::typst_export_markdown_pdf,
+            commands::typst_engine::typst_compile_source,
             commands::file::read_dir_recursive,
             commands::file::list_hidden_dirs,
             commands::file::migrate_voice_profiles_dir,

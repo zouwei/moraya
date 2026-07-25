@@ -45,7 +45,8 @@ pub fn is_updating_mode_checks() -> bool {
 
 pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
     // File menu
-    let file_new = MenuItem::with_id(app, "file_new", "New", true, Some("CmdOrCtrl+N"))?;
+    let file_new = MenuItem::with_id(app, "file_new", "New Markdown Document", true, Some("CmdOrCtrl+N"))?;
+    let file_new_typst = MenuItem::with_id(app, "file_new_typst", "New Typst Document", true, None::<&str>)?;
     let file_new_window = MenuItem::with_id(app, "file_new_window", "New Window", true, Some("CmdOrCtrl+Shift+N"))?;
     let file_open = MenuItem::with_id(app, "file_open", "Open...", true, Some("CmdOrCtrl+O"))?;
     let file_save = MenuItem::with_id(app, "file_save", "Save", true, Some("CmdOrCtrl+S"))?;
@@ -58,6 +59,7 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
         &[
             &MenuItem::with_id(app, "file_export_html", "HTML", true, Some("CmdOrCtrl+Shift+E"))?,
             &MenuItem::with_id(app, "file_export_pdf", "PDF", true, None::<&str>)?,
+            &MenuItem::with_id(app, "file_export_typst_pdf", "PDF (Typst)", true, None::<&str>)?,
             &MenuItem::with_id(app, "file_export_image", "Image (PNG)", true, None::<&str>)?,
             &MenuItem::with_id(app, "file_export_doc", "Word (.doc)", true, None::<&str>)?,
         ],
@@ -72,6 +74,7 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
         true,
         &[
             &file_new,
+            &file_new_typst,
             &file_new_window,
             &file_open,
             &PredefinedMenuItem::separator(app)?,
@@ -94,6 +97,7 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
             true,
             &[
                 &file_new,
+                &file_new_typst,
                 &file_new_window,
                 &file_open,
                 &PredefinedMenuItem::separator(app)?,

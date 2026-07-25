@@ -19,7 +19,7 @@
   import { schema, setDocumentBaseDir } from './schema';
   import { parseMarkdown, parseMarkdownAsync, serializeMarkdown } from './markdown';
   import { docCache } from './doc-cache';
-  import { editorStore } from '../stores/editor-store';
+  import { editorStore, isMarkdownFlushSuppressed } from '../stores/editor-store';
   import { settingsStore } from '../stores/settings-store';
   import { editorLoadingStore } from '../stores/editor-loading-store';
   import { readImageAsBlobUrl } from '../services/file-service';
@@ -64,6 +64,7 @@
     showOutline = false,
     outlineWidth = 200,
     readOnly = false,
+    skipDestroyFlush = false,
     onEditorReady,
     onContentChange,
     onNotify,
@@ -83,6 +84,12 @@
     outlineWidth?: number;
     /** Read-only version-preview mode: blocks all editing (ProseMirror editable=false). */
     readOnly?: boolean;
+    /** Suppress the onDestroy content flush. Set when this editor is being torn
+     *  down because the app switched to a document that is NOT this editor's
+     *  markdown (e.g. a Typst tab): the flush writes the serialized ProseMirror
+     *  doc back through the `content` binding, which would otherwise overwrite
+     *  the incoming document's content during unmount. */
+    skipDestroyFlush?: boolean;
     onEditorReady?: (editor: MorayaEditor) => void;
     onContentChange?: (content: string) => void;
     onNotify?: (text: string, type: 'success' | 'error') => void;
@@ -3204,6 +3211,14 @@
     mountedHandlers = null;
 
     if (editor) {
+      // A non-markdown document (Typst) has taken over: this editor's state
+      // belongs to the document being navigated AWAY from, so neither the
+      // content nor the cursor/scroll position may be flushed. The store has
+      // already been populated with the incoming document — writing here would
+      // overwrite it, and the stale value would then be persisted into the
+      // incoming tab by the next `syncFromEditor()`, blanking it.
+      const flushSuppressed = skipDestroyFlush || isMarkdownFlushSuppressed();
+
       // Flush content + save cursor/scroll in a single batched store update.
       // Previously 3 separate calls (setContent + setCursorOffset + setScrollFraction)
       // triggered 3 subscriber cascades. batchFlush merges them into 1.
@@ -3215,7 +3230,7 @@
       // Skip flush when lastSyncWasExternal=true (split mode, source editor
       // is the source of truth) to avoid polluting content with hard-break
       // trailing spaces added by toHardBreaks().
-      if (!lastSyncWasExternal) {
+      if (!lastSyncWasExternal && !flushSuppressed) {
         try {
           const markdown = editor.getMarkdown();
           const full = storedFrontmatter + markdown;
@@ -3285,7 +3300,9 @@
       }
 
       // Single batched store update (1 subscriber notification instead of 3)
-      editorStore.batchFlush({ content: flushContent, cursorOffset, scrollFraction });
+      if (!flushSuppressed) {
+        editorStore.batchFlush({ content: flushContent, cursorOffset, scrollFraction });
+      }
 
       editor.destroy();
     }

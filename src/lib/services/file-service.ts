@@ -6,6 +6,12 @@ import { filesStore, type FileEntry } from '../stores/files-store';
 import { invalidateDocCache } from '../editor/doc-cache';
 import { computeImageDir, computeImageRelativePath } from './ai/image-path-utils';
 import { get } from 'svelte/store';
+import {
+  DOCUMENT_EXTENSIONS,
+  MARKDOWN_EXTENSIONS,
+  TYPST_EXTENSIONS,
+  withFlavorExtension,
+} from '@moraya/core/typst';
 
 const MIME_MAP: Record<string, string> = {
   png: 'image/png',
@@ -21,8 +27,20 @@ const MIME_MAP: Record<string, string> = {
   avif: 'image/avif',
 };
 
+// Flavor detection is shared with Web/Mobile via @moraya/core/typst — the
+// dialog filters below are the only desktop-specific part.
+export { isTypstFile, isDocumentFile, flavorForFile } from '@moraya/core/typst';
+
+/** Dialog filters want bare extensions (`md`), core stores them dotted (`.md`). */
+const bare = (exts: readonly string[]) => exts.map((e) => e.replace(/^\./, ''));
+
+// The combined entry is listed FIRST so both flavors are selectable the moment
+// the dialog opens — a per-flavor filter alone would grey out `.typ` files
+// until the user switched the dropdown.
 const MD_FILTERS = [
-  { name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'mkd'] },
+  { name: 'Documents', extensions: bare(DOCUMENT_EXTENSIONS) },
+  { name: 'Markdown', extensions: bare(MARKDOWN_EXTENSIONS) },
+  { name: 'Typst', extensions: bare(TYPST_EXTENSIONS) },
   { name: 'All Files', extensions: ['*'] },
 ];
 
@@ -62,16 +80,35 @@ export async function saveFile(content: string): Promise<boolean> {
   return saveFileAs(content);
 }
 
-export async function saveFileAs(content: string, suggestedPath?: string): Promise<boolean> {
+const TYPST_SAVE_FILTERS = [
+  { name: 'Typst', extensions: bare(TYPST_EXTENSIONS) },
+  { name: 'All Files', extensions: ['*'] },
+];
+
+export async function saveFileAs(
+  content: string,
+  suggestedPath?: string,
+  kind: 'markdown' | 'typst' = 'markdown',
+): Promise<boolean> {
+  const isTypst = kind === 'typst';
+
+  // `withFlavorExtension` also rewrites a content-derived suggestion that came
+  // with the other flavor's extension — saving a Typst document as `.md` would
+  // make it reopen as markdown.
+  const defaultPath = withFlavorExtension(
+    suggestedPath || 'untitled',
+    kind,
+  );
+
   const selected = await saveDialog({
-    filters: MD_FILTERS,
-    title: 'Save Markdown File',
-    defaultPath: suggestedPath || 'untitled.md',
+    filters: isTypst ? TYPST_SAVE_FILTERS : MD_FILTERS,
+    title: isTypst ? 'Save Typst File' : 'Save Markdown File',
+    defaultPath,
   });
 
   if (!selected || typeof selected !== 'string') return false;
 
-  const path = selected.endsWith('.md') ? selected : `${selected}.md`;
+  const path = withFlavorExtension(selected, kind);
   await invoke('write_file', { path, content });
   invalidateDocCache(path);
   editorStore.setCurrentFile(path);

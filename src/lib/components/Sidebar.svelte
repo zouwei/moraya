@@ -7,6 +7,7 @@
   import { open, ask, message } from '@tauri-apps/plugin-dialog';
   import { revealItemInDir } from '@tauri-apps/plugin-opener';
   import { t } from '$lib/i18n';
+  import { documentExtension } from '@moraya/core/typst';
   import { startWatching, stopWatching, refreshFileTree } from '$lib/services/file-watcher';
   import { load as loadStore } from '@tauri-apps/plugin-store';
   import FileContextMenu from './FileContextMenu.svelte';
@@ -388,7 +389,9 @@
   function getDisplayName(name: string): string {
     // In tree mode, show full file name with extension
     if (viewMode === 'tree') return name;
-    return name.replace(/\.md$/, '').replace(/\.markdown$/, '');
+    // List mode hides the document extension for either flavor (.md / .typ)
+    const ext = documentExtension(name);
+    return ext ? name.slice(0, -ext.length) : name;
   }
 
   /** Get file extension (lowercase, without dot) */
@@ -534,6 +537,7 @@
   function isReservedDir(entry: FileEntry): boolean {
     return entry.is_dir && entry.name === 'images';
   }
+
 
   // Filter reserved dirs from tree entries (recursively)
   function filterReserved(entries: FileEntry[]): FileEntry[] {
@@ -688,8 +692,10 @@
 
   function handleRename() {
     const name = contextMenu.targetName;
-    // In tree mode, show full name including extension; in list mode, strip .md
-    const displayName = viewMode === 'tree' ? name : (name.endsWith('.md') ? name.slice(0, -3) : name);
+    // In tree mode, show full name including extension; in list mode, hide the
+    // document extension (either flavor) — it is re-appended on submit.
+    const ext = documentExtension(name);
+    const displayName = viewMode === 'tree' ? name : (ext ? name.slice(0, -ext.length) : name);
     inputDialog = {
       mode: 'rename',
       value: displayName,
@@ -745,11 +751,13 @@
     } else {
       // mode === 'rename'
       const oldPath = inputDialog.targetPath;
-      // In list mode, re-append .md since user edited without seeing the extension.
-      // In tree mode, user sees the full name including extension — use as-is.
-      const finalValue = viewMode === 'tree' ? value : (oldPath.endsWith('.md') ? `${value}.md` : value);
+      // In list mode, re-append the original document extension (.md or .typ)
+      // since the user edited the name without seeing it. In tree mode the full
+      // name including extension was shown — use as-is.
+      const oldExt = documentExtension(oldPath);
+      const finalValue = viewMode === 'tree' ? value : (oldExt ? `${value}${oldExt}` : value);
       // Reject renaming a directory to the reserved name "images"
-      const isDir = !oldPath.endsWith('.md') && !oldPath.endsWith('.markdown');
+      const isDir = !oldExt;
       if (isDir && finalValue.toLowerCase() === 'images') {
         await message($t('sidebar.reserved_dir_name'), { title: $t('sidebar.reserved_dir_title'), kind: 'warning' });
         inputDialog = null;

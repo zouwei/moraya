@@ -28,6 +28,7 @@
   import { undo, redo } from 'prosemirror-history';
   import Editor from '$lib/editor/Editor.svelte';
   import SourceEditor from '$lib/editor/SourceEditor.svelte';
+  import TypstEditor from '$lib/editor/TypstEditor.svelte';
   import SearchBar from '$lib/editor/SearchBar.svelte';
   import type { EditorMode } from '$lib/stores/editor-store';
   import TitleBar from '$lib/components/TitleBar.svelte';
@@ -38,7 +39,7 @@
   import type { PublishResult } from '$lib/services/publish/types';
   import type { UnifiedMediaItem } from '$lib/services/cloud-resource/types';
   import { getMediaDetail, picoraApiBaseFromUploadUrl } from '$lib/services/cloud-resource';
-  import { editorStore } from '$lib/stores/editor-store';
+  import { editorStore, suppressMarkdownFlush } from '$lib/stores/editor-store';
   import { settingsStore, initSettingsStore } from '$lib/stores/settings-store';
   import { filesStore, type FileEntry } from '$lib/stores/files-store';
   import { initAIStore, aiStore, sendChatMessage } from '$lib/services/ai';
@@ -52,7 +53,8 @@
   import { shouldAutoSave } from '$lib/utils/autosave';
   import { preloadEnhancementPlugins } from '$lib/editor/setup';
   import { openFile, saveFile, saveFileAs, loadFile, getFileNameFromPath, readImageAsBlobUrl, migrateTempImages, isImageFile } from '$lib/services/file-service';
-  import { exportDocument, type ExportFormat } from '$lib/services/export-service';
+  import { isTypstFile } from '@moraya/core/typst';
+  import { exportDocument, exportTypstPdf, exportTypstSource, type ExportFormat } from '$lib/services/export-service';
   import { checkForUpdate, shouldCheckToday, getTodayDateString } from '$lib/services/update-service';
   import { listen, emitTo, type UnlistenFn } from '@tauri-apps/api/event';
   import { invoke } from '@tauri-apps/api/core';
@@ -241,6 +243,11 @@ ${tr('welcome.tip')}
   let showReplace = $state(false);
   // Image tab preview state — derived from active tab
   let activeImageTab = $state<import('$lib/stores/tabs-store').TabItem | null>(null);
+  let activeTypstTab = $state<import('$lib/stores/tabs-store').TabItem | null>(null);
+  /** The editorMode active right before switching INTO a Typst tab (which
+   *  forces 'split'), so switching back out to markdown restores the user's
+   *  prior visual/source/split preference instead of leaving it on 'split'. */
+  let preTypstEditorMode: import('$lib/stores/editor-store').EditorMode | null = null;
   let imagePreviewUrl = $state<string | null>(null);
   let showTouchToolbar = $state(isIPadOS);
   let searchMatchCount = $state(0);
@@ -540,9 +547,11 @@ ${tr('welcome.tip')}
 
     let saved: boolean;
     if (asNew || !prevFilePath) {
-      // New file or Save As — try to suggest a meaningful filename
+      // New file or Save As — try to suggest a meaningful filename. Typst tabs
+      // save as `.typ` (flavor-aware) so a new Typst document keeps its mode.
       const suggestedPath = await computeSuggestedPath(latestContent);
-      saved = await saveFileAs(latestContent, suggestedPath);
+      const kind = activeTab?.flavor === 'typst' ? 'typst' : 'markdown';
+      saved = await saveFileAs(latestContent, suggestedPath, kind);
     } else {
       saved = await saveFile(latestContent);
     }
@@ -859,16 +868,24 @@ ${tr('welcome.tip')}
       editorMode = state.editorMode;
       console.log('[EditorSub] mode change:', prevMode, '->', state.editorMode, 'content length:', content.length);
       // Sync content when leaving any mode to ensure the incoming editor gets fresh data.
-      if (prevMode === 'visual' && visualEditorRef) {
+      //
+      // Guarded by `!activeTypstTab`: entering a Typst tab forces editorMode to
+      // 'split' (see tabsStore subscribe below), which fires THIS subscriber
+      // synchronously while the outgoing Editor/SourceEditor may still be
+      // mounted. Without this guard, that forced mode change would pull the
+      // OLD document's full markdown from visualEditorRef/splitVisualRef and
+      // stomp the just-set Typst template — the new .typ tab would open with
+      // the previous document's content instead of blank.
+      if (prevMode === 'visual' && visualEditorRef && !activeTypstTab) {
         content = visualEditorRef.getFullMarkdown();
         console.log('[EditorSub] synced from visual, content length:', content.length);
-      } else if (prevMode === 'split' && splitVisualRef) {
+      } else if (prevMode === 'split' && splitVisualRef && !activeTypstTab) {
         content = splitVisualRef.getFullMarkdown();
       }
       // When leaving source mode, editorStore.content should be up-to-date
       // (SourceEditor flushes via bind:value and onDestroy).
       // But as a safety net, also sync from editorStore if content is empty but store has content.
-      if (prevMode === 'source' && content.length === 0) {
+      if (prevMode === 'source' && content.length === 0 && !activeTypstTab) {
         const storeContent = state.content;
         if (storeContent.length > 0) {
           console.warn('[EditorSub] content was empty after source→visual, recovering from editorStore:', storeContent.length);
@@ -886,13 +903,38 @@ ${tr('welcome.tip')}
 
   // Tabs: sync tab state for TitleBar/TabBar + reload content when active tab changes
   let prevActiveTabId = '';
+  let prevActiveFlavor: 'markdown' | 'typst' | undefined;
   const unsubTabs = tabsStore.subscribe(state => {
     tabs = state.tabs;
     activeTabId = state.activeTabId;
-    if (state.activeTabId !== prevActiveTabId) {
+    const activeTab = state.tabs.find(t => t.id === state.activeTabId);
+    // React to a flavor change on the SAME tab as well as to a tab switch:
+    // detaching a tab into a new window calls `initWithContent`, which rewrites
+    // the already-active tab in place (content + flavor) without changing
+    // activeTabId. Keying only on the id would skip the mount dispatch below,
+    // leaving a Typst document rendered by the markdown editor.
+    const flavorChanged = (activeTab?.flavor) !== prevActiveFlavor;
+    if (state.activeTabId !== prevActiveTabId || flavorChanged) {
       prevActiveTabId = state.activeTabId;
-      const tab = state.tabs.find(t => t.id === state.activeTabId);
+      prevActiveFlavor = activeTab?.flavor;
+      const tab = activeTab;
       if (tab) {
+        const wasTypst = activeTypstTab !== null;
+
+        // Crossing OUT of a Typst tab (to markdown or an image tab): restore
+        // whatever visual/source/split mode was active before Typst forced
+        // 'split', so markdown's sticky mode preference is unaffected by
+        // having viewed a Typst document in between.
+        if (wasTypst && tab.flavor !== 'typst') {
+          editorStore.setEditorMode(preTypstEditorMode ?? 'visual');
+          preTypstEditorMode = null;
+        }
+        // Latch/unlatch the markdown destroy-flush suppression (see
+        // suppressMarkdownFlush): held for the whole time a Typst tab is
+        // active, so the outgoing Editor's unmount can't write stale markdown
+        // through the shared `content` binding.
+        suppressMarkdownFlush(tab.flavor === 'typst');
+
         // Image tab: load blob URL for preview
         if (tab.isImage) {
           activeImageTab = tab;
@@ -910,6 +952,41 @@ ${tr('welcome.tip')}
           }
           return;
         }
+
+        // Typst flavor: source + live preview surface, NOT the ProseMirror
+        // editor. Keep editorStore in sync (filePath + content + dirty) so
+        // Save / dirty-tracking / tab-switch persistence all work against the
+        // .typ file, but skip the ProseMirror replaceContent pipeline entirely.
+        if (tab.flavor === 'typst') {
+          // Set activeTypstTab + content BEFORE forcing editorMode below. The
+          // mode change synchronously notifies editorStore's subscriber, which
+          // guards its old-editor content sync on `!activeTypstTab` — setting
+          // these first ensures that guard is already active by the time it runs.
+          activeImageTab = null;
+          if (imagePreviewUrl) { URL.revokeObjectURL(imagePreviewUrl); imagePreviewUrl = null; }
+          activeTypstTab = tab;
+          editorReadOnly = tab.readOnly ?? false;
+          content = tab.content;
+          currentFileName = tab.fileName;
+          // Crossing INTO Typst from a non-Typst tab: remember the current
+          // mode and default to 'split' — the source+preview comparison view
+          // is the only one that matches what TypstEditor renders by default,
+          // so the StatusBar mode indicator must reflect that, not whatever
+          // markdown mode happened to be active before.
+          if (!wasTypst) {
+            preTypstEditorMode = editorStore.getState().editorMode;
+            editorStore.setEditorMode('split');
+          }
+          editorStore.batchRestore({
+            filePath: tab.filePath,
+            content: tab.content,
+            isDirty: tab.isDirty,
+            cursorOffset: 0,
+            scrollFraction: 0,
+          });
+          return;
+        }
+        activeTypstTab = null;
 
         // Non-image tab: clear image preview
         activeImageTab = null;
@@ -1085,6 +1162,7 @@ ${tr('welcome.tip')}
       menu_help: tr('menu.help'),
       // File menu
       file_new: tr('menu.new'),
+      file_new_typst: tr('menu.new_typst'),
       file_new_window: tr('menu.new_window'),
       file_open: tr('menu.open'),
       file_save: tr('menu.save'),
@@ -1092,6 +1170,7 @@ ${tr('welcome.tip')}
       menu_export: tr('menu.export'),
       file_export_html: tr('menu.export_html'),
       file_export_pdf: tr('menu.export_pdf'),
+      file_export_typst_pdf: tr('menu.export_typst_pdf'),
       file_export_image: tr('menu.export_image'),
       file_export_doc: tr('menu.export_doc'),
       // Paragraph menu
@@ -1243,6 +1322,7 @@ ${tr('welcome.tip')}
 
     switch (id) {
       case 'file.new': handleNewFile(); return true;
+      case 'file.newTypst': handleNewTypstFile(); return true;
       case 'file.newWindow':
         if (isIPadOS) handleNewFile();
         else invoke('create_new_window').catch(() => {});
@@ -1250,10 +1330,11 @@ ${tr('welcome.tip')}
       case 'file.open': handleOpenFile(); return true;
       case 'file.save': handleSave(); return true;
       case 'file.saveAs': handleSave(true); return true;
-      case 'file.exportHtml': exportDocument(getCurrentContent, 'html'); return true;
-      case 'file.exportPdf': exportDocument(getCurrentContent, 'pdf'); return true;
-      case 'file.exportImage': exportDocument(getCurrentContent, 'image'); return true;
-      case 'file.exportDoc': exportDocument(getCurrentContent, 'doc'); return true;
+      case 'file.exportHtml': handleExport('html'); return true;
+      case 'file.exportPdf': handleExport('pdf'); return true;
+      case 'file.exportTypstPdf': handleExportTypstPdf(); return true;
+      case 'file.exportImage': handleExport('image'); return true;
+      case 'file.exportDoc': handleExport('doc'); return true;
 
       case 'edit.undo':
         if (editorMode === 'source' || (editorMode === 'split' && isSourcePaneFocused())) {
@@ -1527,7 +1608,7 @@ ${tr('welcome.tip')}
     // Export HTML — native menu accel on Tauri, fallback below for non-Tauri.
     if (!isTauri && mod && event.shiftKey && event.key === 'E') {
       event.preventDefault();
-      exportDocument(getCurrentContent, 'html');
+      handleExport('html');
       return;
     }
 
@@ -1711,6 +1792,17 @@ ${tr('welcome.tip')}
     content = '';
     resetWorkflowState();
     await replaceContentAndScrollToTop(content);
+  }
+
+  /** Create a new, blank Typst document (source + live preview flavor). Unlike
+   *  markdown new-file, this bypasses the ProseMirror pipeline — the tabs-store
+   *  subscribe handler's typst branch sets content + editorStore +
+   *  activeTypstTab. The source pane's placeholder hints at the syntax, so no
+   *  starter content is seeded. */
+  async function handleNewTypstFile() {
+    tabsStore.addTab({ flavor: 'typst', content: '', fileName: 'Untitled.typ' });
+    content = '';
+    resetWorkflowState();
   }
 
   // Guard against concurrent file loads: rapid clicks (e.g. KB file switching)
@@ -1975,6 +2067,10 @@ ${tr('welcome.tip')}
       cursor_offset: freshTab.cursorOffset,
       scroll_fraction: freshTab.scrollFraction,
       last_mtime: freshTab.lastMtime,
+      // Carry the markup language across the window boundary — an unsaved
+      // Typst document has no `.typ` path for the destination to re-detect
+      // from, so without this it would reopen as markdown.
+      flavor: freshTab.flavor ?? 'markdown',
     };
 
     // Use exact offsets from TitleBar/TabBar (click position within tab + layout padding).
@@ -2066,6 +2162,10 @@ ${tr('welcome.tip')}
       cursor_offset: freshTab.cursorOffset,
       scroll_fraction: freshTab.scrollFraction,
       last_mtime: freshTab.lastMtime,
+      // Carry the markup language across the window boundary — an unsaved
+      // Typst document has no `.typ` path for the destination to re-detect
+      // from, so without this it would reopen as markdown.
+      flavor: freshTab.flavor ?? 'markdown',
     };
 
     try {
@@ -2250,7 +2350,42 @@ ${tr('welcome.tip')}
   }
 
   function handleContentChange(newContent: string) {
+    // Guard against a stale callback: split mode's lazy-change plugin
+    // serializes markdown on a 150ms debounce, and switching to a Typst tab
+    // bypasses the ProseMirror syncContent() path entirely (there's nothing to
+    // sync — Typst isn't ProseMirror), so the usual `syncingFromExternal`
+    // suppression never engages. If that debounce was still in flight, it
+    // fires AFTER the switch and would otherwise overwrite the new Typst tab's
+    // content with the previous document's markdown. Since Editor/SourceEditor
+    // are never mounted while a Typst tab is active, any call here in that
+    // state is necessarily stale — drop it.
+    if (activeTypstTab) return;
     content = newContent;
+  }
+
+  /** File → Export dispatch. The menu is shared by both document flavors: a
+   *  markdown tab uses the existing markdown-it / DOM-screenshot pipeline,
+   *  while a `.typ` tab compiles the same format through the Typst engine. */
+  function handleExport(format: ExportFormat) {
+    if (activeTypstTab) {
+      exportTypstSource(format, getCurrentContent, { onToast: showToast });
+    } else {
+      exportDocument(getCurrentContent, format);
+    }
+  }
+
+  /** Export → "PDF (Typst)": markdown-only entry that routes the current
+   *  markdown through cmarker for true typesetting. Typst tabs already get
+   *  native typeset output from the regular PDF item, so this is hidden there. */
+  function handleExportTypstPdf() {
+    exportTypstPdf(getCurrentContent, { onToast: showToast });
+  }
+
+  /** Typst source edits: keep `content` + editorStore in sync so Save /
+   *  dirty-tracking / tab-switch persistence work against the .typ file. */
+  function handleTypstContentChange(newContent: string) {
+    content = newContent;
+    editorStore.setDirtyContent(true, newContent);
   }
 
   async function handleAddReview(selectedText: string, contextBefore: string, contextAfter: string) {
@@ -3292,6 +3427,7 @@ ${tr('welcome.tip')}
       const menuHandlers: Record<string, (payload?: any) => void> = {
         // File
         'menu:file_new': () => handleNewFile(),
+        'menu:file_new_typst': () => handleNewTypstFile(),
         'menu:file_new_window': () => isIPadOS ? handleNewFile() : invoke('create_new_window').catch(e => { console.error('[NewWindow] create_new_window failed:', e); }),
         'menu:file_open': () => handleOpenFile(),
         'menu:file_save': () => handleSave(),
@@ -3300,10 +3436,11 @@ ${tr('welcome.tip')}
         // save dialog can appear immediately. Markdown serialization for huge
         // docs takes seconds-to-minutes; calling it eagerly here would block
         // the main thread and delay the dialog by that long.
-        'menu:file_export_html': () => exportDocument(getCurrentContent, 'html'),
-        'menu:file_export_pdf': () => exportDocument(getCurrentContent, 'pdf'),
-        'menu:file_export_image': () => exportDocument(getCurrentContent, 'image'),
-        'menu:file_export_doc': () => exportDocument(getCurrentContent, 'doc'),
+        'menu:file_export_html': () => handleExport('html'),
+        'menu:file_export_pdf': () => handleExport('pdf'),
+        'menu:file_export_typst_pdf': () => handleExportTypstPdf(),
+        'menu:file_export_image': () => handleExport('image'),
+        'menu:file_export_doc': () => handleExport('doc'),
         // Edit — undo/redo (split mode: route to whichever pane is focused)
         'menu:edit_undo': () => {
           if (editorMode === 'source' || (editorMode === 'split' && isSourcePaneFocused())) {
@@ -3558,10 +3695,13 @@ ${tr('welcome.tip')}
         cursor_offset: number;
         scroll_fraction: number;
         last_mtime: number | null;
+        flavor?: 'markdown' | 'typst' | null;
       } | null>('get_pending_tab').then(async (tabData) => {
         if (!tabData) return;
         content = tabData.content;
-        tabsStore.initWithContent(tabData.content, tabData.file_path, tabData.file_name);
+        // Fall back to extension detection when the payload predates `flavor`.
+        const flavor = tabData.flavor ?? (tabData.file_name && isTypstFile(tabData.file_name) ? 'typst' : 'markdown');
+        tabsStore.initWithContent(tabData.content, tabData.file_path, tabData.file_name, flavor);
         editorStore.batchRestore({
           filePath: tabData.file_path,
           content: tabData.content,
@@ -3570,7 +3710,9 @@ ${tr('welcome.tip')}
           scrollFraction: tabData.scroll_fraction,
         });
         currentFileName = tabData.file_name;
-        await replaceContentAndScrollToTop(tabData.content);
+        // A Typst tab mounts TypstEditor, not ProseMirror — the markdown
+        // replace pipeline would be a no-op at best.
+        if (flavor !== 'typst') await replaceContentAndScrollToTop(tabData.content);
       });
 
       // Cross-window tab transfer: receive tab from another window.
@@ -3587,6 +3729,7 @@ ${tr('welcome.tip')}
         cursor_offset: number;
         scroll_fraction: number;
         last_mtime: number | null;
+        flavor?: 'markdown' | 'typst' | null;
       } }>('tab-transfer', async (event) => {
         const td = event.payload.tabData;
         const insertIdx = externalDropIndex >= 0 ? externalDropIndex : tabs.length;
@@ -3595,7 +3738,12 @@ ${tr('welcome.tip')}
         // (in visual-only mode, editorStore.content is stale)
         const freshContent = getCurrentContent();
         editorStore.setContent(freshContent);
-        tabsStore.insertTabAt(insertIdx, td.file_path, td.file_name, td.content, td.is_dirty, td.last_mtime);
+        tabsStore.insertTabAt(
+          insertIdx, td.file_path, td.file_name, td.content, td.is_dirty, td.last_mtime,
+          // Same reason as the detach payload: an unsaved Typst document has no
+          // `.typ` path for the receiver to infer the flavor from.
+          td.flavor ?? undefined,
+        );
       }).then(unlisten => { tabTransferUnlisten = unlisten; });
 
       // Cross-window drag indicator events (window-scoped for same reason as above)
@@ -3742,8 +3890,12 @@ ${tr('welcome.tip')}
             {/if}
           </div>
         </div>
+      {:else if activeTypstTab}
+        <!-- Typst authoring: source + live compiled preview (mutually exclusive
+             with the markdown ProseMirror editor). -->
+        <TypstEditor bind:content {editorMode} readOnly={editorReadOnly} onContentChange={handleTypstContentChange} />
       {:else if editorMode === 'visual'}
-        <Editor bind:this={visualEditorRef} bind:content {showOutline} {outlineWidth} readOnly={editorReadOnly} onEditorReady={handleEditorReady} onNotify={showToast} onOutlineWidthChange={(w) => settingsStore.update({ outlineWidth: w })} onWorkflowSEO={handleWorkflowSEO} onWorkflowImageGen={handleWorkflowImageGen} onWorkflowPublish={handleWorkflowPublish} onForceShowAIPanel={() => { showAIPanel = true; }} onAddReview={handleAddReview} onInsertCloudImage={(pos) => { cloudPickerState = { kind: 'image', pos }; }} onInsertCloudAudio={(pos) => { cloudPickerState = { kind: 'audio', pos }; }} onInsertCloudVideo={(pos) => { cloudPickerState = { kind: 'video', pos }; }} />
+        <Editor bind:this={visualEditorRef} bind:content {showOutline} {outlineWidth} readOnly={editorReadOnly} skipDestroyFlush={activeTypstTab !== null} onEditorReady={handleEditorReady} onNotify={showToast} onOutlineWidthChange={(w) => settingsStore.update({ outlineWidth: w })} onWorkflowSEO={handleWorkflowSEO} onWorkflowImageGen={handleWorkflowImageGen} onWorkflowPublish={handleWorkflowPublish} onForceShowAIPanel={() => { showAIPanel = true; }} onAddReview={handleAddReview} onInsertCloudImage={(pos) => { cloudPickerState = { kind: 'image', pos }; }} onInsertCloudAudio={(pos) => { cloudPickerState = { kind: 'audio', pos }; }} onInsertCloudVideo={(pos) => { cloudPickerState = { kind: 'video', pos }; }} />
       {:else if editorMode === 'source'}
         <SourceEditor bind:this={sourceEditorRef} bind:content {showOutline} {outlineWidth} {showBlame} {blameData} readOnly={editorReadOnly} onContentChange={handleContentChange} onOutlineWidthChange={(w) => settingsStore.update({ outlineWidth: w })} />
       {:else if editorMode === 'split'}
@@ -3752,7 +3904,7 @@ ${tr('welcome.tip')}
             <SourceEditor bind:this={splitSourceRef} bind:content readOnly={editorReadOnly} onContentChange={handleContentChange} hideScrollbar />
           </div>
           <div class="split-visual" bind:this={splitVisualEl}>
-            <Editor bind:this={splitVisualRef} bind:content readOnly={editorReadOnly} onEditorReady={handleEditorReady} onContentChange={handleContentChange} onNotify={showToast} onWorkflowSEO={handleWorkflowSEO} onWorkflowImageGen={handleWorkflowImageGen} onWorkflowPublish={handleWorkflowPublish} onCursorLineChange={(line) => splitSourceRef?.setHighlightLine(line)} onForceShowAIPanel={() => { showAIPanel = true; }} />
+            <Editor bind:this={splitVisualRef} bind:content readOnly={editorReadOnly} skipDestroyFlush={activeTypstTab !== null} onEditorReady={handleEditorReady} onContentChange={handleContentChange} onNotify={showToast} onWorkflowSEO={handleWorkflowSEO} onWorkflowImageGen={handleWorkflowImageGen} onWorkflowPublish={handleWorkflowPublish} onCursorLineChange={(line) => splitSourceRef?.setHighlightLine(line)} onForceShowAIPanel={() => { showAIPanel = true; }} />
           </div>
         </div>
       {/if}
@@ -3895,6 +4047,7 @@ ${tr('welcome.tip')}
     onToggleVersionHistory={toggleVersionHistory}
     {versionHistoryAvailable}
     currentMode={editorMode}
+    docFlavor={activeTypstTab ? 'typst' : 'markdown'}
     hideModeSwitcher={!!activeImageTab}
     aiPanelOpen={showAIPanel}
     {aiConfigured}

@@ -206,3 +206,23 @@ function createEditorStore() {
 }
 
 export const editorStore = createEditorStore();
+
+/**
+ * Global "a non-markdown document is taking over" latch.
+ *
+ * When the app switches to a Typst tab, the outgoing markdown Editor unmounts.
+ * Its `onDestroy` flush serializes the ProseMirror doc back through the
+ * `content` binding — which would overwrite the incoming Typst document. A
+ * prop can't reliably suppress that: Svelte does not guarantee a prop update
+ * reaches a component that is being destroyed in the same flush. This latch is
+ * read directly at flush time instead, so it is immune to prop timing.
+ */
+let markdownFlushSuppressed = false;
+
+export function suppressMarkdownFlush(on: boolean): void {
+  markdownFlushSuppressed = on;
+}
+
+export function isMarkdownFlushSuppressed(): boolean {
+  return markdownFlushSuppressed;
+}

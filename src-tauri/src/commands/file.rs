@@ -20,6 +20,16 @@ fn sanitize_io_error(e: std::io::Error) -> String {
     }
 }
 
+/// File extensions Moraya opens as editable documents — markdown plus Typst
+/// (`.typ`). Keep in sync with `file-service.ts`'s MARKDOWN_/TYPST_EXTENSIONS.
+const DOCUMENT_EXTENSIONS: &[&str] = &[".md", ".markdown", ".mdown", ".mkd", ".typ"];
+
+/// True when the file name is one of the editable document flavors.
+fn is_document_file(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    DOCUMENT_EXTENSIONS.iter().any(|ext| lower.ends_with(ext))
+}
+
 /// Strip the `\\?\` extended-length path prefix that Windows' `canonicalize` adds.
 /// On non-Windows platforms this is a no-op.
 fn strip_unc_prefix(p: PathBuf) -> PathBuf {
@@ -503,8 +513,9 @@ fn read_dir_inner(
             None
         };
 
-        // When show_all is false, only show markdown files and directories
-        if show_all || is_dir || file_name.ends_with(".md") || file_name.ends_with(".markdown") {
+        // When show_all is false, only show editable documents and directories.
+        // Both document flavors count: markdown and Typst (`.typ`).
+        if show_all || is_dir || is_document_file(&file_name) {
             result.push(FileEntry {
                 name: file_name,
                 path: file_path.to_string_lossy().to_string(),
@@ -638,4 +649,26 @@ pub fn get_files_mtime(paths: Vec<String>) -> Result<Vec<(String, f64)>, String>
         }
     }
     Ok(results)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recognizes_both_document_flavors() {
+        assert!(is_document_file("notes.md"));
+        assert!(is_document_file("notes.markdown"));
+        assert!(is_document_file("paper.typ"));
+        // Case-insensitive, as the sidebar receives raw OS file names.
+        assert!(is_document_file("PAPER.TYP"));
+    }
+
+    #[test]
+    fn rejects_non_document_files() {
+        assert!(!is_document_file("photo.png"));
+        assert!(!is_document_file("archive.zip"));
+        assert!(!is_document_file("typ"));
+        assert!(!is_document_file("notes.md.bak"));
+    }
 }

@@ -1,6 +1,6 @@
 {
   "name": "moraya",
-  "version": "0.44.0",
+  "version": "0.45.0",
   "description": "",
   "type": "module",
   "scripts": {
@@ -14,6 +14,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "version:bump": "node scripts/bump-version.mjs",
+    "release:notes": "node scripts/summarize-release.mjs",
     "prepare": "git config core.hooksPath .githooks || true",
     "check:core-dep": "node scripts/check-core-dep.mjs",
     "check:ai-catalog": "node scripts/check-ai-catalog.mjs"
@@ -26,7 +27,7 @@
   },
   "dependencies": {
     "@moraya/board": "^0.18.1",
-    "@moraya/core": "^0.12.0",
+    "@moraya/core": "^0.14.0",
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@tauri-apps/plugin-fs": "^2.4.5",

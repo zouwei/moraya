@@ -17,6 +17,12 @@
   --accent-color: #4a90d9;
   --accent-hover: #357abd;
 
+  /* Typst documents get a distinct teal accent (vs. markdown's blue
+     --accent-color) so tab bar / editor chrome reads as a visibly different
+     markup language, not just a different file extension. */
+  --typst-accent-color: #1f8a98;
+  --typst-accent-hover: #196f7a;
+
   --scrollbar-thumb: #c1c1c1;
   --scrollbar-track: transparent;
 
@@ -116,6 +122,9 @@
   --accent-color: #569cd6;
   --accent-hover: #6cb0e0;
 
+  --typst-accent-color: #35b4c2;
+  --typst-accent-hover: #4fc4d1;
+
   --scrollbar-thumb: #4a4a4a;
 
   /* Syntax highlighting - Dark */
@@ -183,6 +192,9 @@
 
     --accent-color: #569cd6;
     --accent-hover: #6cb0e0;
+
+    --typst-accent-color: #35b4c2;
+    --typst-accent-hover: #4fc4d1;
 
     --scrollbar-thumb: #4a4a4a;
 

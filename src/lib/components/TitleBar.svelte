@@ -558,6 +558,7 @@
           {/if}
           <!-- svelte-ignore a11y_consider_explicit_label -->
           <button class="tab-item" class:active={tab.id === activeTabId}
+            class:typst={tab.flavor === 'typst'}
             class:drag-over={dropTargetIndex === index && dragTabIndex !== index}
             class:dragging={dragTabIndex === index}
             class:detaching={isDetaching && dragTabIndex === index}
@@ -752,6 +753,15 @@
   .tab-item.active {
     color: var(--text-primary);
     border-bottom-color: var(--accent-color);
+  }
+  /* Typst tabs: distinct teal underline (vs. markdown's blue), matching
+     TabBar.svelte's non-macOS tab strip so the flavor color is consistent
+     across both tab-rendering paths. */
+  .tab-item.typst.active {
+    border-bottom-color: var(--typst-accent-color);
+  }
+  .tab-item.typst .dirty-dot {
+    background: var(--typst-accent-color);
   }
   .tab-item.dragging {
     opacity: 0.4;

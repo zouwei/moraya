@@ -20,6 +20,7 @@ pub mod object_storage;
 pub mod pdf_export;
 pub mod plugin_manager;
 pub mod speech_proxy;
+pub mod typst_engine;
 pub mod update;
 
 #[cfg(feature = "diagnostics")]

@@ -490,6 +490,7 @@
       <div
         class="tab-item"
         class:active={tab.id === activeTabId}
+        class:typst={tab.flavor === 'typst'}
         class:drag-over={dropTargetIndex === index && dragTabIndex !== index}
         class:dragging={dragTabIndex === index}
         class:detaching={isDetaching && dragTabIndex === index}
@@ -600,6 +601,17 @@
     background: var(--bg-primary);
     color: var(--text-primary);
     border-bottom: 2px solid var(--accent-color);
+  }
+
+  /* Typst tabs get a distinct teal underline (vs. markdown's blue accent) so
+     the two mutually-exclusive document flavors read as visually different
+     languages at a glance, not just different file extensions. Matches the
+     "Typst" badge color used inside TypstEditor's own toolbar. */
+  .tab-item.typst.active {
+    border-bottom-color: var(--typst-accent-color, #239dad);
+  }
+  .tab-item.typst .dirty-dot {
+    background: var(--typst-accent-color, #239dad);
   }
 
   .tab-item.dragging {

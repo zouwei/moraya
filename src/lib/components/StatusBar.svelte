@@ -32,6 +32,7 @@
     indexingPhase = '',
     indexingCurrent = 0,
     indexingTotal = 0,
+    docFlavor = 'markdown' as 'markdown' | 'typst',
   }: {
     onShowUpdateDialog?: () => void;
     onToggleAI?: () => void;
@@ -53,6 +54,9 @@
     indexingPhase?: string;
     indexingCurrent?: number;
     indexingTotal?: number;
+    /** Markup language of the active document, shown in the right-hand corner.
+     *  Driven by the active tab's flavor so it tracks tab switches. */
+    docFlavor?: 'markdown' | 'typst';
   } = $props();
 
   const aiShortcutHint = isMacOS || isIPadOS ? '⇧⌘I' : 'Ctrl+Shift+I';
@@ -386,7 +390,9 @@
         </svg>
       </span>
     {/if}
-    <span class="status-item">{$t('statusbar.format')}</span>
+    <!-- Markup language of the active document. 'Typst' is a product name (not
+         translatable); markdown keeps the existing localized key. -->
+    <span class="status-item">{docFlavor === 'typst' ? 'Typst' : $t('statusbar.format')}</span>
   </div>
 </div>
 

@@ -1,4 +1,5 @@
 import { writable, get } from 'svelte/store';
+import { isTypstFile } from '@moraya/core/typst';
 import { editorStore } from './editor-store';
 
 export interface TabItem {
@@ -20,6 +21,11 @@ export interface TabItem {
    *  or `${filePath}#cloud:${revId}`). Reopening the same version focuses the
    *  existing tab instead of creating a duplicate. */
   previewKey?: string;
+  /** Document flavor. `undefined`/`'markdown'` → the ProseMirror editor;
+   *  `'typst'` → the source + live-preview TypstEditor (mutually exclusive —
+   *  a document is edited as EITHER markdown or Typst, never both). Detected by
+   *  the `.typ` file extension at open time. */
+  flavor?: 'markdown' | 'typst';
 }
 
 interface TabsState {
@@ -96,29 +102,45 @@ function createTabsStore() {
     syncFromEditor,
 
     /** Initialize the first tab with content (called on mount) */
-    initWithContent(content: string, filePath: string | null, fileName: string) {
+    initWithContent(
+      content: string,
+      filePath: string | null,
+      fileName: string,
+      flavor?: 'markdown' | 'typst',
+    ) {
+      // Prefer the explicitly transferred flavor (a detached unsaved Typst
+      // document has no `.typ` path to infer from); fall back to the name.
+      const resolved = flavor ?? (isTypstFile(fileName) ? 'typst' : undefined);
       update(state => ({
         ...state,
         tabs: state.tabs.map(tab =>
           tab.id === state.activeTabId
-            ? { ...tab, content, filePath, fileName, isDirty: false }
+            ? {
+                ...tab,
+                content,
+                filePath,
+                fileName,
+                isDirty: false,
+                flavor: resolved === 'markdown' ? undefined : resolved,
+              }
             : tab
         ),
       }));
     },
 
     /** Add a new empty tab */
-    addTab(): string {
+    addTab(opts?: { flavor?: 'markdown' | 'typst'; content?: string; fileName?: string }): string {
       syncFromEditor();
       const newTab: TabItem = {
         id: generateTabId(),
         filePath: null,
-        fileName: 'Untitled',
-        content: '',
+        fileName: opts?.fileName ?? 'Untitled',
+        content: opts?.content ?? '',
         isDirty: false,
         cursorOffset: 0,
         scrollFraction: 0,
         lastMtime: null,
+        flavor: opts?.flavor,
       };
       update(state => ({
         tabs: [...state.tabs, newTab],
@@ -155,6 +177,9 @@ function createTabsStore() {
         scrollFraction: 0,
         lastMtime: mtime ?? null,
         isImage,
+        // Flavor is decided by extension, shared with Web/Mobile via core so
+        // every entry point agrees on what a `.typ` file is.
+        flavor: isTypstFile(fileName) ? 'typst' : undefined,
       };
       update(s => ({
         tabs: [...s.tabs, newTab],
@@ -309,8 +334,11 @@ function createTabsStore() {
 
     /** Insert a tab at a specific index (used for cross-window tab transfer).
      *  Returns the new tab's id. */
-    insertTabAt(index: number, filePath: string | null, fileName: string, content: string, isDirty: boolean, mtime?: number | null): string {
+    insertTabAt(index: number, filePath: string | null, fileName: string, content: string, isDirty: boolean, mtime?: number | null, flavor?: 'markdown' | 'typst'): string {
       syncFromEditor();
+      // Prefer the transferred flavor; fall back to the file name so tabs that
+      // arrive without one (older payload) still resolve correctly.
+      const resolved = flavor ?? (isTypstFile(fileName) ? 'typst' : undefined);
       const newTab: TabItem = {
         id: generateTabId(),
         filePath,
@@ -320,6 +348,7 @@ function createTabsStore() {
         cursorOffset: 0,
         scrollFraction: 0,
         lastMtime: mtime ?? null,
+        flavor: resolved === 'markdown' ? undefined : resolved,
       };
       update(state => {
         const tabs = [...state.tabs];

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { settingsStore } from '../stores/settings-store';
-  import { editorStore } from '../stores/editor-store';
+  import { editorStore, isMarkdownFlushSuppressed } from '../stores/editor-store';
   import OutlinePanel, { type OutlineHeading } from '$lib/components/OutlinePanel.svelte';
   import katex from 'katex';
   // Side-effect: \ce/\pu (mhchem) for chemistry in the source-mode preview.
@@ -479,7 +479,13 @@
   });
 
   onDestroy(() => {
-    if (textareaEl) {
+    // When a Typst document has taken over, this editor's state belongs to the
+    // document being navigated away from — the store already holds the incoming
+    // document, so flushing here would overwrite it (and that stale value would
+    // later be persisted into the Typst tab, blanking it).
+    const flushSuppressed = isMarkdownFlushSuppressed();
+
+    if (textareaEl && !flushSuppressed) {
       editorStore.setCursorOffset(textareaEl.selectionStart);
       // Save scroll fraction for cross-mode restore
       const outer = textareaEl.closest('.source-editor-outer') as HTMLElement | null;
@@ -491,7 +497,7 @@
     if (storeTimer !== null) {
       clearTimeout(storeTimer);
       // Flush pending content to store before unmount
-      editorStore.setContent(content);
+      if (!flushSuppressed) editorStore.setContent(content);
     }
     if (ghostRaf !== null) {
       cancelAnimationFrame(ghostRaf);

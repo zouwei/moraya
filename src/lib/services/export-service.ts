@@ -193,3 +193,112 @@ export async function exportDocument(
   if (!result.ok) throw new Error(result.message ?? 'Export failed');
   return true;
 }
+
+/**
+ * Export the current markdown as a genuinely typeset PDF via the on-demand
+ * Typst engine (P0). Unlike `exportDocument(..., 'pdf')` — which screenshots the
+ * rendered DOM into a raster PDF — this compiles the markdown through Typst
+ * (`cmarker`) for true vector typesetting. The engine (~30 MB) is downloaded and
+ * cached on first use; `onToast` surfaces that one-time notice. Errors (incl.
+ * trimmed Typst compiler diagnostics) surface in the StatusBar progress pill.
+ */
+export async function exportTypstPdf(
+  markdownOrGetter: string | (() => string),
+  opts?: { onToast?: (message: string, type?: 'success' | 'error') => void },
+): Promise<boolean> {
+  const tr = get(t);
+  const path = await saveDialog({
+    title: tr('export.export_as', { format: 'PDF (Typst)' }),
+    defaultPath: 'document.pdf',
+    filters: [{ name: 'PDF', extensions: ['pdf'] }],
+  });
+  if (!path || typeof path !== 'string') return false;
+
+  const markdown =
+    typeof markdownOrGetter === 'function' ? markdownOrGetter() : markdownOrGetter;
+
+  exportProgressStore.start();
+  // Yield one frame so the pill paints before the (potentially long) first-use
+  // engine download + compile blocks on the IPC round-trip.
+  await new Promise((r) => setTimeout(r, 0));
+  try {
+    const engineReady = await invoke<boolean>('typst_engine_status');
+    if (!engineReady) {
+      // First use downloads the engine inside the command — tell the user.
+      opts?.onToast?.(tr('typst.downloading_engine'), 'success');
+    }
+    exportProgressStore.setPhase('rendering');
+    await invoke('typst_export_markdown_pdf', { markdown, outputPath: path });
+    exportProgressStore.done();
+    return true;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    exportProgressStore.error(msg || tr('typst.export_failed'));
+    return false;
+  }
+}
+
+/**
+ * Export a Typst *source* document (a `.typ` tab) via the File → Export menu.
+ *
+ * Mirrors `exportDocument`'s format menu, but every format is produced by the
+ * Typst compiler instead of markdown-it / DOM screenshots:
+ *   - pdf   → native typeset PDF
+ *   - image → PNG, one file per page (multi-page docs get `<name>-N.png`)
+ *   - html  → Typst's semantic HTML writer
+ *   - doc   → the same HTML saved under a `.doc` name (Word renders HTML),
+ *             matching how the markdown `.doc` export already works
+ * `html-plain` / `latex` are markdown-only and are rejected here.
+ */
+export async function exportTypstSource(
+  format: ExportFormat,
+  sourceOrGetter: string | (() => string),
+  opts?: { onToast?: (message: string, type?: 'success' | 'error') => void },
+): Promise<boolean> {
+  const tr = get(t);
+
+  // Map the shared ExportFormat menu onto what the Typst compiler can emit.
+  const spec: Record<string, { compileFormat: string; ext: string; label: string } | undefined> = {
+    pdf: { compileFormat: 'pdf', ext: 'pdf', label: 'PDF' },
+    image: { compileFormat: 'png', ext: 'png', label: tr('export.image') },
+    html: { compileFormat: 'html', ext: 'html', label: tr('export.html') },
+    doc: { compileFormat: 'doc', ext: 'doc', label: tr('export.doc') },
+  };
+  const target = spec[format];
+  if (!target) {
+    opts?.onToast?.(tr('typst.export_unsupported_format'), 'error');
+    return false;
+  }
+
+  const path = await saveDialog({
+    title: tr('export.export_as', { format: target.label }),
+    defaultPath: `document.${target.ext}`,
+    filters: [{ name: target.label, extensions: [target.ext] }],
+  });
+  if (!path || typeof path !== 'string') return false;
+
+  const source = typeof sourceOrGetter === 'function' ? sourceOrGetter() : sourceOrGetter;
+
+  exportProgressStore.start();
+  await new Promise((r) => setTimeout(r, 0));
+  try {
+    const engineReady = await invoke<boolean>('typst_engine_status');
+    if (!engineReady) opts?.onToast?.(tr('typst.downloading_engine'), 'success');
+    exportProgressStore.setPhase('rendering');
+    const result = await invoke<{ pages: string[] }>('typst_compile_source', {
+      source,
+      format: target.compileFormat,
+      outputPath: path,
+    });
+    exportProgressStore.done();
+    // PNG is one file per page — say so when a document spilled past page 1.
+    if (format === 'image' && result?.pages && result.pages.length > 1) {
+      opts?.onToast?.(tr('typst.export_multipage', { count: String(result.pages.length) }), 'success');
+    }
+    return true;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    exportProgressStore.error(msg || tr('typst.export_failed'));
+    return false;
+  }
+}

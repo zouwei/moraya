@@ -205,7 +205,27 @@ writeFileSync(files.cargo, cargo);
 console.log(`  ✓ src-tauri/Cargo.toml`);
 
 console.log(`\nVersion updated to ${next}`);
-console.log(`\nTo release:`);
-console.log(`  git add -A && git commit -m "chore: release v${next}"`);
-console.log(`  git tag v${next}`);
-console.log(`  git push origin main --tags`);
+
+// Draft the release commit message from the actual diff (Claude-assisted).
+// Kept in a separate script so bumping stays deterministic and offline-capable;
+// skip with `--no-notes` when offline or scripting a release.
+if (!process.argv.includes('--no-notes')) {
+  try {
+    execSync(`node ${resolve(root, 'scripts/summarize-release.mjs')} ${next}`, {
+      cwd: root,
+      stdio: 'inherit',
+    });
+  } catch {
+    // Never let note drafting fail the bump — the version files are already written.
+    console.log('\n⚠ Release-note drafting failed; continuing.');
+    console.log(`\nTo release:`);
+    console.log(`  git add -A && git commit -m "chore: release v${next}"`);
+    console.log(`  git tag v${next}`);
+    console.log(`  git push origin main --tags`);
+  }
+} else {
+  console.log(`\nTo release:`);
+  console.log(`  git add -A && git commit -m "chore: release v${next}"`);
+  console.log(`  git tag v${next}`);
+  console.log(`  git push origin main --tags`);
+}
