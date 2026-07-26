@@ -109,6 +109,10 @@
 
   function onPreviewPointerDown(e: PointerEvent) {
     if (e.button !== 0) return;
+    // The outline now lives inside the pane: clicking an entry or dragging its
+    // resize handle must not also start a pan (pointer capture would swallow
+    // the click).
+    if ((e.target as HTMLElement | null)?.closest('.typst-outline-slot')) return;
     const el = previewPaneEl;
     if (!el) return;
     panning = true;
@@ -131,6 +135,9 @@
   }
 
   let previewPaneEl = $state<HTMLElement | null>(null);
+  /** The outline slot INSIDE the preview pane, when shown. Its width has to be
+   *  taken out of the space a page is fitted into — it shares the pane's box. */
+  let previewOutlineEl = $state<HTMLElement | null>(null);
   let paneResizeObserver: ResizeObserver | null = null;
 
   /** Intrinsic size of a rendered page, read from the compiled SVG's viewBox. */
@@ -164,6 +171,9 @@
     const el = previewPaneEl;
     void zoom; // recompute the size vars when zoom changes
     void pageSize;
+    // Showing/hiding or dragging the outline changes the page's usable width.
+    void outlineInPreview;
+    void outlineWidth;
     paneResizeObserver?.disconnect();
     paneResizeObserver = null;
     if (!el) return;
@@ -172,7 +182,11 @@
       const style = getComputedStyle(el);
       const padX = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
       const padY = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
-      const availW = Math.max(0, el.clientWidth - padX);
+      // The outline shares the pane's content box, so its width is not available
+      // to the page — without this the page is fitted to the full pane and
+      // overflows by exactly the outline's width.
+      const outlineW = outlineInPreview ? (previewOutlineEl?.offsetWidth ?? 0) : 0;
+      const availW = Math.max(0, el.clientWidth - padX - outlineW);
       const availH = Math.max(0, el.clientHeight - padY);
 
       const size = pageSize;
@@ -556,7 +570,7 @@
                markdown editors, where the surrounding centred content area
                already provides the margin. Here the pane runs to the window
                edge, so the spacing has to come from this side. -->
-          <div class="typst-outline-slot">
+          <div class="typst-outline-slot edge">
             <OutlinePanel
               headings={outlineHeadings}
               activeId={activeHeadingId}
@@ -585,22 +599,6 @@
         </div>
       </div>
     {/if}
-    {#if outlineInPreview}
-      <!-- Visual mode has no source pane, so the outline sits beside the
-           preview instead. It must be a SIBLING of the preview: the preview is
-           the scroll container, and an outline inside it would scroll away with
-           the pages. -->
-      <div class="typst-outline-slot">
-        <OutlinePanel
-          headings={outlineHeadings}
-          activeId={activeHeadingId}
-          width={outlineWidth}
-          containerHeight={panesHeight}
-          onSelect={handleOutlineSelect}
-          onWidthChange={onOutlineWidthChange}
-        />
-      </div>
-    {/if}
     {#if showPreview}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
@@ -615,21 +613,40 @@
         onpointercancel={endPan}
         onscroll={() => { if (outlineInPreview) scheduleActiveUpdate(); }}
       >
-        <!-- First-use engine download is slow (~14 MB); surface it here since
-             the toolbar that used to show it was removed for a cleaner look. -->
-        {#if engineDownloading}
-          <div class="typst-empty">{$t('typst.downloading_engine')}</div>
-        {:else if compileError}
-          <pre class="typst-error">{compileError}</pre>
-        {:else if pages.length === 0}
-          <div class="typst-empty">{compiling ? $t('export.progress.rendering') : ''}</div>
-        {:else}
-          {#each pages as page, i (i)}
-            <!-- Trusted compiler output of the user's own document, rendered in a
-                 CSP script-src 'self' webview (inline SVG scripts cannot run). -->
-            <div class="typst-page">{@html page}</div>
-          {/each}
+        {#if outlineInPreview}
+          <!-- Inside the scroll container, exactly like the markdown editors:
+               OutlinePanel is `position: sticky`, so it holds its place while the
+               pages scroll, and sitting in the same flex row is what keeps it
+               against the page edge (a sibling of the pane would be pinned to the
+               window edge instead, drifting away from the centred pages). -->
+          <div class="typst-outline-slot" bind:this={previewOutlineEl}>
+            <OutlinePanel
+              headings={outlineHeadings}
+              activeId={activeHeadingId}
+              width={outlineWidth}
+              containerHeight={panesHeight}
+              onSelect={handleOutlineSelect}
+              onWidthChange={onOutlineWidthChange}
+            />
+          </div>
         {/if}
+        <div class="typst-pages">
+          <!-- First-use engine download is slow (~14 MB); surface it here since
+               the toolbar that used to show it was removed for a cleaner look. -->
+          {#if engineDownloading}
+            <div class="typst-empty">{$t('typst.downloading_engine')}</div>
+          {:else if compileError}
+            <pre class="typst-error">{compileError}</pre>
+          {:else if pages.length === 0}
+            <div class="typst-empty">{compiling ? $t('export.progress.rendering') : ''}</div>
+          {:else}
+            {#each pages as page, i (i)}
+              <!-- Trusted compiler output of the user's own document, rendered in a
+                   CSP script-src 'self' webview (inline SVG scripts cannot run). -->
+              <div class="typst-page">{@html page}</div>
+            {/each}
+          {/if}
+        </div>
       </div>
     {/if}
   </div>
@@ -660,16 +677,22 @@
     flex: 1 1 100%;
     border-right: none;
   }
-  /* Outline inset. The top padding matches `.typst-source`'s own 16px so the
-     first outline entry sits on the same baseline as the first source line. */
   .typst-outline-slot {
     flex-shrink: 0;
-    padding: 16px 8px 16px 20px;
     /* Same accent the Typst tab underline uses (themed light/dark in
        variables.css), so "which flavor am I in" reads consistently across the
        tab bar and the outline. */
     --outline-active-accent: var(--typst-accent-color);
     --outline-active-text: var(--typst-accent-color);
+  }
+  /* Source pane only: that pane runs to the window edge and has no padding of
+     its own, so the inset comes from here. The top padding matches
+     `.typst-source`'s own 16px, putting the first outline entry on the same
+     baseline as the first source line. In the preview pane the pane's 20px
+     padding already provides it — and OutlinePanel's own 8px right gap is what
+     separates it from the content, exactly as in the markdown editors. */
+  .typst-outline-slot.edge {
+    padding: 16px 8px 16px 20px;
   }
 
   /* The highlight layer and the textarea are stacked and MUST share every
@@ -775,15 +798,27 @@
        them. */
     background: var(--bg-primary);
     padding: 20px;
+    /* A ROW holding [outline][pages], centred as one group — the same geometry
+       the markdown editors use, so the outline stays against the page edge
+       instead of drifting to the window edge as the pane resizes.
+       `safe center`: centre the group when it fits, but fall back to
+       start-alignment the moment it overflows, so a zoomed-in or multi-page
+       document stays scrollable from its real start instead of being clipped
+       behind the scrollport. */
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: safe center;
+  }
+  /* The page stack: keeps the previous column behaviour, including vertical
+     `safe center` (via align-self) so a single short page still sits centred. */
+  .typst-pages {
     display: flex;
     flex-direction: column;
     align-items: center;
-    /* `safe center`: centre the page when it fits, but fall back to
-       start-alignment the moment it overflows, so a zoomed-in or multi-page
-       document stays scrollable from its real top instead of being clipped
-       behind the scrollport. */
-    justify-content: safe center;
+    align-self: safe center;
     gap: 16px;
+    min-width: 0;
   }
   /* Default arrow: the pane is a preview first, a pannable canvas second —
      a permanent grab hand overstates it. Panning still works on drag. */
