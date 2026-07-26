@@ -210,10 +210,18 @@ export function insertLink(s: TextSel, href = ''): TextSel {
   return out;
 }
 
-/** `#image("src")`, or `#figure(image, caption: [alt])` when `alt` is given. */
+/**
+ * `#image("src")`, or `#figure(image("src"), caption: [alt])` when `alt` is given.
+ *
+ * The `#` only switches markup mode into code mode. Inside `#figure(…)` the
+ * arguments are ALREADY code, so a nested `#image(…)` is a syntax error there
+ * ("the character `#` is not valid in code") — the call must be bare.
+ */
 export function insertImage(s: TextSel, src: string, alt?: string): TextSel {
-  const image = `#image(${quoteTypst(src)})`;
-  const markup = alt ? `#figure(${image}, caption: [${escapeTypst(alt)}])` : image;
+  const call = `image(${quoteTypst(src)})`;
+  const markup = alt
+    ? `#figure(${call}, caption: [${escapeTypst(alt)}])`
+    : `#${call}`;
   return replaceSel(s, markup);
 }
 

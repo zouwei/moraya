@@ -99,8 +99,16 @@ describe('insertImage', () => {
 
   it('wraps in #figure with an escaped caption when alt is given', () => {
     expect(insertImage(sel('', 0), 'p.png', 'a*b').text).toBe(
-      '#figure(#image("p.png"), caption: [a\\*b])',
+      '#figure(image("p.png"), caption: [a\\*b])',
     );
+  });
+
+  it('does NOT nest a # inside #figure (code mode already)', () => {
+    // Regression: `#figure(#image(...))` made the Typst compiler fail with
+    // "the character `#` is not valid in code".
+    const out = insertImage(sel('', 0), 'p.png', 'cap').text;
+    expect(out).not.toContain('(#image');
+    expect(out.match(/#/g)).toHaveLength(1);
   });
 });
 
