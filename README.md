@@ -61,6 +61,7 @@ Typst is a compiler, not a WYSIWYG format, so `.typ` documents get their own aut
 - **Native `.typ` Authoring** — Opening or creating a `.typ` file switches to a dedicated Typst editor: raw source on one side, a live compiled preview on the other (Overleaf-style). Visual/Source/Split modes apply here too — Visual shows the rendered pages, Source shows raw `.typ` text.
 - **Typst-Compiled Export** — Export a `.typ` document as a native PDF, per-page PNG, or semantic HTML — all produced by the real Typst compiler, not a DOM screenshot.
 - **Typeset PDF from Markdown, too** — Any Markdown document can also be exported through the Typst engine (via the `cmarker` package) for a genuinely typeset PDF, alongside the existing native PDF export path.
+- **Same Menus, Same Shortcuts** — Headings, bold/italic/strikethrough, inline code, links, images, lists, code/math blocks, quotes, rules and tables share ONE menu item and ONE shortcut across both formats; each emits the right markup for the document you are in (`= Heading` / `*bold*` / `#quote(block: true)[…]` in Typst). Actions with no counterpart in the other format (Task List, cloud audio/video) are greyed out rather than hidden, so the menu never shifts shape.
 - **Zero-Cost When Unused** — The `typst` compiler isn't bundled into the \~10MB binary. It downloads on first use from the official [typst/typst](https://github.com/typst/typst) release and is cached locally — Markdown-only users pay nothing for it.
 
 ### AI-Powered Writing
@@ -270,6 +271,8 @@ cd src-tauri && cargo check
 | Task List | `Cmd+Option+X` | `Ctrl+Alt+X` |
 | Zoom In/Out/Reset | `Cmd+=`/`-`/`0` | `Ctrl+=`/`-`/`0` |
 | AI Send Message | `Cmd+Enter` | `Ctrl+Enter` |
+
+> **Markdown & Typst**: editing shortcuts are shared by both document formats — the same binding emits the right markup for whichever format you are in. Settings ▸ Shortcuts groups every binding into **Markdown / Typst shared**, **Markdown only** and **Typst only**, and all of them are customizable.
 
 > **AI Chat Input**: `Enter` inserts a newline; `Cmd+Enter` / `Ctrl+Enter` sends the message. This avoids conflicts with CJK IME composition.
 

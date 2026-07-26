@@ -147,6 +147,14 @@ fn set_menu_check(_app: tauri::AppHandle, _id: String, _checked: bool) {
     menu::set_check_item(&_app, &_id, _checked);
 }
 
+/// Grey out / re-enable menu items per active document flavor (v0.46.0).
+/// `states` maps menu item IDs to the desired enabled flag.
+#[tauri::command]
+fn set_menu_items_enabled(_app: tauri::AppHandle, _states: HashMap<String, bool>) {
+    #[cfg(not(target_os = "ios"))]
+    menu::set_menu_items_enabled(&_app, &_states);
+}
+
 #[tauri::command]
 fn update_mcp_menu(_app: tauri::AppHandle, _servers: Vec<menu::MCPMenuServer>, _no_tools_label: String) {
     #[cfg(not(target_os = "ios"))]
@@ -1099,6 +1107,7 @@ pub fn run() {
             set_editor_mode_menu,
             update_menu_labels,
             set_menu_check,
+            set_menu_items_enabled,
             update_mcp_menu,
             commands::menu_accel::set_menu_accelerator,
             commands::menu_accel::set_menu_accelerators_batch,

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import {
   canonicalizeBinding,
@@ -7,6 +8,11 @@ import {
   findBindingConflict,
   bindingToTauriAccel,
   SHORTCUT_CATALOG,
+  scopeOf,
+  SCOPE_ORDER,
+  SCOPE_LABEL_KEYS,
+  FLAVOR_ONLY_MENU_ITEMS,
+  disabledMenuItemsFor,
 } from './catalog';
 
 /** Build a KeyboardEvent-shape object that the matchers can read. */
@@ -365,5 +371,107 @@ describe('findBindingConflict + runtime catalog', () => {
     // Recording Cmd+Alt+R for a different entry should NOT collide with a stale binding
     const conflict = findBindingConflict('Cmd+Alt+R', 'file.save', true, overrides, catalog);
     expect(conflict).toBeNull();
+  });
+});
+
+describe('document-flavor scopes (v0.46.0)', () => {
+  it('treats an omitted scope as shared', () => {
+    const bold = SHORTCUT_CATALOG.find((e) => e.id === 'format.bold')!;
+    expect(bold.scope).toBeUndefined();
+    expect(scopeOf(bold)).toBe('shared');
+  });
+
+  it('keeps every Paragraph/Format binding shared so both flavors reuse it', () => {
+    const shared = SHORTCUT_CATALOG.filter(
+      (e) => e.category === 'paragraph' || e.category === 'format',
+    );
+    expect(shared.length).toBeGreaterThan(0);
+    for (const entry of shared) expect(scopeOf(entry)).toBe('shared');
+  });
+
+  it('exposes the Typst file actions that previously had no catalog row', () => {
+    const ids = SHORTCUT_CATALOG.map((e) => e.id);
+    expect(ids).toContain('file.newTypst');
+    expect(ids).toContain('file.convertTypst');
+    expect(ids).toContain('file.exportTypstPdf');
+  });
+
+  it('scopes the Typst-only and Markdown-only file actions', () => {
+    const byId = (id: string) => SHORTCUT_CATALOG.find((e) => e.id === id)!;
+    expect(scopeOf(byId('file.newTypst'))).toBe('typst');
+    expect(scopeOf(byId('file.exportTypstPdf'))).toBe('markdown');
+    // Converting flips the active document either way — available in both.
+    expect(scopeOf(byId('file.convertTypst'))).toBe('shared');
+  });
+
+  it('has a label key for every scope, in panel order', () => {
+    expect(SCOPE_ORDER).toEqual(['shared', 'markdown', 'typst']);
+    for (const s of SCOPE_ORDER) expect(SCOPE_LABEL_KEYS[s]).toMatch(/^shortcuts\.scopes\./);
+  });
+
+  it('disables the other flavor’s exclusive menu items', () => {
+    expect(disabledMenuItemsFor('typst')).toEqual(FLAVOR_ONLY_MENU_ITEMS.markdown);
+    expect(disabledMenuItemsFor('typst')).toContain('para_task_list');
+    expect(disabledMenuItemsFor('typst')).toContain('insert_cloud_video');
+    // Nothing Typst-exclusive exists yet, so a markdown document greys nothing.
+    expect(disabledMenuItemsFor('markdown')).toEqual([]);
+  });
+
+  it('never disables a shared menu item', () => {
+    const sharedMenuIds = new Set(
+      SHORTCUT_CATALOG.filter((e) => scopeOf(e) === 'shared' && e.menuItemId).map(
+        (e) => e.menuItemId!,
+      ),
+    );
+    for (const id of [...FLAVOR_ONLY_MENU_ITEMS.markdown, ...FLAVOR_ONLY_MENU_ITEMS.typst]) {
+      expect(sharedMenuIds.has(id)).toBe(false);
+    }
+  });
+
+  it('gates every flavor-scoped menu row unless it is explicitly always-available', () => {
+    // A scoped row that maps to a native menu item must either be greyed out in
+    // the other flavor, or opt out via `alwaysAvailable` — otherwise the panel
+    // would advertise a restriction the menu never enforces.
+    for (const entry of SHORTCUT_CATALOG) {
+      const scope = scopeOf(entry);
+      if (scope === 'shared' || !entry.menuItemId) continue;
+      if (entry.alwaysAvailable) continue;
+      expect(FLAVOR_ONLY_MENU_ITEMS[scope]).toContain(entry.menuItemId);
+    }
+  });
+
+  it('keeps document-creation actions available from either flavor', () => {
+    const newTypst = SHORTCUT_CATALOG.find((e) => e.id === 'file.newTypst')!;
+    expect(newTypst.alwaysAvailable).toBe(true);
+    // Creating a .typ file must work while a markdown document is open.
+    expect(disabledMenuItemsFor('markdown')).not.toContain('file_new_typst');
+    expect(disabledMenuItemsFor('typst')).not.toContain('file_new_typst');
+  });
+});
+
+describe('menu gate ids exist in the native menu (cross-language guard)', () => {
+  // The gate list is only effective if every id matches a real menu item in
+  // src-tauri/src/menu.rs — a typo or a renamed item would silently stop
+  // greying anything out, with no type error to catch it.
+  const menuRs = readFileSync(
+    new URL('../../../src-tauri/src/menu.rs', import.meta.url),
+    'utf8',
+  );
+
+  const gated = [...FLAVOR_ONLY_MENU_ITEMS.markdown, ...FLAVOR_ONLY_MENU_ITEMS.typst];
+
+  it('has at least one gated item', () => {
+    expect(gated.length).toBeGreaterThan(0);
+  });
+
+  it.each(gated)('menu.rs declares "%s"', (id) => {
+    expect(menuRs).toContain(`"${id}"`);
+  });
+
+  it('declares every catalog menuItemId in menu.rs', () => {
+    for (const entry of SHORTCUT_CATALOG) {
+      if (!entry.menuItemId) continue;
+      expect(menuRs, `${entry.id} → ${entry.menuItemId}`).toContain(`"${entry.menuItemId}"`);
+    }
   });
 });

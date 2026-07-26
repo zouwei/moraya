@@ -28,10 +28,31 @@ export type ShortcutCategory =
   | 'workflow'
   | 'mcp';
 
+/**
+ * Which document flavor a shortcut applies to (v0.46.0).
+ *
+ * Moraya edits two document formats — Markdown (ProseMirror) and Typst
+ * (source + compiled preview). Actions that exist in both keep ONE menu item
+ * and ONE binding (`shared`); the rest are only effective in their own format
+ * and are greyed out in the native menu when the other flavor is active.
+ * Used by the Shortcuts settings panel to group bindings into
+ * shared / Markdown-only / Typst-only sections.
+ */
+export type DocScope = 'shared' | 'markdown' | 'typst';
+
 export interface ShortcutEntry {
   /** Stable id used as both the i18n key and the customization key in settings. */
   id: string;
   category: ShortcutCategory;
+  /** Document flavor this binding belongs to. Omitted === 'shared'. */
+  scope?: DocScope;
+  /**
+   * Set on flavor-scoped actions that stay invocable from EITHER flavor, so
+   * they are listed under their format's section but never greyed out —
+   * document-creation actions ("New Typst Document" must work while a markdown
+   * file is open, otherwise a .typ file could never be created).
+   */
+  alwaysAvailable?: boolean;
   /** i18n key (under `shortcuts.actions.<id>`) for the human-readable label.
    *  Dynamic entries (mcp.*) leave this empty and use `label` instead. */
   labelKey: string;
@@ -93,6 +114,13 @@ export const SHORTCUT_CATALOG_STATIC: ShortcutEntry[] = [
   { id: 'file.save',        category: 'file', labelKey: 'shortcuts.actions.file.save',        mac: 'Cmd+S',       win: 'Ctrl+S',       customizable: true, menuItemId: 'file_save'},
   { id: 'file.saveAs',      category: 'file', labelKey: 'shortcuts.actions.file.save_as',      mac: 'Cmd+Shift+S', win: 'Ctrl+Shift+S', customizable: true, menuItemId: 'file_save_as'},
   { id: 'file.exportHtml',  category: 'file', labelKey: 'shortcuts.actions.file.export_html',  mac: 'Cmd+Shift+E', win: 'Ctrl+Shift+E', customizable: true, menuItemId: 'file_export_html'},
+  // Typst document actions. `newTypst` creates a .typ document; `convertTypst`
+  // flips the active document between the two flavors (hence shared).
+  { id: 'file.newTypst',    category: 'file', scope: 'typst', alwaysAvailable: true, labelKey: 'shortcuts.actions.file.new_typst', mac: '', win: '', customizable: true, menuItemId: 'file_new_typst'},
+  { id: 'file.convertTypst', category: 'file',                   labelKey: 'shortcuts.actions.file.convert_typst', mac: '', win: '', customizable: true, menuItemId: 'file_convert_typst'},
+  // Renders a MARKDOWN document to PDF through the Typst engine — not
+  // applicable while editing a .typ file (which exports via plain PDF).
+  { id: 'file.exportTypstPdf', category: 'file', scope: 'markdown', labelKey: 'shortcuts.actions.file.export_typst_pdf', mac: '', win: '', customizable: true, menuItemId: 'file_export_typst_pdf'},
   // v0.41.5 (Phase B): export PDF/Image/Word — no default accelerators;
   // user can set their own via Settings → Shortcuts.
   { id: 'file.exportPdf',   category: 'file', labelKey: 'shortcuts.actions.file.export_pdf',   mac: '', win: '', customizable: true, menuItemId: 'file_export_pdf' },
@@ -102,8 +130,8 @@ export const SHORTCUT_CATALOG_STATIC: ShortcutEntry[] = [
   // ── Edit (native menu + page-level) ────────────────────────────
   { id: 'edit.undo',        category: 'edit', labelKey: 'shortcuts.actions.edit.undo',        mac: 'Cmd+Z',       win: 'Ctrl+Z',       customizable: true, menuItemId: 'edit_undo'},
   { id: 'edit.redo',        category: 'edit', labelKey: 'shortcuts.actions.edit.redo',        mac: 'Cmd+Shift+Z', win: 'Ctrl+Y',       customizable: true, menuItemId: 'edit_redo'},
-  { id: 'edit.find',        category: 'edit', labelKey: 'shortcuts.actions.edit.find',        mac: 'Cmd+F',       win: 'Ctrl+F',       customizable: true, menuItemId: 'edit_find'  },
-  { id: 'edit.replace',     category: 'edit', labelKey: 'shortcuts.actions.edit.replace',     mac: 'Cmd+H',       win: 'Ctrl+H',       customizable: true, menuItemId: 'edit_replace'  },
+  { id: 'edit.find',        category: 'edit', scope: 'markdown', labelKey: 'shortcuts.actions.edit.find',        mac: 'Cmd+F',       win: 'Ctrl+F',       customizable: true, menuItemId: 'edit_find'  },
+  { id: 'edit.replace',     category: 'edit', scope: 'markdown', labelKey: 'shortcuts.actions.edit.replace',     mac: 'Cmd+H',       win: 'Ctrl+H',       customizable: true, menuItemId: 'edit_replace'  },
 
   // ── Paragraph (native menu) ────────────────────────────────────
   { id: 'paragraph.h1',     category: 'paragraph', labelKey: 'shortcuts.actions.paragraph.h1',         mac: 'Cmd+1',       win: 'Ctrl+1',       customizable: true, menuItemId: 'para_h1'},
@@ -128,7 +156,7 @@ export const SHORTCUT_CATALOG_STATIC: ShortcutEntry[] = [
   { id: 'view.toggleSplit',    category: 'view', labelKey: 'shortcuts.actions.view.toggle_split',    mac: 'Cmd+Shift+/', win: 'Ctrl+Shift+/', customizable: true, menuItemId: 'view_mode_split'},
   { id: 'view.toggleSidebar',  category: 'view', labelKey: 'shortcuts.actions.view.toggle_sidebar',  mac: 'Cmd+\\',      win: 'Ctrl+\\',      customizable: true, menuItemId: 'view_sidebar'},
   { id: 'view.toggleAIPanel',  category: 'view', labelKey: 'shortcuts.actions.view.toggle_aipanel',  mac: 'Cmd+Shift+I', win: 'Ctrl+Shift+I', customizable: true, menuItemId: 'view_ai_panel'},
-  { id: 'view.toggleOutline',  category: 'view', labelKey: 'shortcuts.actions.view.toggle_outline',  mac: 'Cmd+Shift+O', win: 'Ctrl+Shift+O', customizable: true, menuItemId: 'view_outline'},
+  { id: 'view.toggleOutline',  category: 'view', scope: 'markdown', labelKey: 'shortcuts.actions.view.toggle_outline',  mac: 'Cmd+Shift+O', win: 'Ctrl+Shift+O', customizable: true, menuItemId: 'view_outline'},
   { id: 'view.openSettings',   category: 'view', labelKey: 'shortcuts.actions.view.open_settings',   mac: 'Cmd+,',       win: 'Ctrl+,',       customizable: true, menuItemId: 'preferences'},
   { id: 'view.zoomIn',         category: 'view', labelKey: 'shortcuts.actions.view.zoom_in',         mac: 'Cmd+=',       win: 'Ctrl+=',       customizable: true, menuItemId: 'view_zoom_in'},
   { id: 'view.zoomOut',        category: 'view', labelKey: 'shortcuts.actions.view.zoom_out',        mac: 'Cmd+-',       win: 'Ctrl+-',       customizable: true, menuItemId: 'view_zoom_out'},
@@ -155,6 +183,59 @@ export const CATEGORY_LABEL_KEYS: Record<ShortcutCategory, string> = {
   workflow: 'shortcuts.categories.workflow',
   mcp: 'shortcuts.categories.mcp',
 };
+
+/** Section headings for the three document-flavor groups in the panel. */
+export const SCOPE_LABEL_KEYS: Record<DocScope, string> = {
+  shared: 'shortcuts.scopes.shared',
+  markdown: 'shortcuts.scopes.markdown',
+  typst: 'shortcuts.scopes.typst',
+};
+
+/** Panel section order: shared bindings first, then the format-specific ones. */
+export const SCOPE_ORDER: DocScope[] = ['shared', 'markdown', 'typst'];
+
+/** Scope of an entry, treating an omitted `scope` as shared. */
+export function scopeOf(entry: ShortcutEntry): DocScope {
+  return entry.scope ?? 'shared';
+}
+
+/**
+ * Native menu items that only work in ONE document flavor.
+ *
+ * A superset of the catalog's flavor-scoped rows, because some menu items have
+ * no shortcut binding at all (Task List, cloud audio/video, …). Items listed
+ * here are greyed out — never hidden — while the other flavor is active, so the
+ * menu shape stays stable and the user can see the action exists but does not
+ * apply to this format.
+ */
+export const FLAVOR_ONLY_MENU_ITEMS: Record<Exclude<DocScope, 'shared'>, string[]> = {
+  markdown: [
+    // Typst has no checkbox list primitive (the converter falls back to ☑/☐ glyphs).
+    'para_task_list',
+    // Typst is a print format — no audio/video embeds.
+    'insert_cloud_audio',
+    'insert_cloud_video',
+    // Renders a markdown document through the Typst engine.
+    'file_export_typst_pdf',
+    // Find/Replace + Outline read the ProseMirror document; not wired to the
+    // Typst source pane yet.
+    'edit_find',
+    'edit_replace',
+    'view_outline',
+    // SEO / publish pipelines consume markdown.
+    'wf_seo',
+    'wf_publish',
+  ],
+  typst: [],
+};
+
+/**
+ * Menu item ids to disable for the given active document flavor: everything
+ * that belongs exclusively to the OTHER flavor.
+ */
+export function disabledMenuItemsFor(flavor: 'markdown' | 'typst'): string[] {
+  return flavor === 'typst' ? FLAVOR_ONLY_MENU_ITEMS.markdown : FLAVOR_ONLY_MENU_ITEMS.typst;
+}
 
 /**
  * Build the runtime shortcut catalog: static entries + dynamic MCP entries.

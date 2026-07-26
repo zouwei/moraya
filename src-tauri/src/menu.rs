@@ -47,6 +47,10 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
     // File menu
     let file_new = MenuItem::with_id(app, "file_new", "New Markdown Document", true, Some("CmdOrCtrl+N"))?;
     let file_new_typst = MenuItem::with_id(app, "file_new_typst", "New Typst Document", true, None::<&str>)?;
+    // Convert to the other flavor. Result opens as a NEW document; the source
+    // is left untouched because the conversion is lossy. The label is replaced
+    // from the frontend with the direction that applies to the active document.
+    let file_convert_typst = MenuItem::with_id(app, "file_convert_typst", "Save as Typst Document", true, None::<&str>)?;
     let file_new_window = MenuItem::with_id(app, "file_new_window", "New Window", true, Some("CmdOrCtrl+Shift+N"))?;
     let file_open = MenuItem::with_id(app, "file_open", "Open...", true, Some("CmdOrCtrl+O"))?;
     let file_save = MenuItem::with_id(app, "file_save", "Save", true, Some("CmdOrCtrl+S"))?;
@@ -80,6 +84,7 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
             &PredefinedMenuItem::separator(app)?,
             &file_save,
             &file_save_as,
+            &file_convert_typst,
             &PredefinedMenuItem::separator(app)?,
             &export_submenu,
             &PredefinedMenuItem::separator(app)?,
@@ -103,6 +108,7 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
                 &PredefinedMenuItem::separator(app)?,
                 &file_save,
                 &file_save_as,
+                &file_convert_typst,
                 &PredefinedMenuItem::separator(app)?,
                 &export_submenu,
                 &PredefinedMenuItem::separator(app)?,
@@ -462,6 +468,50 @@ fn update_labels_recursive(items: &[MenuItemKind<Wry>], labels: &HashMap<String,
                 }
                 if let Ok(sub_items) = sub.items() {
                     update_labels_recursive(&sub_items, labels);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Enable / disable menu items by ID (v0.46.0 — per-document-flavor gating).
+///
+/// Moraya edits both Markdown and Typst documents. Actions that exist in only
+/// one format (Task List has no Typst counterpart; cloud audio/video cannot be
+/// embedded in a print format) are greyed out — never removed — while the other
+/// flavor is active, so the menu keeps a stable shape and the user can still see
+/// the action exists. `states` maps menu item IDs to the desired enabled flag.
+///
+/// Walks nested submenus because some targets live two levels deep
+/// (File ▸ Export ▸ "PDF (Typst)").
+pub fn set_menu_items_enabled(app: &AppHandle, states: &HashMap<String, bool>) {
+    if let Some(menu) = app.menu() {
+        if let Ok(items) = menu.items() {
+            set_enabled_recursive(&items, states);
+        }
+    }
+}
+
+fn set_enabled_recursive(items: &[MenuItemKind<Wry>], states: &HashMap<String, bool>) {
+    for item in items {
+        match item {
+            MenuItemKind::MenuItem(mi) => {
+                if let Some(&enabled) = states.get(mi.id().0.as_str()) {
+                    let _ = mi.set_enabled(enabled);
+                }
+            }
+            MenuItemKind::Check(ci) => {
+                if let Some(&enabled) = states.get(ci.id().0.as_str()) {
+                    let _ = ci.set_enabled(enabled);
+                }
+            }
+            MenuItemKind::Submenu(sub) => {
+                if let Some(&enabled) = states.get(sub.id().0.as_str()) {
+                    let _ = sub.set_enabled(enabled);
+                }
+                if let Ok(sub_items) = sub.items() {
+                    set_enabled_recursive(&sub_items, states);
                 }
             }
             _ => {}

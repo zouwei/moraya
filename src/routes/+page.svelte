@@ -29,6 +29,7 @@
   import Editor from '$lib/editor/Editor.svelte';
   import SourceEditor from '$lib/editor/SourceEditor.svelte';
   import TypstEditor from '$lib/editor/TypstEditor.svelte';
+  import type { TypstAction } from '$lib/editor/typst-commands';
   import SearchBar from '$lib/editor/SearchBar.svelte';
   import type { EditorMode } from '$lib/stores/editor-store';
   import TitleBar from '$lib/components/TitleBar.svelte';
@@ -54,6 +55,7 @@
   import { preloadEnhancementPlugins } from '$lib/editor/setup';
   import { openFile, saveFile, saveFileAs, loadFile, getFileNameFromPath, readImageAsBlobUrl, migrateTempImages, isImageFile } from '$lib/services/file-service';
   import { isTypstFile } from '@moraya/core/typst';
+  import { schema } from '$lib/editor/schema';
   import { exportDocument, exportTypstPdf, exportTypstSource, type ExportFormat } from '$lib/services/export-service';
   import { checkForUpdate, shouldCheckToday, getTodayDateString } from '$lib/services/update-service';
   import { listen, emitTo, type UnlistenFn } from '@tauri-apps/api/event';
@@ -64,7 +66,14 @@
   import { t, locale } from '$lib/i18n';
   import { get } from 'svelte/store';
   import { getPlatformClass, isIPadOS, isMacOS, isTauri, isVirtualKeyboardVisible } from '$lib/utils/platform';
-  import { SHORTCUT_CATALOG, effectiveBinding, eventMatchesBinding } from '$lib/shortcuts/catalog';
+  import {
+    SHORTCUT_CATALOG,
+    FLAVOR_ONLY_MENU_ITEMS,
+    disabledMenuItemsFor,
+    effectiveBinding,
+    eventMatchesBinding,
+    scopeOf,
+  } from '$lib/shortcuts/catalog';
   import TabBar from '$lib/components/TabBar.svelte';
   import TouchToolbar from '$lib/editor/TouchToolbar.svelte';
   import { tabsStore } from '$lib/stores/tabs-store';
@@ -244,6 +253,9 @@ ${tr('welcome.tip')}
   // Image tab preview state — derived from active tab
   let activeImageTab = $state<import('$lib/stores/tabs-store').TabItem | null>(null);
   let activeTypstTab = $state<import('$lib/stores/tabs-store').TabItem | null>(null);
+  /** Instance handle on the mounted TypstEditor, so shared menu/shortcut
+   *  actions can rewrite the .typ source (see `runSharedAction`). */
+  let typstEditorRef = $state<TypstEditor | null>(null);
   /** The editorMode active right before switching INTO a Typst tab (which
    *  forces 'split'), so switching back out to markdown restores the user's
    *  prior visual/source/split preference instead of leaving it on 'split'. */
@@ -676,25 +688,74 @@ ${tr('welcome.tip')}
     }
   }
 
+  // ── Flavor-aware shared actions (v0.46.0) ─────────────────────────────
+  // Every Paragraph/Format action below exists in BOTH document flavors, so it
+  // keeps ONE menu item and ONE shortcut: markdown runs a ProseMirror command,
+  // Typst rewrites the .typ source (markup rules in typst-commands.ts).
+  //
+  // Before this, a Typst tab left `morayaEditor` pointing at the destroyed
+  // markdown EditorView, so every one of these was a silent no-op.
+
+  /** Canonical names for actions shared by both document flavors. */
+  type SharedAction =
+    | 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6'
+    | 'bold' | 'italic' | 'strike' | 'inlineCode' | 'link'
+    | 'bulletList' | 'orderedList' | 'quote'
+    | 'codeBlock' | 'mathBlock' | 'horizontalRule' | 'table';
+
+  /** Markdown (ProseMirror) command + Typst source action for each shared name. */
+  const SHARED_ACTIONS: Record<SharedAction, { md: () => void; typst: TypstAction }> = {
+    h1: { md: () => runCmd(setHeading(1)), typst: { type: 'heading', level: 1 } },
+    h2: { md: () => runCmd(setHeading(2)), typst: { type: 'heading', level: 2 } },
+    h3: { md: () => runCmd(setHeading(3)), typst: { type: 'heading', level: 3 } },
+    h4: { md: () => runCmd(setHeading(4)), typst: { type: 'heading', level: 4 } },
+    h5: { md: () => runCmd(setHeading(5)), typst: { type: 'heading', level: 5 } },
+    h6: { md: () => runCmd(setHeading(6)), typst: { type: 'heading', level: 6 } },
+    bold: { md: () => runCmd(toggleBold), typst: { type: 'bold' } },
+    italic: { md: () => runCmd(toggleItalic), typst: { type: 'italic' } },
+    strike: { md: () => runCmd(toggleStrikethrough), typst: { type: 'strike' } },
+    inlineCode: { md: () => runCmd(toggleCode), typst: { type: 'inlineCode' } },
+    link: { md: () => runCmd(toggleLink({ href: '' })), typst: { type: 'link' } },
+    bulletList: { md: () => runCmd(wrapInBulletList), typst: { type: 'bulletList' } },
+    orderedList: { md: () => runCmd(wrapInOrderedList), typst: { type: 'orderedList' } },
+    quote: { md: () => runCmd(wrapInBlockquote), typst: { type: 'quote' } },
+    codeBlock: { md: () => runCmd(insertCodeBlock), typst: { type: 'codeBlock' } },
+    mathBlock: { md: () => runCmd(insertMathBlockCmd), typst: { type: 'mathBlock' } },
+    horizontalRule: { md: () => runCmd(insertHorizontalRule), typst: { type: 'horizontalRule' } },
+    table: { md: () => runCmd(insertTable(3, 3)), typst: { type: 'table', rows: 3, cols: 3 } },
+  };
+
+  /** Run a shared action against whichever editor the active tab is using. */
+  function runSharedAction(name: SharedAction) {
+    const action = SHARED_ACTIONS[name];
+    if (activeTypstTab) {
+      typstEditorRef?.runAction(action.typst);
+      return;
+    }
+    action.md();
+  }
+
   /** Handle commands from the iPad touch toolbar */
   function handleTouchCommand(cmd: string) {
+    // Shared actions go through runSharedAction so the toolbar behaves the same
+    // on a Typst tab as the menu and shortcuts do.
     const commandMap: Record<string, () => void> = {
-      bold: () => runCmd(toggleBold),
-      italic: () => runCmd(toggleItalic),
-      strikethrough: () => runCmd(toggleStrikethrough),
-      code: () => runCmd(toggleCode),
-      link: () => runCmd(toggleLink({ href: '' })),
-      h1: () => runCmd(setHeading(1)),
-      h2: () => runCmd(setHeading(2)),
-      h3: () => runCmd(setHeading(3)),
-      quote: () => runCmd(wrapInBlockquote),
-      bullet_list: () => runCmd(wrapInBulletList),
-      ordered_list: () => runCmd(wrapInOrderedList),
-      code_block: () => runCmd(insertCodeBlock),
-      math_block: () => runCmd(insertMathBlockCmd),
-      table: () => runCmd(insertTable(3, 3)),
+      bold: () => runSharedAction('bold'),
+      italic: () => runSharedAction('italic'),
+      strikethrough: () => runSharedAction('strike'),
+      code: () => runSharedAction('inlineCode'),
+      link: () => runSharedAction('link'),
+      h1: () => runSharedAction('h1'),
+      h2: () => runSharedAction('h2'),
+      h3: () => runSharedAction('h3'),
+      quote: () => runSharedAction('quote'),
+      bullet_list: () => runSharedAction('bulletList'),
+      ordered_list: () => runSharedAction('orderedList'),
+      code_block: () => runSharedAction('codeBlock'),
+      math_block: () => runSharedAction('mathBlock'),
+      table: () => runSharedAction('table'),
       image: () => { showImageDialog = true; },
-      hr: () => runCmd(insertHorizontalRule),
+      hr: () => runSharedAction('horizontalRule'),
       undo: () => runCmd(undo),
       redo: () => runCmd(redo),
     };
@@ -1123,6 +1184,26 @@ ${tr('welcome.tip')}
     invoke('set_menu_check', { id: 'view_outline', checked: showOutline }).catch(() => {});
   });
 
+  // Grey out menu items that belong to the OTHER document flavor (v0.46.0).
+  // Shared actions (Paragraph/Format/…) stay enabled in both formats — they keep
+  // one menu item and one shortcut — while format-exclusive ones (Task List has
+  // no Typst counterpart, cloud audio/video cannot go in a print format) are
+  // disabled rather than hidden, so the menu shape never shifts under the user.
+  //
+  // Safe against the CheckMenuItem feedback loop documented in CLAUDE.md:
+  // `set_enabled` does not emit menu events, unlike `set_checked`.
+  $effect(() => {
+    if (!isTauri) return;
+    const flavor: 'markdown' | 'typst' = activeTypstTab ? 'typst' : 'markdown';
+    const off = new Set(disabledMenuItemsFor(flavor));
+    const states: Record<string, boolean> = {};
+    // Send BOTH lists every time so switching back re-enables what was greyed.
+    for (const id of [...FLAVOR_ONLY_MENU_ITEMS.markdown, ...FLAVOR_ONLY_MENU_ITEMS.typst]) {
+      states[id] = !off.has(id);
+    }
+    invoke('set_menu_items_enabled', { states }).catch(() => {});
+  });
+
   // Re-run search when editor mode changes while search bar is open.
   // The new editor component has fresh state, so we need to re-execute the search
   // to populate its matches for findNext/findPrev to work.
@@ -1163,6 +1244,8 @@ ${tr('welcome.tip')}
       // File menu
       file_new: tr('menu.new'),
       file_new_typst: tr('menu.new_typst'),
+      // Flavor-aware: the entry offers whichever flavor the document is not.
+      file_convert_typst: activeTypstTab ? tr('menu.save_as_markdown') : tr('menu.save_as_typst'),
       file_new_window: tr('menu.new_window'),
       file_open: tr('menu.open'),
       file_save: tr('menu.save'),
@@ -1305,6 +1388,17 @@ ${tr('welcome.tip')}
    * caller can fall through to the existing hardcoded handlers).
    */
   function runShortcutAction(id: string): boolean {
+    // Flavor gate (v0.46.0): a binding scoped to the other document format is
+    // inert, matching the greyed-out native menu item. Without this the JS
+    // shortcut path would still fire (e.g. Cmd+F on a Typst tab opening a search
+    // bar that cannot reach the Typst source pane).
+    const entry = SHORTCUT_CATALOG.find((e) => e.id === id);
+    if (entry && !entry.alwaysAvailable) {
+      const scope = scopeOf(entry);
+      const flavor = activeTypstTab ? 'typst' : 'markdown';
+      if (scope !== 'shared' && scope !== flavor) return false;
+    }
+
     // ── MCP dynamic-id branches (v0.41.6) ────────────────────────
     // Format: `mcp.server.<serverId>.toggle` / `mcp.tool.<serverId>.<toolName>.prompt`
     // (serverId is the persisted ID from mcp-config.json; toolName is
@@ -1323,6 +1417,7 @@ ${tr('welcome.tip')}
     switch (id) {
       case 'file.new': handleNewFile(); return true;
       case 'file.newTypst': handleNewTypstFile(); return true;
+      case 'file.convertTypst': handleConvertFlavor(); return true;
       case 'file.newWindow':
         if (isIPadOS) handleNewFile();
         else invoke('create_new_window').catch(() => {});
@@ -1355,20 +1450,20 @@ ${tr('welcome.tip')}
       case 'edit.find': showSearch = true; return true;
       case 'edit.replace': showSearch = true; showReplace = true; return true;
 
-      case 'paragraph.h1': runCmd(setHeading(1)); return true;
-      case 'paragraph.h2': runCmd(setHeading(2)); return true;
-      case 'paragraph.h3': runCmd(setHeading(3)); return true;
-      case 'paragraph.h4': runCmd(setHeading(4)); return true;
-      case 'paragraph.h5': runCmd(setHeading(5)); return true;
-      case 'paragraph.h6': runCmd(setHeading(6)); return true;
-      case 'paragraph.codeBlock': runCmd(insertCodeBlock); return true;
-      case 'paragraph.quote': runCmd(wrapInBlockquote); return true;
+      case 'paragraph.h1': runSharedAction('h1'); return true;
+      case 'paragraph.h2': runSharedAction('h2'); return true;
+      case 'paragraph.h3': runSharedAction('h3'); return true;
+      case 'paragraph.h4': runSharedAction('h4'); return true;
+      case 'paragraph.h5': runSharedAction('h5'); return true;
+      case 'paragraph.h6': runSharedAction('h6'); return true;
+      case 'paragraph.codeBlock': runSharedAction('codeBlock'); return true;
+      case 'paragraph.quote': runSharedAction('quote'); return true;
 
-      case 'format.bold': runCmd(toggleBold); return true;
-      case 'format.italic': runCmd(toggleItalic); return true;
-      case 'format.strike': runCmd(toggleStrikethrough); return true;
-      case 'format.code': runCmd(toggleCode); return true;
-      case 'format.link': runCmd(toggleLink({ href: '' })); return true;
+      case 'format.bold': runSharedAction('bold'); return true;
+      case 'format.italic': runSharedAction('italic'); return true;
+      case 'format.strike': runSharedAction('strike'); return true;
+      case 'format.code': runSharedAction('inlineCode'); return true;
+      case 'format.link': runSharedAction('link'); return true;
       case 'format.insertImage': showImageDialog = true; return true;
 
       case 'view.toggleMode': {
@@ -1803,6 +1898,58 @@ ${tr('welcome.tip')}
     tabsStore.addTab({ flavor: 'typst', content: '', fileName: 'Untitled.typ' });
     content = '';
     resetWorkflowState();
+  }
+
+  /**
+   * Convert the active document to the other flavor, opening the result as a
+   * NEW unsaved tab. The source document is never modified — conversion is
+   * lossy in both directions (raw HTML and implied layout one way; Typst
+   * layout, shapes and generated content the other), so overwriting it would
+   * destroy information the user cannot get back.
+   *
+   * Typst → Markdown hands core the native compiler: Typst is a programming
+   * language, so the document has to be *run* to be converted, and the desktop
+   * binary can export HTML for exactly that. (The browser cannot, and falls
+   * back to a source-level read — see `convertTypstToMarkdown`.) Running the
+   * compiler means the engine may need downloading on first use.
+   */
+  async function handleConvertFlavor() {
+    const source = getCurrentContent();
+    if (!source.trim()) {
+      showToast($t('convert.empty'), 'error');
+      return;
+    }
+    const toTypst = !activeTypstTab;
+    const convert = await import('@moraya/core/convert');
+
+    let result;
+    if (toTypst) {
+      result = convert.convertMarkdownToTypst(source, schema);
+    } else {
+      const { tauriTypstCompiler } = await import('$lib/editor/typst-compiler');
+      await tauriTypstCompiler.prepare?.();
+      result = await convert.convertTypstToMarkdown(source, { compiler: tauriTypstCompiler });
+    }
+    if (!result.ok) {
+      showToast(result.message || $t('convert.failed'), 'error');
+      return;
+    }
+
+    const baseName = (currentFileName || 'Untitled').replace(/\.[^.]+$/, '');
+    tabsStore.addTab({
+      flavor: toTypst ? 'typst' : 'markdown',
+      content: result.content,
+      fileName: `${baseName}${toTypst ? '.typ' : '.md'}`,
+    });
+    content = result.content;
+    resetWorkflowState();
+    // Surface what could not be carried over rather than failing silently.
+    const done = toTypst ? $t('convert.done') : $t('convert.done_md');
+    const lossy = toTypst ? $t('convert.done_lossy') : $t('convert.done_lossy_md');
+    showToast(
+      result.warnings.length > 0 ? `${lossy} ${result.warnings.join(' ')}` : done,
+      'success',
+    );
   }
 
   // Guard against concurrent file loads: rapid clicks (e.g. KB file switching)
@@ -2494,6 +2641,12 @@ ${tr('welcome.tip')}
   async function handleInsertImage(data: { src: string; alt: string }) {
     showImageDialog = false;
     try {
+      // Typst tab: emit `#image("src")` / `#figure(…)` into the .typ source. A
+      // blob: URL would not survive a compile, so keep the original path.
+      if (activeTypstTab) {
+        typstEditorRef?.runAction({ type: 'image', src: data.src, alt: data.alt || undefined });
+        return;
+      }
       const src = isLocalPath(data.src) ? await readImageAsBlobUrl(data.src) : data.src;
       const mode = editorStore.getState().editorMode;
       if (mode === 'source') {
@@ -2546,6 +2699,20 @@ ${tr('welcome.tip')}
   }
 
   async function handleCloudInsert(items: UnifiedMediaItem[], asHtml: boolean, pos?: number) {
+    // Typst tab: images map to `#image("url")`. Audio/video have no Typst
+    // counterpart (it is a print format), so those menu items are disabled for
+    // Typst documents — see FLAVOR_MENU_GATES.
+    if (activeTypstTab) {
+      for (const item of items) {
+        if (item.type !== 'image') continue;
+        typstEditorRef?.runAction({
+          type: 'image',
+          src: item.url ?? '',
+          alt: item.title ?? item.filename,
+        });
+      }
+      return;
+    }
     const mode = editorStore.getState().editorMode;
     if (mode === 'source') {
       // Insert as text into source textarea
@@ -3428,6 +3595,7 @@ ${tr('welcome.tip')}
         // File
         'menu:file_new': () => handleNewFile(),
         'menu:file_new_typst': () => handleNewTypstFile(),
+        'menu:file_convert_typst': () => handleConvertFlavor(),
         'menu:file_new_window': () => isIPadOS ? handleNewFile() : invoke('create_new_window').catch(e => { console.error('[NewWindow] create_new_window failed:', e); }),
         'menu:file_open': () => handleOpenFile(),
         'menu:file_save': () => handleSave(),
@@ -3460,8 +3628,11 @@ ${tr('welcome.tip')}
             runCmd(redo);
           }
         },
-        // Select All: context-aware (code block vs doc vs source textarea)
+        // Select All: context-aware (Typst source vs code block vs doc vs source textarea)
         'menu:edit_select_all': () => {
+          // A Typst tab renders its own textarea (`.typst-source-input`), which
+          // the `.source-textarea` query below never matches — so route it first.
+          if (activeTypstTab) { typstEditorRef?.selectAll(); return; }
           if (editorMode === 'source' || (editorMode === 'split' && isSourcePaneFocused())) {
             // Source mode: select all textarea content
             const ta = document.querySelector('.source-textarea') as HTMLTextAreaElement | null;
@@ -3500,27 +3671,27 @@ ${tr('welcome.tip')}
         'menu:edit_find': () => { showSearch = true; },
         'menu:edit_replace': () => { showSearch = true; showReplace = true; },
         // Paragraph
-        'menu:para_h1': () => runCmd(setHeading(1)),
-        'menu:para_h2': () => runCmd(setHeading(2)),
-        'menu:para_h3': () => runCmd(setHeading(3)),
-        'menu:para_h4': () => runCmd(setHeading(4)),
-        'menu:para_h5': () => runCmd(setHeading(5)),
-        'menu:para_h6': () => runCmd(setHeading(6)),
-        'menu:para_table': () => runCmd(insertTable(3, 3)),
-        'menu:para_code_block': () => runCmd(insertCodeBlock),
-        'menu:para_math_block': () => runCmd(insertMathBlockCmd),
-        'menu:para_quote': () => runCmd(wrapInBlockquote),
-        'menu:para_bullet_list': () => runCmd(wrapInBulletList),
-        'menu:para_ordered_list': () => runCmd(wrapInOrderedList),
+        'menu:para_h1': () => runSharedAction('h1'),
+        'menu:para_h2': () => runSharedAction('h2'),
+        'menu:para_h3': () => runSharedAction('h3'),
+        'menu:para_h4': () => runSharedAction('h4'),
+        'menu:para_h5': () => runSharedAction('h5'),
+        'menu:para_h6': () => runSharedAction('h6'),
+        'menu:para_table': () => runSharedAction('table'),
+        'menu:para_code_block': () => runSharedAction('codeBlock'),
+        'menu:para_math_block': () => runSharedAction('mathBlock'),
+        'menu:para_quote': () => runSharedAction('quote'),
+        'menu:para_bullet_list': () => runSharedAction('bulletList'),
+        'menu:para_ordered_list': () => runSharedAction('orderedList'),
         'menu:para_task_list': () => runCmd(wrapInTaskList),
 
-        'menu:para_hr': () => runCmd(insertHorizontalRule),
+        'menu:para_hr': () => runSharedAction('horizontalRule'),
         // Format
-        'menu:fmt_bold': () => runCmd(toggleBold),
-        'menu:fmt_italic': () => runCmd(toggleItalic),
-        'menu:fmt_strikethrough': () => runCmd(toggleStrikethrough),
-        'menu:fmt_code': () => runCmd(toggleCode),
-        'menu:fmt_link': () => runCmd(toggleLink({ href: '' })),
+        'menu:fmt_bold': () => runSharedAction('bold'),
+        'menu:fmt_italic': () => runSharedAction('italic'),
+        'menu:fmt_strikethrough': () => runSharedAction('strike'),
+        'menu:fmt_code': () => runSharedAction('inlineCode'),
+        'menu:fmt_link': () => runSharedAction('link'),
         'menu:fmt_image': () => { showImageDialog = true; },
         'menu:insert_cloud_image': () => { cloudPickerState = { kind: 'image', pos: null }; },
         'menu:insert_cloud_audio': () => { cloudPickerState = { kind: 'audio', pos: null }; },
@@ -3893,7 +4064,7 @@ ${tr('welcome.tip')}
       {:else if activeTypstTab}
         <!-- Typst authoring: source + live compiled preview (mutually exclusive
              with the markdown ProseMirror editor). -->
-        <TypstEditor bind:content {editorMode} readOnly={editorReadOnly} onContentChange={handleTypstContentChange} />
+        <TypstEditor bind:this={typstEditorRef} bind:content {editorMode} readOnly={editorReadOnly} onContentChange={handleTypstContentChange} />
       {:else if editorMode === 'visual'}
         <Editor bind:this={visualEditorRef} bind:content {showOutline} {outlineWidth} readOnly={editorReadOnly} skipDestroyFlush={activeTypstTab !== null} onEditorReady={handleEditorReady} onNotify={showToast} onOutlineWidthChange={(w) => settingsStore.update({ outlineWidth: w })} onWorkflowSEO={handleWorkflowSEO} onWorkflowImageGen={handleWorkflowImageGen} onWorkflowPublish={handleWorkflowPublish} onForceShowAIPanel={() => { showAIPanel = true; }} onAddReview={handleAddReview} onInsertCloudImage={(pos) => { cloudPickerState = { kind: 'image', pos }; }} onInsertCloudAudio={(pos) => { cloudPickerState = { kind: 'audio', pos }; }} onInsertCloudVideo={(pos) => { cloudPickerState = { kind: 'video', pos }; }} />
       {:else if editorMode === 'source'}

@@ -4,6 +4,9 @@
   import { isMacOS } from '$lib/utils/platform';
   import {
     CATEGORY_LABEL_KEYS,
+    SCOPE_LABEL_KEYS,
+    SCOPE_ORDER,
+    scopeOf,
     displayShortcut,
     effectiveBinding,
     eventToBinding,
@@ -25,17 +28,31 @@
     userToolShortcuts,
   ));
 
-  // Group by category in declared order so the panel matches the menu order.
-  let grouped = $derived.by(() => {
+  // Two-level grouping (v0.46.0): document flavor → category.
+  //
+  // Moraya edits Markdown and Typst documents. Actions that exist in both keep
+  // one binding and are listed under "shared"; the rest are grouped under the
+  // format they apply to, so the panel makes it obvious which bindings carry
+  // over between formats and which do not. Categories keep the menu's order
+  // within each section.
+  let scopeGroups = $derived.by(() => {
     const order: ShortcutCategory[] = ['file', 'edit', 'paragraph', 'format', 'view', 'workflow', 'aiChat', 'mcp'];
-    const map = new Map<ShortcutCategory, ShortcutEntry[]>();
-    for (const c of order) map.set(c, []);
-    for (const entry of catalog) {
-      map.get(entry.category)?.push(entry);
-    }
-    return order
-      .map(c => ({ category: c, entries: map.get(c) ?? [] }))
-      .filter(g => g.entries.length > 0 || g.category === 'mcp');
+    return SCOPE_ORDER
+      .map(scope => {
+        const map = new Map<ShortcutCategory, ShortcutEntry[]>();
+        for (const c of order) map.set(c, []);
+        for (const entry of catalog) {
+          if (scopeOf(entry) !== scope) continue;
+          map.get(entry.category)?.push(entry);
+        }
+        const categories = order
+          .map(c => ({ category: c, entries: map.get(c) ?? [] }))
+          // The MCP section keeps its empty-state + "add tool" row, but only in
+          // the shared group (MCP shortcuts are flavor-independent).
+          .filter(g => g.entries.length > 0 || (g.category === 'mcp' && scope === 'shared'));
+        return { scope, categories };
+      })
+      .filter(g => g.categories.length > 0);
   });
 
   let behavior = $derived($settingsStore.aiChatEnterBehavior);
@@ -369,13 +386,19 @@
     </div>
   </section>
 
-  <!-- Full shortcut catalog -->
-  {#each grouped as group (group.category)}
+  <!-- Full shortcut catalog, grouped by document flavor then category -->
+  {#each scopeGroups as scopeGroup (scopeGroup.scope)}
+    <div class="scope-group">
+      <div class="scope-head">
+        <h3 class="scope-title">{$t(SCOPE_LABEL_KEYS[scopeGroup.scope])}</h3>
+        <p class="scope-desc">{$t(`shortcuts.scopes.${scopeGroup.scope}_desc`)}</p>
+      </div>
+    {#each scopeGroup.categories as group (group.category)}
     {@const tokens = (entry: ShortcutEntry) => splitBinding(rowBinding(entry))}
     {@const isMCP = group.category === 'mcp'}
     <section class="settings-section">
       <div class="section-head">
-        <h3 class="section-title">{$t(CATEGORY_LABEL_KEYS[group.category])}</h3>
+        <h4 class="section-title">{$t(CATEGORY_LABEL_KEYS[group.category])}</h4>
         {#if isMCP}
           <p class="section-desc">{$t('shortcuts.mcp.intro')}</p>
         {/if}
@@ -514,6 +537,8 @@
         {/if}
       </div>
     </section>
+    {/each}
+    </div>
   {/each}
 
 </div>
@@ -740,6 +765,27 @@
     font-size: 0.9em;
   }
   .mapping-action { color: var(--text-secondary); }
+
+  /* ── Document-flavor group (shared / Markdown / Typst) ────────── */
+  .scope-group {
+    margin-bottom: 1.5rem;
+  }
+  .scope-head {
+    margin: 0 0 0.5rem;
+    padding-bottom: 0.35rem;
+    border-bottom: 1px solid var(--border-color);
+  }
+  .scope-title {
+    margin: 0;
+    font-size: var(--font-size-base);
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .scope-desc {
+    margin: 0.15rem 0 0;
+    font-size: var(--font-size-xs);
+    color: var(--text-secondary);
+  }
 
   /* ── Shortcut card (grouped rows) ─────────────────────────────── */
   .shortcut-card {
