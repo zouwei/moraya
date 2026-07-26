@@ -241,13 +241,22 @@ export async function exportTypstPdf(
 /**
  * Export a Typst *source* document (a `.typ` tab) via the File → Export menu.
  *
- * Mirrors `exportDocument`'s format menu, but every format is produced by the
- * Typst compiler instead of markdown-it / DOM screenshots:
- *   - pdf   → native typeset PDF
- *   - image → PNG, one file per page (multi-page docs get `<name>-N.png`)
- *   - html  → Typst's semantic HTML writer
- *   - doc   → the same HTML saved under a `.doc` name (Word renders HTML),
- *             matching how the markdown `.doc` export already works
+ * Mirrors `exportDocument`'s format menu, but nothing goes through markdown-it
+ * or a DOM screenshot:
+ *   - pdf   → the engine's native typeset PDF (real vector text)
+ *   - image → ONE long PNG of every page, matching what "export as image" means
+ *             for a markdown document
+ *   - html  → the compiled pages embedded as SVG in a standalone document
+ *   - doc   → the same pages as raster <img> (Word's HTML import cannot render
+ *             SVG), matching how the markdown `.doc` export already works
+ *
+ * Only PDF still uses the CLI's own writer; the rest are built by
+ * `@moraya/core/export` from the compiled SVG, so desktop, web and mobile
+ * produce byte-identical files. Typst's own HTML writer is deliberately NOT
+ * used here — it is an experimental, layout-losing feature, fine for the
+ * Typst → Markdown *conversion* route (where semantics matter more than
+ * fidelity) but wrong for an export that should look like the document.
+ *
  * `html-plain` / `latex` are markdown-only and are rejected here.
  */
 export async function exportTypstSource(
@@ -258,11 +267,11 @@ export async function exportTypstSource(
   const tr = get(t);
 
   // Map the shared ExportFormat menu onto what the Typst compiler can emit.
-  const spec: Record<string, { compileFormat: string; ext: string; label: string } | undefined> = {
-    pdf: { compileFormat: 'pdf', ext: 'pdf', label: 'PDF' },
-    image: { compileFormat: 'png', ext: 'png', label: tr('export.image') },
-    html: { compileFormat: 'html', ext: 'html', label: tr('export.html') },
-    doc: { compileFormat: 'doc', ext: 'doc', label: tr('export.doc') },
+  const spec: Record<string, { ext: string; label: string } | undefined> = {
+    pdf: { ext: 'pdf', label: 'PDF' },
+    image: { ext: 'png', label: tr('export.image') },
+    html: { ext: 'html', label: tr('export.html') },
+    doc: { ext: 'doc', label: tr('export.doc') },
   };
   const target = spec[format];
   if (!target) {
@@ -285,16 +294,25 @@ export async function exportTypstSource(
     const engineReady = await invoke<boolean>('typst_engine_status');
     if (!engineReady) opts?.onToast?.(tr('typst.downloading_engine'), 'success');
     exportProgressStore.setPhase('rendering');
-    const result = await invoke<{ pages: string[] }>('typst_compile_source', {
-      source,
-      format: target.compileFormat,
-      outputPath: path,
-    });
-    exportProgressStore.done();
-    // PNG is one file per page — say so when a document spilled past page 1.
-    if (format === 'image' && result?.pages && result.pages.length > 1) {
-      opts?.onToast?.(tr('typst.export_multipage', { count: String(result.pages.length) }), 'success');
+
+    if (format === 'pdf') {
+      // The CLI writes the PDF itself — keeping vector text, which rebuilding
+      // it from rendered pages would destroy.
+      await invoke('typst_compile_source', { source, format: 'pdf', outputPath: path });
+      exportProgressStore.done();
+      return true;
     }
+
+    const { exportTypstDocument } = await import('@moraya/core/export');
+    const { tauriTypstCompiler } = await import('$lib/editor/typst-compiler');
+    const result = await exportTypstDocument(format as 'html' | 'doc' | 'image', source, {
+      compiler: tauriTypstCompiler,
+      sink: tauriSink(path),
+      documentTitle: path.split('/').pop()?.replace(/\.[^.]+$/, ''),
+      onProgress: bridgeProgress,
+    });
+    if (!result.ok) throw new Error(result.message ?? tr('typst.export_failed'));
+    exportProgressStore.done();
     return true;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

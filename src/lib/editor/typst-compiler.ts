@@ -26,9 +26,11 @@ export const tauriTypstCompiler: TypstCompiler = {
       format,
       outputPath: outputPath ?? null,
     });
-    // The Rust side returns per-page SVG for `svg`, and the written file names
-    // for the file-producing formats, in the same `pages` field.
-    return format === 'svg'
+    // The Rust side reuses `pages` for both meanings: document content when the
+    // caller wants it in memory (per-page SVG, or HTML with no output path —
+    // the Typst → Markdown conversion route), and written file names otherwise.
+    const inMemory = format === 'svg' || (format === 'html' && !outputPath);
+    return inMemory
       ? { pages: result?.pages ?? [] }
       : { pages: [], files: result?.pages ?? [] };
   },

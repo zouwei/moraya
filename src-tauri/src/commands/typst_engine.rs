@@ -211,11 +211,21 @@ pub async fn typst_compile_source(
         }
         // Word: Typst has no .doc writer, but Word opens HTML — the same trick
         // the markdown .doc export uses. Emit HTML, save under the .doc path.
+        //
+        // Without an output path the HTML comes back in `pages[0]` instead: that
+        // is the Typst → Markdown conversion route, where the compiler acts as
+        // the evaluator and the caller converts the HTML in-memory.
         "html" | "doc" => {
-            let out = output_path.ok_or("Output path required")?;
-            let _ = file_cmd::validate_path(&out)?;
-            compile_html_to_file(&bin, &work, Path::new(&out))?;
-            Ok(TypstCompileResult::default())
+            let html = compile_html(&bin, &work)?;
+            match output_path {
+                Some(out) => {
+                    let _ = file_cmd::validate_path(&out)?;
+                    std::fs::write(&out, html.as_bytes())
+                        .map_err(|_| "Cannot write output file".to_string())?;
+                    Ok(TypstCompileResult::default())
+                }
+                None => Ok(TypstCompileResult { pages: vec![html] }),
+            }
         }
         "png" => {
             let out = output_path.ok_or("Output path required for PNG")?;
@@ -230,7 +240,11 @@ pub async fn typst_compile_source(
 /// HTML export. Typst gates this behind `--features html` and warns that the
 /// writer is still incomplete, but it produces valid semantic HTML (with MathML
 /// for equations), which beats rasterizing for a text-oriented format.
-fn compile_html_to_file(bin: &str, root: &Path, dest: &Path) -> Result<(), String> {
+///
+/// Returns the HTML rather than writing it: both callers need it in memory —
+/// the export path to place it under a user-chosen `.html`/`.doc` name, the
+/// conversion path to hand it to `@moraya/core/convert`.
+fn compile_html(bin: &str, root: &Path) -> Result<String, String> {
     let out_tmp = root.join("out.html");
     let _ = std::fs::remove_file(&out_tmp);
 
@@ -253,8 +267,7 @@ fn compile_html_to_file(bin: &str, root: &Path, dest: &Path) -> Result<(), Strin
     }
     let bytes = std::fs::read(&out_tmp).map_err(|_| "Compiled output missing".to_string())?;
     let _ = std::fs::remove_file(&out_tmp);
-    std::fs::write(dest, bytes).map_err(|_| "Cannot write output file".to_string())?;
-    Ok(())
+    String::from_utf8(bytes).map_err(|_| "Compiled output was not valid text".to_string())
 }
 
 /// PNG export, one file per page (Typst cannot merge pages into one raster).
