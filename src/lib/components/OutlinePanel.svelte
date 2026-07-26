@@ -75,7 +75,7 @@
         <button
           class="outline-item"
           class:active={h.id === activeId}
-          style="padding-inline-start: {h.level - 1}em"
+          style="--outline-indent: {h.level - 1}em"
           onclick={() => onSelect?.(h)}
           title={h.text}
         >
@@ -132,8 +132,17 @@
     text-align: left;
     background: none;
     border: none;
-    border-left: 2px solid transparent;
-    padding: 2px 4px;
+    /* Positioning context for the active indicator (see .active::before). */
+    position: relative;
+    /* The indent belongs to the TEXT, and the active bar sits just left of it —
+       so the bar has to move with the indent. A `border-left` cannot: borders
+       are outside the padding box, so the bar would stay pinned to the item's
+       far-left edge while the text moved right. Hence padding for the indent
+       plus 6px (2px bar + 4px gap) reserved on every row, active or not, so
+       nothing shifts when the active row changes. */
+    padding-block: 2px;
+    padding-inline-start: calc(var(--outline-indent, 0px) + 6px);
+    padding-inline-end: 4px;
     font-size: var(--font-size-xs);
     line-height: 1.6;
     color: var(--text-secondary);
@@ -158,7 +167,17 @@
      hosts set nothing and fall back to the app accent. */
   .outline-item.active {
     color: var(--outline-active-text, var(--text-primary));
-    border-left-color: var(--outline-active-accent, var(--accent-color));
+  }
+  .outline-item.active::before {
+    content: '';
+    position: absolute;
+    inset-block: 0;
+    /* Exactly the indent: the bar lands immediately left of the first glyph,
+       inside the 6px reserved above. `inset-inline-start` flips for RTL on its
+       own, so no direction-specific override is needed. */
+    inset-inline-start: var(--outline-indent, 0px);
+    width: 2px;
+    background: var(--outline-active-accent, var(--accent-color));
   }
 
   /* Resize handle — right edge, full height, outside scroll */
@@ -195,12 +214,6 @@
 
   :global([dir="rtl"]) .outline-item {
     text-align: right;
-    border-left: none;
-    border-right: 2px solid transparent;
   }
 
-  :global([dir="rtl"]) .outline-item.active {
-    border-left-color: transparent;
-    border-right-color: var(--outline-active-accent, var(--accent-color));
-  }
 </style>
