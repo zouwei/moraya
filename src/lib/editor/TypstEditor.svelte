@@ -112,7 +112,7 @@
     // The outline now lives inside the pane: clicking an entry or dragging its
     // resize handle must not also start a pan (pointer capture would swallow
     // the click).
-    if ((e.target as HTMLElement | null)?.closest('.typst-outline-slot')) return;
+    if ((e.target as HTMLElement | null)?.closest('.outline-wrapper')) return;
     const el = previewPaneEl;
     if (!el) return;
     panning = true;
@@ -135,9 +135,6 @@
   }
 
   let previewPaneEl = $state<HTMLElement | null>(null);
-  /** The outline slot INSIDE the preview pane, when shown. Its width has to be
-   *  taken out of the space a page is fitted into — it shares the pane's box. */
-  let previewOutlineEl = $state<HTMLElement | null>(null);
   let paneResizeObserver: ResizeObserver | null = null;
 
   /** Intrinsic size of a rendered page, read from the compiled SVG's viewBox. */
@@ -185,7 +182,7 @@
       // The outline shares the pane's content box, so its width is not available
       // to the page — without this the page is fitted to the full pane and
       // overflows by exactly the outline's width.
-      const outlineW = outlineInPreview ? (previewOutlineEl?.offsetWidth ?? 0) : 0;
+      const outlineW = outlineInPreview ? outlineWidth : 0;
       const availW = Math.max(0, el.clientWidth - padX - outlineW);
       const availH = Math.max(0, el.clientHeight - padY);
 
@@ -614,21 +611,22 @@
         onscroll={() => { if (outlineInPreview) scheduleActiveUpdate(); }}
       >
         {#if outlineInPreview}
-          <!-- Inside the scroll container, exactly like the markdown editors:
-               OutlinePanel is `position: sticky`, so it holds its place while the
-               pages scroll, and sitting in the same flex row is what keeps it
-               against the page edge (a sibling of the pane would be pinned to the
-               window edge instead, drifting away from the centred pages). -->
-          <div class="typst-outline-slot" bind:this={previewOutlineEl}>
-            <OutlinePanel
-              headings={outlineHeadings}
-              activeId={activeHeadingId}
-              width={outlineWidth}
-              containerHeight={panesHeight}
-              onSelect={handleOutlineSelect}
-              onWidthChange={onOutlineWidthChange}
-            />
-          </div>
+          <!-- A DIRECT child of the pane, with no wrapper — exactly how the
+               markdown editors place it. That matters for more than symmetry:
+               OutlinePanel is `position: sticky`, and sticky only holds within its
+               containing block, so an intermediate div (which is only as tall as
+               the outline itself) would scroll out of view and take the outline
+               with it. As a direct flex item its containing block is the pane's
+               full content box — as tall as the page stack — so the outline stays
+               on screen for the whole scroll and keeps its own inner scrollbar. -->
+          <OutlinePanel
+            headings={outlineHeadings}
+            activeId={activeHeadingId}
+            width={outlineWidth}
+            containerHeight={panesHeight}
+            onSelect={handleOutlineSelect}
+            onWidthChange={onOutlineWidthChange}
+          />
         {/if}
         <div class="typst-pages">
           <!-- First-use engine download is slow (~14 MB); surface it here since
@@ -809,6 +807,10 @@
     flex-direction: row;
     align-items: flex-start;
     justify-content: safe center;
+    /* Inherited by the OutlinePanel child: same accent as the Typst tab
+       underline, so "which flavor am I in" reads consistently. */
+    --outline-active-accent: var(--typst-accent-color);
+    --outline-active-text: var(--typst-accent-color);
   }
   /* The page stack: keeps the previous column behaviour, including vertical
      `safe center` (via align-self) so a single short page still sits centred. */
