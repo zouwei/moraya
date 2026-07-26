@@ -15,6 +15,24 @@ import type {
   TypstOutputFormat,
 } from '@moraya/core/typst';
 
+/**
+ * Directory the active document lives in, used as the Typst project root.
+ *
+ * Kept as adapter state rather than added to core's `TypstCompiler` signature:
+ * "where this document sits on disk" is a desktop concept — the browser build
+ * resolves through typst.ts's virtual filesystem instead — and the shared
+ * contract should stay "compile this source".
+ *
+ * `null` for an unsaved buffer; the Rust side then compiles in its private
+ * scratch dir, where there is nothing to resolve anyway.
+ */
+let projectRoot: string | null = null;
+
+/** Point the compiler at the directory of the document being edited. */
+export function setTypstProjectRoot(dir: string | null): void {
+  projectRoot = dir;
+}
+
 export const tauriTypstCompiler: TypstCompiler = {
   async compile(
     source: string,
@@ -25,6 +43,10 @@ export const tauriTypstCompiler: TypstCompiler = {
       source,
       format,
       outputPath: outputPath ?? null,
+      // Makes `#image("diagram.png")` and `#include "chapter.typ"` resolve
+      // against the document's own folder, the way they do when the user runs
+      // `typst compile` on the saved file.
+      rootDir: projectRoot,
     });
     // The Rust side reuses `pages` for both meanings: document content when the
     // caller wants it in memory (per-page SVG, or HTML with no output path —
@@ -43,3 +65,32 @@ export const tauriTypstCompiler: TypstCompiler = {
     await invoke<string>('typst_ensure_engine');
   },
 };
+
+/** Where a heading lands on the rendered pages. */
+export interface TypstHeadingPosition {
+  /** 1-based page number. */
+  page: number;
+  /** Distance from the top of that page, in points. */
+  y: number;
+}
+
+/**
+ * Ask the compiler where each heading sits on the rendered pages.
+ *
+ * Only the visual (preview-only) mode needs this: the rendered SVG has no
+ * mapping back to the source — glyphs are paths — so outline navigation there
+ * cannot be measured from the DOM the way the source pane's is. Returns an
+ * empty list when the document does not compile; the preview already shows why.
+ */
+export async function queryTypstHeadingPositions(
+  source: string,
+): Promise<TypstHeadingPosition[]> {
+  try {
+    return await invoke<TypstHeadingPosition[]>('typst_heading_positions', {
+      source,
+      rootDir: projectRoot,
+    });
+  } catch {
+    return [];
+  }
+}

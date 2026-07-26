@@ -30,6 +30,7 @@
   import SourceEditor from '$lib/editor/SourceEditor.svelte';
   import TypstEditor from '$lib/editor/TypstEditor.svelte';
   import { setTypstProjectRoot } from '$lib/editor/typst-compiler';
+  import { viewModeForFlavor, rememberViewMode, type ViewModeMemory } from '@moraya/core/typst';
   import type { TypstAction } from '$lib/editor/typst-commands';
   import SearchBar from '$lib/editor/SearchBar.svelte';
   import type { EditorMode } from '$lib/stores/editor-store';
@@ -262,14 +263,11 @@ ${tr('welcome.tip')}
    *  prior visual/source/split preference instead of leaving it on 'split'. */
   let preTypstEditorMode: import('$lib/stores/editor-store').EditorMode | null = null;
   /**
-   * Sticky view mode for Typst documents, independent of markdown's.
-   *
-   * Split is only the *initial* default (source + preview is what a compiler
-   * flavor wants on first sight); once the user picks another mode it is theirs
-   * for every Typst tab until they change it again.
+   * Per-flavor sticky view mode. The rule lives in `@moraya/core/typst` so
+   * desktop, web and mobile open a document the same way — see view-mode.ts.
    */
-  let lastTypstMode: import('$lib/stores/editor-store').EditorMode = 'split';
-  /** True while re-applying `lastTypstMode`, so the echo is not re-recorded. */
+  let viewModeMemory: ViewModeMemory = {};
+  /** True while re-applying a remembered mode, so the echo is not re-recorded. */
   let restoringTypstMode = false;
   let imagePreviewUrl = $state<string | null>(null);
   let showTouchToolbar = $state(isIPadOS);
@@ -950,7 +948,9 @@ ${tr('welcome.tip')}
       // Typst documents keep their own sticky mode. `restoringTypstMode` marks
       // the programmatic set that re-applies it on tab activation, so replaying
       // a remembered mode is not itself recorded as a user choice.
-      if (activeTypstTab && !restoringTypstMode) lastTypstMode = state.editorMode;
+      if (activeTypstTab && !restoringTypstMode) {
+        viewModeMemory = rememberViewMode(viewModeMemory, 'typst', state.editorMode);
+      }
       console.log('[EditorSub] mode change:', prevMode, '->', state.editorMode, 'content length:', content.length);
       // Sync content when leaving any mode to ensure the incoming editor gets fresh data.
       //
@@ -1073,7 +1073,7 @@ ${tr('welcome.tip')}
           if (!wasTypst) {
             preTypstEditorMode = editorStore.getState().editorMode;
             restoringTypstMode = true;
-            editorStore.setEditorMode(lastTypstMode);
+            editorStore.setEditorMode(viewModeForFlavor(viewModeMemory, 'typst'));
             restoringTypstMode = false;
           }
           editorStore.batchRestore({
