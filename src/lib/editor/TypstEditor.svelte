@@ -15,16 +15,21 @@
   import { createPreviewCompiler, type PreviewCompiler } from '@moraya/core/typst';
   import { tokenizeTypst, typstTokenClass } from '@moraya/core/typst';
   import { zoomByWheel, anchoredScroll, isZoomGesture, fitPageBox } from '@moraya/core/typst';
+  import { extractTypstOutline, type TypstHeading } from '@moraya/core/typst';
+  import OutlinePanel, { type OutlineHeading } from '$lib/components/OutlinePanel.svelte';
   import { t } from '$lib/i18n';
   import type { EditorMode } from '$lib/stores/editor-store';
-  import { tauriTypstCompiler } from './typst-compiler';
+  import { tauriTypstCompiler, queryTypstHeadingPositions, type TypstHeadingPosition } from './typst-compiler';
   import { applyTypstAction, type TypstAction } from './typst-commands';
 
   let {
     content = $bindable(''),
     editorMode = 'split',
     readOnly = false,
+    showOutline = false,
+    outlineWidth = 200,
     onContentChange,
+    onOutlineWidthChange,
   }: {
     content?: string;
     /** Mirrors the app-wide Visual/Source/Split toggle: 'visual' shows only the
@@ -33,11 +38,23 @@
      *  default for Typst tabs) shows both side by side. */
     editorMode?: EditorMode;
     readOnly?: boolean;
+    /** Mirrors the app-wide View ▸ Outline toggle. */
+    showOutline?: boolean;
+    outlineWidth?: number;
     onContentChange?: (source: string) => void;
+    onOutlineWidthChange?: (width: number) => void;
   } = $props();
 
   const showSource = $derived(editorMode === 'source' || editorMode === 'split');
   const showPreview = $derived(editorMode === 'visual' || editorMode === 'split');
+
+  // Split shows two panes already; a third column would leave too little room
+  // for either. Matches the markdown editors, which also drop the outline in
+  // split mode. In the single-pane modes the outline attaches to whichever pane
+  // is on screen — the source pane in 'source', the preview in 'visual'.
+  const outlineInSource = $derived(showOutline && editorMode === 'source');
+  const outlineInPreview = $derived(showOutline && editorMode === 'visual');
+  const outlineOn = $derived(outlineInSource || outlineInPreview);
 
   let pages = $state<string[]>([]);
   let compileError = $state<string | null>(null);
@@ -169,6 +186,7 @@
       // and returns a definite size: `max-width`/`max-height` only clamp down,
       // so a page smaller than the pane never scaled up and zoom did nothing.
       const box = fitPageBox({ width: availW, height: availH }, size, zoom);
+      pageBoxPx = box;
       el.style.setProperty('--typst-page-w', `${box.width}px`);
       el.style.setProperty('--typst-page-h', `${box.height}px`);
     };
@@ -220,7 +238,228 @@
     if (!highlightEl || !textareaEl) return;
     highlightEl.scrollTop = textareaEl.scrollTop;
     highlightEl.scrollLeft = textareaEl.scrollLeft;
+    if (outlineInSource) scheduleActiveUpdate();
   }
+
+  // ── Outline ─────────────────────────────────────────────────────────
+  // Headings come from `@moraya/core/typst` (shared with web / mobile); this
+  // component only maps them onto the source pane's geometry. The panel itself
+  // is the same OutlinePanel the markdown editors use — it is flavor-agnostic.
+  let typstHeads = $state<TypstHeading[]>([]);
+  let activeHeadingId = $state<string | null>(null);
+  let outlineTimer: ReturnType<typeof setTimeout> | undefined;
+  let topsRaf: number | undefined;
+  let activeRaf: number | undefined;
+  let paneHeight = $state(0);
+  let panesHeight = $state(0);
+  /** Rendered page box, mirrored from the sizing effect for preview scrolling. */
+  let pageBoxPx = $state<{ width: number; height: number } | null>(null);
+  /** Compiler-reported heading positions — visual mode only. */
+  let headingPositions = $state<TypstHeadingPosition[]>([]);
+  let positionsTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Pixel top of each heading within the scroll content, index-aligned. */
+  let headingTops: number[] = [];
+  /** Suppressed while a click-driven scroll animates, so the highlight holds. */
+  let outlineClickScrolling = false;
+  /** Must match `.typst-preview-pane`'s `gap` and `padding` below. */
+  const PREVIEW_PAGE_GAP = 16;
+  const PREVIEW_PANE_PADDING = 20;
+
+  const outlineHeadings = $derived<OutlineHeading[]>(
+    typstHeads.map((h) => ({
+      id: h.id,
+      level: h.level,
+      // The number is part of what the page shows, so the outline shows it too.
+      text: h.number ? `${h.number} ${h.text}` : h.text,
+    })),
+  );
+
+  $effect(() => {
+    const src = content;
+    const on = outlineOn;
+    clearTimeout(outlineTimer);
+    if (!on) { typstHeads = []; headingTops = []; activeHeadingId = null; return; }
+    // Same 300ms debounce as the markdown outline: re-parsing on every
+    // keystroke is wasted work for a panel nobody reads mid-word.
+    outlineTimer = setTimeout(() => {
+      typstHeads = extractTypstOutline(src);
+      scheduleMeasure();
+    }, 300);
+    return () => clearTimeout(outlineTimer);
+  });
+
+  // Visual mode: positions come from the compiler, because the rendered SVG
+  // has no link back to the source. Requested only while that mode's outline is
+  // actually on screen — it is a second Typst process per document change.
+  $effect(() => {
+    const on = outlineInPreview;
+    const src = content;
+    clearTimeout(positionsTimer);
+    if (!on) { headingPositions = []; return; }
+    positionsTimer = setTimeout(async () => {
+      const found = await queryTypstHeadingPositions(src);
+      // The document may have moved on while the query ran.
+      if (src === content) { headingPositions = found; updateActiveHeading(); }
+    }, 400);
+    return () => clearTimeout(positionsTimer);
+  });
+
+  /**
+   * Scroll offset of a heading inside the preview pane.
+   *
+   * Pages stack vertically with a fixed gap, each rendered at `pageBoxPx`; the
+   * compiler reports a position in points on its page, so the y within a page
+   * scales by rendered-height ÷ intrinsic-height.
+   */
+  function previewOffsetOf(index: number): number | null {
+    const pos = headingPositions[index];
+    const box = pageBoxPx;
+    const size = pageSize;
+    if (!pos || !box || !size || size.height <= 0) return null;
+    const pageStride = box.height + PREVIEW_PAGE_GAP;
+    return (
+      PREVIEW_PANE_PADDING +
+      (pos.page - 1) * pageStride +
+      (pos.y / size.height) * box.height
+    );
+  }
+
+  function scheduleMeasure() {
+    if (topsRaf !== undefined) cancelAnimationFrame(topsRaf);
+    topsRaf = requestAnimationFrame(() => {
+      topsRaf = undefined;
+      measureHeadingTops();
+      updateActiveHeading();
+    });
+  }
+
+  function scheduleActiveUpdate() {
+    if (outlineClickScrolling) return;
+    if (activeRaf !== undefined) return;
+    activeRaf = requestAnimationFrame(() => {
+      activeRaf = undefined;
+      updateActiveHeading();
+    });
+  }
+
+  /**
+   * Measure where each heading sits, by ranging over the highlight layer.
+   *
+   * NOT `line * lineHeight`: the source pane soft-wraps, so a long paragraph
+   * pushes everything below it down by an amount no line count can predict.
+   * The highlight `<pre>` mirrors the textarea's metrics exactly — that is the
+   * whole premise of the overlay — so a Range over it measures the real thing.
+   */
+  function measureHeadingTops() {
+    const pre = highlightEl;
+    if (!pre || typstHeads.length === 0) { headingTops = []; return; }
+    try {
+      const base = pre.getBoundingClientRect().top - pre.scrollTop;
+      headingTops = typstHeads.map((h) => {
+        const rect = rectAtOffset(pre, h.offset);
+        return rect ? rect.top - base : 0;
+      });
+    } catch { headingTops = []; }
+  }
+
+  /** Client rect of the character at `offset` in the highlight layer's text. */
+  function rectAtOffset(pre: HTMLElement, offset: number): DOMRect | null {
+    const walker = document.createTreeWalker(pre, NodeFilter.SHOW_TEXT);
+    let seen = 0;
+    let node = walker.nextNode() as Text | null;
+    while (node) {
+      const len = node.data.length;
+      if (seen + len > offset) {
+        const range = document.createRange();
+        range.setStart(node, offset - seen);
+        range.setEnd(node, Math.min(offset - seen + 1, len));
+        const rect = range.getBoundingClientRect();
+        return rect.height > 0 ? rect : null;
+      }
+      seen += len;
+      node = walker.nextNode() as Text | null;
+    }
+    return null;
+  }
+
+  function updateActiveHeading() {
+    if (outlineInPreview) { updateActiveFromPreview(); return; }
+    const ta = textareaEl;
+    if (!ta || typstHeads.length === 0 || headingTops.length === 0) {
+      activeHeadingId = null;
+      return;
+    }
+    const cursor = ta.scrollTop + 40;
+    let lastId: string | null = null;
+    for (let i = 0; i < typstHeads.length; i++) {
+      if (headingTops[i] <= cursor) lastId = typstHeads[i].id;
+      else break;
+    }
+    // At the very bottom the final heading can be on screen yet still below the
+    // threshold, with no scroll left to reach it.
+    const maxScroll = ta.scrollHeight - ta.clientHeight;
+    if (maxScroll > 0 && ta.scrollTop >= maxScroll - 2) {
+      const lastTop = headingTops[headingTops.length - 1];
+      if (lastTop <= ta.scrollTop + ta.clientHeight) lastId = typstHeads[typstHeads.length - 1].id;
+    }
+    activeHeadingId = lastId ?? typstHeads[0]?.id ?? null;
+  }
+
+  /** Active item in visual mode, from the preview's own scroll position. */
+  function updateActiveFromPreview() {
+    const el = previewPaneEl;
+    if (!el || typstHeads.length === 0 || headingPositions.length === 0) {
+      activeHeadingId = null;
+      return;
+    }
+    const cursor = el.scrollTop + 40;
+    let lastId: string | null = null;
+    for (let i = 0; i < typstHeads.length; i++) {
+      const top = previewOffsetOf(i);
+      if (top === null) break;
+      if (top <= cursor) lastId = typstHeads[i].id;
+      else break;
+    }
+    activeHeadingId = lastId ?? typstHeads[0]?.id ?? null;
+  }
+
+  function handleOutlineSelect(h: OutlineHeading) {
+    const idx = typstHeads.findIndex((x) => x.id === h.id);
+    if (idx < 0) return;
+
+    if (outlineInPreview) {
+      const el = previewPaneEl;
+      const top = previewOffsetOf(idx);
+      if (!el || top === null) return;
+      activeHeadingId = h.id;
+      outlineClickScrolling = true;
+      el.scrollTo({ top: Math.max(0, Math.round(top - 12)), behavior: 'smooth' });
+      setTimeout(() => { outlineClickScrolling = false; }, 400);
+      return;
+    }
+
+    const ta = textareaEl;
+    if (!ta || idx >= headingTops.length) return;
+    // Mark it active immediately: the scroll may be a no-op if the target is
+    // already in place, and then no scroll event would arrive to do it.
+    activeHeadingId = h.id;
+    outlineClickScrolling = true;
+    ta.scrollTo({ top: Math.max(0, Math.round(headingTops[idx] - 12)), behavior: 'smooth' });
+    setTimeout(() => { outlineClickScrolling = false; }, 400);
+  }
+
+  // Wrapping changes with width, so every measured top does too.
+  $effect(() => {
+    void paneHeight;
+    void outlineWidth;
+    if (outlineInSource && typstHeads.length > 0) scheduleMeasure();
+  });
+
+  onDestroy(() => {
+    clearTimeout(outlineTimer);
+    if (topsRaf !== undefined) cancelAnimationFrame(topsRaf);
+    if (activeRaf !== undefined) cancelAnimationFrame(activeRaf);
+  });
 
   function onInput(e: Event) {
     const value = (e.target as HTMLTextAreaElement).value;
@@ -305,9 +544,29 @@
 </script>
 
 <div class="typst-editor">
-  <div class="typst-panes">
+  <div class="typst-panes" bind:clientHeight={panesHeight}>
     {#if showSource}
-      <div class="typst-source-pane" class:full-width={editorMode === 'source'}>
+      <div
+        class="typst-source-pane"
+        class:full-width={editorMode === 'source'}
+        bind:clientHeight={paneHeight}
+      >
+        {#if outlineInSource}
+          <!-- Slot carries the inset: the panel itself is shared with the
+               markdown editors, where the surrounding centred content area
+               already provides the margin. Here the pane runs to the window
+               edge, so the spacing has to come from this side. -->
+          <div class="typst-outline-slot">
+            <OutlinePanel
+              headings={outlineHeadings}
+              activeId={activeHeadingId}
+              width={outlineWidth}
+              containerHeight={paneHeight}
+              onSelect={handleOutlineSelect}
+              onWidthChange={onOutlineWidthChange}
+            />
+          </div>
+        {/if}
         <div class="typst-source-stack">
           <pre class="typst-source typst-highlight" bind:this={highlightEl} aria-hidden="true"><!--
             -->{@html highlighted}</pre>
@@ -326,6 +585,22 @@
         </div>
       </div>
     {/if}
+    {#if outlineInPreview}
+      <!-- Visual mode has no source pane, so the outline sits beside the
+           preview instead. It must be a SIBLING of the preview: the preview is
+           the scroll container, and an outline inside it would scroll away with
+           the pages. -->
+      <div class="typst-outline-slot">
+        <OutlinePanel
+          headings={outlineHeadings}
+          activeId={activeHeadingId}
+          width={outlineWidth}
+          containerHeight={panesHeight}
+          onSelect={handleOutlineSelect}
+          onWidthChange={onOutlineWidthChange}
+        />
+      </div>
+    {/if}
     {#if showPreview}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
@@ -338,6 +613,7 @@
         onpointermove={onPreviewPointerMove}
         onpointerup={endPan}
         onpointercancel={endPan}
+        onscroll={() => { if (outlineInPreview) scheduleActiveUpdate(); }}
       >
         <!-- First-use engine download is slow (~14 MB); surface it here since
              the toolbar that used to show it was removed for a cleaner look. -->
@@ -384,6 +660,18 @@
     flex: 1 1 100%;
     border-right: none;
   }
+  /* Outline inset. The top padding matches `.typst-source`'s own 16px so the
+     first outline entry sits on the same baseline as the first source line. */
+  .typst-outline-slot {
+    flex-shrink: 0;
+    padding: 16px 8px 16px 20px;
+    /* Same accent the Typst tab underline uses (themed light/dark in
+       variables.css), so "which flavor am I in" reads consistently across the
+       tab bar and the outline. */
+    --outline-active-accent: var(--typst-accent-color);
+    --outline-active-text: var(--typst-accent-color);
+  }
+
   /* The highlight layer and the textarea are stacked and MUST share every
      metric that affects text layout — any difference shows up as the colored
      text drifting away from the real (invisible) glyphs being edited. */
@@ -480,7 +768,12 @@
        overflows again. The loop settles differently across repaints, which is
        why the scrollbar appeared/vanished when focus moved to the source pane. */
     scrollbar-gutter: stable;
-    background: var(--bg-secondary);
+    /* Pure white canvas in the light theme (was the slightly grey
+       --bg-secondary). Kept as a theme variable rather than a literal #fff so
+       the dark theme does not turn into a blinding white slab — with the canvas
+       and the page now the same colour, the page's box-shadow is what separates
+       them. */
+    background: var(--bg-primary);
     padding: 20px;
     display: flex;
     flex-direction: column;

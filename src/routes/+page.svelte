@@ -29,6 +29,7 @@
   import Editor from '$lib/editor/Editor.svelte';
   import SourceEditor from '$lib/editor/SourceEditor.svelte';
   import TypstEditor from '$lib/editor/TypstEditor.svelte';
+  import { setTypstProjectRoot } from '$lib/editor/typst-compiler';
   import type { TypstAction } from '$lib/editor/typst-commands';
   import SearchBar from '$lib/editor/SearchBar.svelte';
   import type { EditorMode } from '$lib/stores/editor-store';
@@ -260,6 +261,16 @@ ${tr('welcome.tip')}
    *  forces 'split'), so switching back out to markdown restores the user's
    *  prior visual/source/split preference instead of leaving it on 'split'. */
   let preTypstEditorMode: import('$lib/stores/editor-store').EditorMode | null = null;
+  /**
+   * Sticky view mode for Typst documents, independent of markdown's.
+   *
+   * Split is only the *initial* default (source + preview is what a compiler
+   * flavor wants on first sight); once the user picks another mode it is theirs
+   * for every Typst tab until they change it again.
+   */
+  let lastTypstMode: import('$lib/stores/editor-store').EditorMode = 'split';
+  /** True while re-applying `lastTypstMode`, so the echo is not re-recorded. */
+  let restoringTypstMode = false;
   let imagePreviewUrl = $state<string | null>(null);
   let showTouchToolbar = $state(isIPadOS);
   let searchMatchCount = $state(0);
@@ -901,6 +912,15 @@ ${tr('welcome.tip')}
         ? getFileNameFromPath(state.currentFilePath)
         : $t('common.untitled');
 
+      // Typst compiles with the document's own folder as the project root, so
+      // `#image("diagram.png")` and `#include "chapter.typ"` resolve to the
+      // files next to it. Hooked on the path (not on tab activation) so Save As
+      // re-roots the preview too; an unsaved buffer passes null and compiles in
+      // the private scratch dir, where there is nothing to resolve.
+      setTypstProjectRoot(
+        state.currentFilePath ? dirOf(state.currentFilePath) : null,
+      );
+
       // v1.21.0: version-history entry is only meaningful for KB documents;
       // close a sheet left open for the previous file
       versionHistoryAvailable = isVersionedPath(state.currentFilePath);
@@ -927,6 +947,10 @@ ${tr('welcome.tip')}
       const prevMode = prevEditorMode;
       prevEditorMode = state.editorMode;
       editorMode = state.editorMode;
+      // Typst documents keep their own sticky mode. `restoringTypstMode` marks
+      // the programmatic set that re-applies it on tab activation, so replaying
+      // a remembered mode is not itself recorded as a user choice.
+      if (activeTypstTab && !restoringTypstMode) lastTypstMode = state.editorMode;
       console.log('[EditorSub] mode change:', prevMode, '->', state.editorMode, 'content length:', content.length);
       // Sync content when leaving any mode to ensure the incoming editor gets fresh data.
       //
@@ -962,6 +986,12 @@ ${tr('welcome.tip')}
     tabsStore.syncDirty(state.isDirty);
   });
 
+  /** Parent directory of a path, for both separator conventions. */
+  function dirOf(filePath: string): string | null {
+    const cut = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'));
+    return cut > 0 ? filePath.slice(0, cut) : null;
+  }
+
   // Tabs: sync tab state for TitleBar/TabBar + reload content when active tab changes
   let prevActiveTabId = '';
   let prevActiveFlavor: 'markdown' | 'typst' | undefined;
@@ -987,7 +1017,13 @@ ${tr('welcome.tip')}
         // 'split', so markdown's sticky mode preference is unaffected by
         // having viewed a Typst document in between.
         if (wasTypst && tab.flavor !== 'typst') {
+          // Drop the Typst latch first: the mode restore below notifies the
+          // editorStore subscriber synchronously, and with the latch still set
+          // it would record markdown's mode as the Typst one.
+          activeTypstTab = null;
+          restoringTypstMode = true;
           editorStore.setEditorMode(preTypstEditorMode ?? 'visual');
+          restoringTypstMode = false;
           preTypstEditorMode = null;
         }
         // Latch/unlatch the markdown destroy-flush suppression (see
@@ -1036,7 +1072,9 @@ ${tr('welcome.tip')}
           // markdown mode happened to be active before.
           if (!wasTypst) {
             preTypstEditorMode = editorStore.getState().editorMode;
-            editorStore.setEditorMode('split');
+            restoringTypstMode = true;
+            editorStore.setEditorMode(lastTypstMode);
+            restoringTypstMode = false;
           }
           editorStore.batchRestore({
             filePath: tab.filePath,
@@ -2638,13 +2676,47 @@ ${tr('welcome.tip')}
     return src.startsWith('/') || /^[A-Z]:\\/i.test(src);
   }
 
+  /**
+   * Copy an image into the Typst project and return the path to reference.
+   *
+   * Typst resolves `image("…")` against the PROJECT ROOT (the document's own
+   * directory) and has no network access, so neither a remote URL nor an OS
+   * absolute path from elsewhere on disk can be referenced directly — the
+   * compiler re-roots absolute paths under the project and fails. The bytes have
+   * to land inside the project first; the Rust side downloads/copies them into
+   * `<doc dir>/assets/` and hands back a relative path.
+   *
+   * Returns null (after a toast) when the document has no directory yet: an
+   * unsaved buffer compiles in a private scratch dir, so an asset written now
+   * would be orphaned the moment the user saves somewhere else.
+   */
+  async function materializeTypstAsset(src: string, fileName?: string): Promise<string | null> {
+    const docDir = activeTypstTab?.filePath ? dirOf(activeTypstTab.filePath) : null;
+    if (!docDir) {
+      showToast($t('typst.asset_needs_save'), 'error');
+      return null;
+    }
+    try {
+      return await invoke<string>('typst_materialize_asset', {
+        docDir,
+        source: src,
+        options: { fileName },
+      });
+    } catch (e) {
+      showToast(`${$t('typst.asset_failed')}: ${e}`, 'error');
+      return null;
+    }
+  }
+
   async function handleInsertImage(data: { src: string; alt: string }) {
     showImageDialog = false;
     try {
-      // Typst tab: emit `#image("src")` / `#figure(…)` into the .typ source. A
-      // blob: URL would not survive a compile, so keep the original path.
+      // Typst tab: the image must live inside the project — see
+      // materializeTypstAsset for why a URL or an outside path cannot be used.
       if (activeTypstTab) {
-        typstEditorRef?.runAction({ type: 'image', src: data.src, alt: data.alt || undefined });
+        const rel = await materializeTypstAsset(data.src);
+        if (!rel) return;
+        typstEditorRef?.runAction({ type: 'image', src: rel, alt: data.alt || undefined });
         return;
       }
       const src = isLocalPath(data.src) ? await readImageAsBlobUrl(data.src) : data.src;
@@ -2699,15 +2771,18 @@ ${tr('welcome.tip')}
   }
 
   async function handleCloudInsert(items: UnifiedMediaItem[], asHtml: boolean, pos?: number) {
-    // Typst tab: images map to `#image("url")`. Audio/video have no Typst
+    // Typst tab: the picked image is downloaded into the project and referenced
+    // relatively (Typst cannot fetch a URL). Audio/video have no Typst
     // counterpart (it is a print format), so those menu items are disabled for
-    // Typst documents — see FLAVOR_MENU_GATES.
+    // Typst documents — see FLAVOR_ONLY_MENU_ITEMS.
     if (activeTypstTab) {
       for (const item of items) {
         if (item.type !== 'image') continue;
+        const rel = await materializeTypstAsset(item.url ?? '', item.filename);
+        if (!rel) return;
         typstEditorRef?.runAction({
           type: 'image',
-          src: item.url ?? '',
+          src: rel,
           alt: item.title ?? item.filename,
         });
       }
@@ -4064,7 +4139,7 @@ ${tr('welcome.tip')}
       {:else if activeTypstTab}
         <!-- Typst authoring: source + live compiled preview (mutually exclusive
              with the markdown ProseMirror editor). -->
-        <TypstEditor bind:this={typstEditorRef} bind:content {editorMode} readOnly={editorReadOnly} onContentChange={handleTypstContentChange} />
+        <TypstEditor bind:this={typstEditorRef} bind:content {editorMode} {showOutline} {outlineWidth} readOnly={editorReadOnly} onContentChange={handleTypstContentChange} onOutlineWidthChange={(w) => settingsStore.update({ outlineWidth: w })} />
       {:else if editorMode === 'visual'}
         <Editor bind:this={visualEditorRef} bind:content {showOutline} {outlineWidth} readOnly={editorReadOnly} skipDestroyFlush={activeTypstTab !== null} onEditorReady={handleEditorReady} onNotify={showToast} onOutlineWidthChange={(w) => settingsStore.update({ outlineWidth: w })} onWorkflowSEO={handleWorkflowSEO} onWorkflowImageGen={handleWorkflowImageGen} onWorkflowPublish={handleWorkflowPublish} onForceShowAIPanel={() => { showAIPanel = true; }} onAddReview={handleAddReview} onInsertCloudImage={(pos) => { cloudPickerState = { kind: 'image', pos }; }} onInsertCloudAudio={(pos) => { cloudPickerState = { kind: 'audio', pos }; }} onInsertCloudVideo={(pos) => { cloudPickerState = { kind: 'video', pos }; }} />
       {:else if editorMode === 'source'}

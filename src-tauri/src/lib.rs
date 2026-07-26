@@ -997,6 +997,8 @@ pub fn run() {
             commands::typst_engine::typst_ensure_engine,
             commands::typst_engine::typst_export_markdown_pdf,
             commands::typst_engine::typst_compile_source,
+            commands::typst_engine::typst_heading_positions,
+            commands::typst_engine::typst_materialize_asset,
             commands::file::read_dir_recursive,
             commands::file::list_hidden_dirs,
             commands::file::migrate_voice_profiles_dir,
