@@ -14,7 +14,11 @@ jobs:
     outputs:
       release-id: ${{ steps.create.outputs.id }}
     steps:
+      # fetch-depth: 0 so the tag object and its message are available to the
+      # release-notes step below (the default shallow fetch has neither).
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       # Release-safety gate (方案 A). Runs ONCE, before the GitHub Release is
       # created and before the 5-way build matrix fans out — so if @moraya/core
       # is still on the vendored-tarball bridge (or points at an unpublished
@@ -23,35 +27,56 @@ jobs:
       # with the pre-push hook (方案 B). ubuntu-24.04 ships Node + npm.
       - name: Guard @moraya/core is published (release mode)
         run: node scripts/check-core-dep.mjs release
+      # Build the release body from the actual change log carried by the tag,
+      # instead of shipping install instructions with no "what changed" section.
+      # Source of truth: the annotated tag message, falling back to the tagged
+      # commit message (which `pnpm version:bump` drafts from the diff).
+      - name: Build release notes
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+
+          NOTES=$(git tag -l --format='%(contents)' "$TAG")
+          if [ -z "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ]; then
+            NOTES=$(git log -1 --pretty=%B "$TAG")
+          fi
+
+          # Keep only from the Conventional-Commits subject onward: drops any
+          # preamble an AI-drafted message may carry, and the trailing PGP block
+          # of signed tags/commits.
+          CLEAN=$(printf '%s\n' "$NOTES" \
+            | awk 'BEGIN{f=0} /^(feat|fix|chore|docs|refactor|perf|test|build|ci|style|revert)(\(.*\))?!?:/{f=1} f' \
+            | sed '/^-----BEGIN PGP SIGNATURE-----/,$d')
+          # If nothing matched the convention, fall back to the raw message
+          # rather than publishing an empty changelog.
+          if [ -z "$(printf '%s' "$CLEAN" | tr -d '[:space:]')" ]; then
+            CLEAN="$NOTES"
+          fi
+
+          {
+            echo "## What's Changed"
+            echo
+            printf '%s\n' "$CLEAN"
+            echo
+            echo "---"
+            echo
+          } > RELEASE_BODY.md
+
+          # Install instructions live in a committed template rather than a
+          # heredoc: YAML block scalars re-indent their content, which silently
+          # breaks heredoc terminators and markdown code fences.
+          cat .github/RELEASE_TEMPLATE.md >> RELEASE_BODY.md
+
+          echo "--- release body preview ---"
+          cat RELEASE_BODY.md
+
       - name: Create GitHub Release
         id: create
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: 'Moraya ${{ github.ref_name }}'
-          body: |
-            See the assets below to download and install.
-
-            ### macOS
-
-            **Homebrew (recommended)**:
-            ```
-            brew tap zouwei/moraya
-            brew install --cask moraya
-            ```
-
-            **Manual**: Download the `.dmg` file below, drag Moraya to Applications, and double-click to launch.
-            The app is signed with an Apple Developer ID and notarized by Apple — no Gatekeeper workaround needed.
-
-            ### Linux
-
-            - **.deb** — `sudo dpkg -i moraya_*.deb`
-            - **.AppImage** — `chmod +x Moraya_*.AppImage && ./Moraya_*.AppImage`
-
-            ### Windows
-
-            Run the `.msi` installer.
-
+          body_path: RELEASE_BODY.md
           draft: false
           prerelease: false
         env:

@@ -1,19 +1,19 @@
-# Moraya — The Elegantly Minimal Markdown AI Agent for the Local AI Era
+# Moraya — The Elegantly Minimal Markdown/Typst AI Agent for the Local AI Era
 
-> Discover Moraya, the epitome of elegant simplicity in an open-source Markdown AI agent that bridges cutting-edge AI power with unwavering user sovereignty—empowering you to create, collaborate, and innovate in total privacy.
+> Discover Moraya, the epitome of elegant simplicity in an open-source Markdown/Typst AI agent that bridges cutting-edge AI power with unwavering user sovereignty—empowering you to create, collaborate, and innovate in total privacy.
 
 ## 🎉 Announcing Moraya Web — Now Live
 
 **Moraya is now in your browser: [web.moraya.app](https://web.moraya.app/)** — no install, open a tab and start writing.
 
-Moraya Web carries the same elegant WYSIWYG Markdown editing experience to the web, and extends it into an AI-native knowledge workspace:
+Moraya Web carries the same elegant WYSIWYG Markdown/Typst editing experience to the web, and extends it into an AI-native knowledge workspace:
 
 - **Same editor core** — instant WYSIWYG, three editing modes, outline, find & replace, powered by the shared `@moraya/core` engine for pixel-perfect rendering parity with the desktop app.
 - **Your creation, your keys, your AI** — Bring Your Own Cloud (BYOC) storage (Aliyun OSS, AWS S3, Cloudflare R2, Tencent COS, Backblaze B2) and end-to-end encryption with client-side keys; your content stays yours.
 - **AI everywhere** — multi-provider AI chat, AI agents over your documents, and voice-first capture with real-time transcription and AI structuring.
 - **Works offline** — installable as a PWA with autosave and an offline buffer, so your writing never waits for the network.
 
-Prefer a fully local, ~10MB native app? The desktop version below remains free and open-source — same Moraya, your choice of where it runs.
+Prefer a fully local, \~10MB native app? The desktop version below remains free and open-source — same Moraya, your choice of where it runs.
 
 **Moraya** is a free, open-source, ultra-lightweight (\~10MB) editor crafted with Rust and Tauri v2 — WYSIWYG for Markdown, source + live preview for Typst — with local AI and MCP built in as a privacy-first "Personal Assistant" that never leaves your device. Derived from "mora" (Latin, "a moment") and "ya" (Chinese, "elegance").
 
@@ -25,9 +25,9 @@ Prefer a fully local, ~10MB native app? The desktop version below remains free a
 
 ![](https://raw.githubusercontent.com/zouwei/resource/master/images/moraya/20260214-165329.-image.png)
 
-![](https://raw.githubusercontent.com/zouwei/resource/master/images/moraya/20260319-030848.-image.png)
-
 ![](https://raw.githubusercontent.com/zouwei/resource/master/images/moraya/20260323-062752.-image.png)
+
+![](https://raw.githubusercontent.com/zouwei/resource/master/images/moraya/20260725-090715.-image.png)
 
 **[User Manual / Wiki](https://github.com/zouwei/moraya/wiki)**
 
@@ -131,7 +131,7 @@ Typst is a compiler, not a WYSIWYG format, so `.typ` documents get their own aut
 
 ## Architecture Overview
 
-```text
+```
 ┌────────────────────────────────────────────────────────┐
 │              Tauri WebView (Frontend)                  │
 │        Svelte 5 + ProseMirror + TypeScript             │
@@ -326,7 +326,3 @@ Built-in `Custom` WebSocket protocol adapters:
 | `ai-gateway.vei.volces.com/v1/realtime` | Volcengine Realtime (VEI Gateway) | `input_audio_buffer.append` | Auto `transcription_session.update`, parses delta/result/completed |
 
 All API keys are stored exclusively in your OS Keychain — never in plaintext. Click **Test Connection** in each section to verify before use.
-
-## ⭐ Star Growth trend (updated in real time)
-
-![Star History Chart](https://api.star-history.com/svg?repos=zouwei/moraya&type=Date&commit=$%7B%7Bgithub.sha%7D%7D)

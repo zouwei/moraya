@@ -19,11 +19,13 @@
  *       git commit -F .git/RELEASE_MSG
  */
 
-import { existsSync, readdirSync, writeFileSync } from 'fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'fs';
 import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { execSync, execFileSync } from 'child_process';
 import { homedir } from 'os';
+
+import { sanitizeMessage } from './release-message.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -95,7 +97,16 @@ function fallbackMessage(version, ctx) {
 }
 
 function buildPrompt(version, ctx) {
-  return `You are writing the release commit message for Moraya (a Rust/Tauri + Svelte markdown & Typst editor), version v${version}.
+  // Describe the project from its own manifest so this script is drop-in
+  // reusable across the Moraya repos (core / board / desktop) without each
+  // carrying a hand-edited prompt that drifts.
+  let project = 'this project';
+  try {
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
+    project = pkg.description ? `${pkg.name} (${pkg.description})` : pkg.name;
+  } catch { /* fall back to the generic wording */ }
+
+  return `You are writing the release commit message for ${project}, version v${version}.
 
 Write a Conventional-Commits message:
 - First line: \`chore(release): v${version} — <short summary>\` (<= 72 chars total).
@@ -149,8 +160,7 @@ function main() {
         maxBuffer: 10 * 1024 * 1024,
         stdio: ['pipe', 'pipe', 'ignore'],
       }).trim();
-      // Strip a stray code fence if the model added one anyway.
-      message = message.replace(/^```[\w]*\n?/, '').replace(/\n?```$/, '').trim();
+      message = sanitizeMessage(message);
       if (!message) throw new Error('empty response');
     } catch (err) {
       console.log(`⚠ Claude call failed (${err.message}) — falling back to a mechanical summary.`);
