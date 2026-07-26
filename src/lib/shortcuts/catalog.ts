@@ -156,7 +156,7 @@ export const SHORTCUT_CATALOG_STATIC: ShortcutEntry[] = [
   { id: 'view.toggleSplit',    category: 'view', labelKey: 'shortcuts.actions.view.toggle_split',    mac: 'Cmd+Shift+/', win: 'Ctrl+Shift+/', customizable: true, menuItemId: 'view_mode_split'},
   { id: 'view.toggleSidebar',  category: 'view', labelKey: 'shortcuts.actions.view.toggle_sidebar',  mac: 'Cmd+\\',      win: 'Ctrl+\\',      customizable: true, menuItemId: 'view_sidebar'},
   { id: 'view.toggleAIPanel',  category: 'view', labelKey: 'shortcuts.actions.view.toggle_aipanel',  mac: 'Cmd+Shift+I', win: 'Ctrl+Shift+I', customizable: true, menuItemId: 'view_ai_panel'},
-  { id: 'view.toggleOutline',  category: 'view', scope: 'markdown', labelKey: 'shortcuts.actions.view.toggle_outline',  mac: 'Cmd+Shift+O', win: 'Ctrl+Shift+O', customizable: true, menuItemId: 'view_outline'},
+  { id: 'view.toggleOutline',  category: 'view', labelKey: 'shortcuts.actions.view.toggle_outline',  mac: 'Cmd+Shift+O', win: 'Ctrl+Shift+O', customizable: true, menuItemId: 'view_outline'},
   { id: 'view.openSettings',   category: 'view', labelKey: 'shortcuts.actions.view.open_settings',   mac: 'Cmd+,',       win: 'Ctrl+,',       customizable: true, menuItemId: 'preferences'},
   { id: 'view.zoomIn',         category: 'view', labelKey: 'shortcuts.actions.view.zoom_in',         mac: 'Cmd+=',       win: 'Ctrl+=',       customizable: true, menuItemId: 'view_zoom_in'},
   { id: 'view.zoomOut',        category: 'view', labelKey: 'shortcuts.actions.view.zoom_out',        mac: 'Cmd+-',       win: 'Ctrl+-',       customizable: true, menuItemId: 'view_zoom_out'},
@@ -217,11 +217,11 @@ export const FLAVOR_ONLY_MENU_ITEMS: Record<Exclude<DocScope, 'shared'>, string[
     'insert_cloud_video',
     // Renders a markdown document through the Typst engine.
     'file_export_typst_pdf',
-    // Find/Replace + Outline read the ProseMirror document; not wired to the
-    // Typst source pane yet.
+    // Find/Replace read the ProseMirror document; not wired to the Typst source
+    // pane yet. (The outline IS shared — TypstEditor renders the same
+    // OutlinePanel from its own heading extraction.)
     'edit_find',
     'edit_replace',
-    'view_outline',
     // SEO / publish pipelines consume markdown.
     'wf_seo',
     'wf_publish',

@@ -147,9 +147,13 @@
     color: var(--text-primary);
   }
 
+  /* One outline for both document flavors: identical layout and behavior, with
+     only the active row's colour themable by the host. TypstEditor points these
+     at --typst-accent-color so the outline matches its tab underline; markdown
+     hosts set nothing and fall back to the app accent. */
   .outline-item.active {
-    color: var(--text-primary);
-    border-left-color: var(--accent-color);
+    color: var(--outline-active-text, var(--text-primary));
+    border-left-color: var(--outline-active-accent, var(--accent-color));
   }
 
   /* Resize handle — right edge, full height, outside scroll */
@@ -192,6 +196,6 @@
 
   :global([dir="rtl"]) .outline-item.active {
     border-left-color: transparent;
-    border-right-color: var(--accent-color);
+    border-right-color: var(--outline-active-accent, var(--accent-color));
   }
 </style>
