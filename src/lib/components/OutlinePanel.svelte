@@ -75,7 +75,7 @@
         <button
           class="outline-item"
           class:active={h.id === activeId}
-          style="padding-inline-start: {(h.level - 1) * 12}px"
+          style="padding-inline-start: {h.level - 1}em"
           onclick={() => onSelect?.(h)}
           title={h.text}
         >
@@ -121,6 +121,11 @@
     color: var(--text-muted);
   }
 
+  /* Heading indent is ONE CHARACTER per level (set inline as `em` on the item):
+     1em is one CJK glyph at the item's own font size, so the rhythm holds exactly
+     and survives a font-size change. The previous fixed 12px step was ~1.1
+     characters at the current font — an accidental value. Kept in sync with the
+     web build. */
   .outline-item {
     display: block;
     width: 100%;
