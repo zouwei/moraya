@@ -16,6 +16,7 @@
     onSwitchTab = (_id: string) => {},
     onCloseTab = (_tab: TabItem) => {},
     onNewFile = () => {},
+    onNewTypstFile = () => {},
     onOpenFile = () => {},
     onReorderTabs = (_from: number, _to: number) => {},
     onDetachStart = (_tabIndex: number, _screenX: number, _screenY: number, _offsetX: number, _offsetY: number): Promise<string | undefined> => Promise.resolve(undefined),
@@ -29,6 +30,8 @@
     onSwitchTab?: (id: string) => void;
     onCloseTab?: (tab: TabItem) => void;
     onNewFile?: () => void;
+    /** Create a blank Typst document — the second entry of the [+] menu. */
+    onNewTypstFile?: () => void;
     onOpenFile?: () => void;
     onReorderTabs?: (fromIndex: number, toIndex: number) => void;
     onDetachStart?: (tabIndex: number, screenX: number, screenY: number, offsetX: number, offsetY: number) => Promise<string | undefined>;
@@ -462,6 +465,48 @@
   let contextMenuX = $state(0);
   let contextMenuY = $state(0);
 
+  // ── [+] new-document menu (macOS inline tab strip) ────────────────────────
+  // Creating a document used to be reachable only from the titlebar's
+  // right-click menu, which is undiscoverable — the tab strip had no [+] at
+  // all. With Markdown and Typst both available, [+] opens a menu naming each
+  // flavor rather than silently picking one.
+  //
+  // `position: fixed`, anchored off the button's viewport rect: `.titlebar-center`
+  // is `overflow: hidden` and the bar is only 28px tall, so an absolutely
+  // positioned dropdown would be clipped away entirely.
+  let newDocBtn = $state<HTMLButtonElement | null>(null);
+  let showNewDocMenu = $state(false);
+  let newDocMenuPos = $state<{ top: number; left: number } | null>(null);
+
+  function anchorNewDocMenu() {
+    if (!newDocBtn) return;
+    const r = newDocBtn.getBoundingClientRect();
+    newDocMenuPos = { top: r.bottom + 4, left: r.left };
+  }
+
+  function toggleNewDocMenu() {
+    if (showNewDocMenu) { showNewDocMenu = false; return; }
+    anchorNewDocMenu();
+    showNewDocMenu = true;
+  }
+
+  function pickNewDoc(fn: () => void) {
+    showNewDocMenu = false;
+    fn();
+  }
+
+  function onWindowClickNewDoc(event: MouseEvent) {
+    if (!(event.target as HTMLElement | null)?.closest('.new-doc-root')) showNewDocMenu = false;
+  }
+
+  function onWindowKeydownNewDoc(event: KeyboardEvent) {
+    if (event.key === 'Escape' && showNewDocMenu) showNewDocMenu = false;
+  }
+
+  function onNewDocReposition() {
+    if (showNewDocMenu) anchorNewDocMenu();
+  }
+
   function handleContextMenu(event: MouseEvent) {
     if (!isMacOS) return;
     if ((event.target as HTMLElement).closest('.tab-item')) return;
@@ -536,6 +581,12 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
+<svelte:window
+  onclick={onWindowClickNewDoc}
+  onkeydown={onWindowKeydownNewDoc}
+  onresize={onNewDocReposition}
+/>
+
 <div class="titlebar no-select" data-tauri-drag-region
   onmousedown={handleDragStart} ondblclick={handleDblClick}
   oncontextmenu={handleContextMenu}>
@@ -583,6 +634,37 @@
           <svg width="6" height="8" viewBox="0 0 6 8"><path fill="currentColor" d="M0 0l6 4-6 4z"/></svg>
         </button>
       {/if}
+
+      <!-- New document [+]. Sits AFTER the scroll arrow, outside the scrolling
+           strip, so it stays reachable no matter how many tabs are open. -->
+      <div class="new-doc-root">
+        <button
+          bind:this={newDocBtn}
+          class="new-doc-btn"
+          class:active={showNewDocMenu}
+          onclick={toggleNewDocMenu}
+          title={$t('titlebar.new_file')}
+          aria-label={$t('titlebar.new_file')}
+          aria-haspopup="menu"
+          aria-expanded={showNewDocMenu}
+        >+</button>
+
+        {#if showNewDocMenu && newDocMenuPos}
+          <div
+            class="new-doc-menu"
+            role="menu"
+            aria-label={$t('titlebar.new_file')}
+            style="left: {newDocMenuPos.left}px; top: {newDocMenuPos.top}px"
+          >
+            <button class="context-menu-item" role="menuitem" onclick={() => pickNewDoc(onNewFile)}>
+              {$t('menu.new')}
+            </button>
+            <button class="context-menu-item" role="menuitem" onclick={() => pickNewDoc(onNewTypstFile)}>
+              {$t('menu.new_typst')}
+            </button>
+          </div>
+        {/if}
+      </div>
     {:else}
       <span class="title-text" data-tauri-drag-region>{displayTitle}</span>
     {/if}
@@ -905,6 +987,48 @@
   }
 
   /* ── Context menu ── */
+  /* Boundary for the click-outside test only — the menu itself is `fixed`. */
+  .new-doc-root {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .new-doc-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 28px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+    flex-shrink: 0;
+    /* `.titlebar-center` is a drag region; without this the click is swallowed
+       by window dragging instead of reaching the button. */
+    -webkit-app-region: no-drag;
+    z-index: 1;
+    transition: color var(--transition-fast), background var(--transition-fast);
+  }
+  .new-doc-btn:hover,
+  .new-doc-btn.active {
+    color: var(--text-primary);
+    background: var(--bg-hover, rgba(127, 127, 127, 0.12));
+  }
+  .new-doc-menu {
+    position: fixed;
+    z-index: 100;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-light);
+    border-radius: 6px;
+    padding: 4px 0;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    min-width: 190px;
+    -webkit-app-region: no-drag;
+  }
+
   .titlebar-context-menu {
     position: fixed;
     z-index: 100;
