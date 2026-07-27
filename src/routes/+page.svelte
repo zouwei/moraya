@@ -2196,6 +2196,52 @@ ${tr('welcome.tip')}
     tabsStore.switchTab(tabId);
   }
 
+  // ── Unsaved-changes guard on window close (v0.46.x) ──────────────────
+  //
+  // The per-tab close button asks before discarding edits, but that button only
+  // exists on macOS (the tab strip lives in the title bar there; the standalone
+  // TabBar is disabled elsewhere). Every other way of closing a document —
+  // Windows/Linux title-bar ×, the macOS traffic light, File ▸ Close Window
+  // (a PredefinedMenuItem that never reaches this page) — went straight to the
+  // window close and dropped the edits silently.
+  //
+  // Guarding the WINDOW CLOSE EVENT rather than each button covers all of them
+  // at once, including the native ones the frontend cannot intercept.
+
+  /**
+   * Ask about every dirty tab, one at a time, activating each so the dialog
+   * refers to a document the user can actually see.
+   * @returns false if the user cancelled (a Save As dialog dismissed) — the
+   *          window must then stay open.
+   */
+  async function resolveUnsavedBeforeClose(): Promise<boolean> {
+    // The editor holds the newest text; without this a document edited since
+    // the last debounce would look clean.
+    tabsStore.syncFromEditor();
+    const dirty = tabsStore.getState().tabs.filter((t) => t.isDirty);
+
+    for (const tab of dirty) {
+      if (tabsStore.getState().activeTabId !== tab.id) {
+        tabsStore.switchTab(tab.id);
+        await tick();
+      }
+      const shouldSave = await ask(
+        $t('tabs.unsaved_msg', { fileName: tab.fileName }),
+        {
+          title: $t('tabs.unsaved_title'),
+          kind: 'warning',
+          okLabel: $t('tabs.save'),
+          cancelLabel: $t('tabs.discard'),
+        },
+      );
+      if (shouldSave) {
+        const saved = await handleSave();
+        if (!saved) return false; // Save As cancelled → abort the close
+      }
+    }
+    return true;
+  }
+
   async function handleCloseTab(tab: import('$lib/stores/tabs-store').TabItem) {
     if (tab.isDirty) {
       const shouldSave = await ask(
@@ -2213,10 +2259,13 @@ ${tr('welcome.tip')}
       }
     }
 
-    // If this is the last tab, close the window instead of creating an empty tab
+    // If this is the last tab, close the window instead of creating an empty tab.
+    // destroy() rather than close(): the prompt above already settled this tab,
+    // and "discard" leaves isDirty set, so close() would re-ask via the
+    // close-requested guard.
     const state = tabsStore.getState();
     if (state.tabs.length <= 1) {
-      getCurrentWindow().close();
+      getCurrentWindow().destroy();
       return;
     }
 
@@ -2359,8 +2408,9 @@ ${tr('welcome.tip')}
       emitTo(targetLabel, 'tab-drag-end', {}).catch(() => {});
 
       if (state.tabs.length <= 1) {
-        // Last tab — close window directly (don't go through closeTab which creates empty replacement)
-        getCurrentWindow().close();
+        // Last tab — close window directly (don't go through closeTab which creates empty replacement).
+        // The tab moved to another window, so nothing is unsaved here: skip the guard.
+        getCurrentWindow().destroy();
       } else {
         tabsStore.removeTab(tab.id);
       }
@@ -3273,6 +3323,23 @@ ${tr('welcome.tip')}
     // Background memory auto-sync (focus + interval, debounced; no-op until
     // cloud sync is configured).
     startMemoryAutoSync();
+
+    // Intercept EVERY window close (title-bar button on Windows/Linux, macOS
+    // traffic light, File ▸ Close Window, Cmd/Alt+F4) so unsaved work is never
+    // dropped silently. Tauri delivers all of them as close-requested.
+    let closeUnlisten: (() => void) | undefined;
+    if (isTauri) {
+      getCurrentWindow()
+        .onCloseRequested(async (event) => {
+          // Tauri awaits this handler and closes the window itself unless
+          // preventDefault() was called — so awaiting the dialog is safe and is
+          // the documented pattern.
+          const proceed = await resolveUnsavedBeforeClose();
+          if (!proceed) event.preventDefault();
+        })
+        .then((un) => { closeUnlisten = un; })
+        .catch(() => { /* non-Tauri or window gone */ });
+    }
     // Platform class is set above (before first render) for correct initial layout.
     // iPadOS + Tauri: track visual viewport height for virtual keyboard handling
     // (browser testing mode uses 100dvh fallback, no need for --app-height)
@@ -4072,6 +4139,7 @@ ${tr('welcome.tip')}
       tabDragEndUnlisten?.();
       focusUnlisten?.();
       vvUnlisten?.();
+      closeUnlisten?.();
       desktopResizeUnlisten?.();
       window.removeEventListener('moraya:file-synced', handleFileSynced);
       window.removeEventListener('moraya:dynamic-service-created', handleDynamicServiceCreated);
