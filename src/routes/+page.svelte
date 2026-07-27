@@ -3331,11 +3331,23 @@ ${tr('welcome.tip')}
     if (isTauri) {
       getCurrentWindow()
         .onCloseRequested(async (event) => {
-          // Tauri awaits this handler and closes the window itself unless
-          // preventDefault() was called — so awaiting the dialog is safe and is
-          // the documented pattern.
-          const proceed = await resolveUnsavedBeforeClose();
-          if (!proceed) event.preventDefault();
+          // Tauri awaits this handler, then closes the window itself unless
+          // preventDefault() was called. We do NOT rely on that implicit close:
+          // if anything in here throws after the user has already decided, the
+          // library's `if (!prevented) destroy()` never runs and the app becomes
+          // impossible to quit — which is exactly what "discard" did. Take the
+          // decision, then close explicitly.
+          let proceed = true;
+          try {
+            proceed = await resolveUnsavedBeforeClose();
+          } catch (e) {
+            // The guard failed, not the user. Closing is what was asked for and
+            // an unquittable window is the worse failure; the tab is still on
+            // disk-or-not exactly as before, and the error is logged.
+            console.warn('[Close] unsaved-changes guard failed:', e);
+          }
+          event.preventDefault();
+          if (proceed) await getCurrentWindow().destroy();
         })
         .then((un) => { closeUnlisten = un; })
         .catch(() => { /* non-Tauri or window gone */ });
