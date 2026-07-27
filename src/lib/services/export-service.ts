@@ -4,7 +4,11 @@ import { get } from 'svelte/store';
 import { t } from '$lib/i18n';
 import { settingsStore } from '$lib/stores/settings-store';
 import { exportProgressStore } from '$lib/stores/export-progress-store';
-import { renderMermaid } from '$lib/editor/plugins/mermaid-renderer';
+// Same module the editor's code-block NodeView uses. mermaid.render() mutates
+// global DOM state, so every caller in the app must share ONE serial queue —
+// a second copy of this module would give export its own queue and let an
+// export render overlap an editor render.
+import { renderMermaid } from '@moraya/core/plugins/mermaid-renderer';
 import {
   exportDocument as coreExportDocument,
   markdownToHtml as coreMarkdownToHtml,

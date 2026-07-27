@@ -16,7 +16,7 @@
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { markdownToHtmlBody } from '$lib/services/export-service';
-  import { renderMermaid, ensureMermaidLoaded } from '$lib/editor/plugins/mermaid-renderer';
+  import { renderMermaid, ensureMermaidLoaded } from '@moraya/core/plugins/mermaid-renderer';
   import 'katex/dist/katex.min.css';
 
   interface PrintPayload {
