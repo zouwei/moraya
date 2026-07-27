@@ -505,6 +505,18 @@ fn close_window_by_label(app: tauri::AppHandle, label: String) -> Result<(), Str
 }
 
 /// Show or hide a window by label (used for hiding detached tab window when hovering over target).
+/// Quit the whole application.
+///
+/// Safety net for the close path: the frontend asks about unsaved changes, then
+/// destroys the window itself. If that destroy does not take effect for any
+/// reason, the user is left with a window they cannot close — so the frontend
+/// follows up with this after a short grace period, but only when it was the
+/// LAST window (otherwise closing one window would take the others with it).
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
 #[tauri::command]
 fn set_window_visible(app: tauri::AppHandle, label: String, visible: bool) -> Result<(), String> {
     if let Some(win) = app.get_webview_window(&label) {
@@ -1122,6 +1134,7 @@ pub fn run() {
             move_window,
             set_window_alpha,
             close_window_by_label,
+            quit_app,
             set_window_visible,
             register_dock_document,
         ])

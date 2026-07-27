@@ -62,7 +62,7 @@
   import { checkForUpdate, shouldCheckToday, getTodayDateString } from '$lib/services/update-service';
   import { listen, emitTo, type UnlistenFn } from '@tauri-apps/api/event';
   import { invoke } from '@tauri-apps/api/core';
-  import { getCurrentWindow } from '@tauri-apps/api/window';
+  import { getCurrentWindow, getAllWindows } from '@tauri-apps/api/window';
   import { openUrl } from '@tauri-apps/plugin-opener';
   import { ask } from '@tauri-apps/plugin-dialog';
   import { t, locale } from '$lib/i18n';
@@ -2265,7 +2265,13 @@ ${tr('welcome.tip')}
     // close-requested guard.
     const state = tabsStore.getState();
     if (state.tabs.length <= 1) {
-      getCurrentWindow().destroy();
+      // Same safety net as the window-close guard: destroy(), and quit outright
+      // if that leaves us still running as the last window.
+      void (async () => {
+        const lastWindow = (await getAllWindows().catch(() => [])).length <= 1;
+        await getCurrentWindow().destroy().catch(() => {});
+        if (lastWindow) setTimeout(() => { invoke('quit_app').catch(() => {}); }, 500);
+      })();
       return;
     }
 
@@ -3347,7 +3353,23 @@ ${tr('welcome.tip')}
             console.warn('[Close] unsaved-changes guard failed:', e);
           }
           event.preventDefault();
-          if (proceed) await getCurrentWindow().destroy();
+          if (!proceed) return;
+
+          // Close, then make sure it actually happened. destroy() is the right
+          // primitive (close() would re-enter this very handler), but if it does
+          // not take effect the user is left with a window that cannot be
+          // closed at all — the failure this whole path keeps landing in. So:
+          // if we are still alive a moment later, and this was the LAST window,
+          // quit the app outright. When destroy() works the webview is gone and
+          // this timer never runs; the last-window check keeps a multi-window
+          // session from being taken down by closing one of them.
+          const lastWindow = (await getAllWindows().catch(() => [])).length <= 1;
+          await getCurrentWindow().destroy().catch((e) => {
+            console.warn('[Close] destroy() failed:', e);
+          });
+          if (lastWindow) {
+            setTimeout(() => { invoke('quit_app').catch(() => {}); }, 500);
+          }
         })
         .then((un) => { closeUnlisten = un; })
         .catch(() => { /* non-Tauri or window gone */ });
