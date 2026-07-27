@@ -5,7 +5,14 @@
 
 import { writable, get } from 'svelte/store';
 import { load } from '@tauri-apps/plugin-store';
+import { invoke } from '@tauri-apps/api/core';
 import MCPClient from './mcp-client';
+import {
+  secretsOf,
+  hasPlaintextSecrets,
+  withoutSecretValues,
+  withSecretValues,
+} from './mcp-secrets';
 import { MCP_PRESETS } from './presets';
 import type {
   MCPServerConfig,
@@ -56,6 +63,7 @@ function createMCPStore() {
       persistMCPServers();
     },
     removeServer(id: string) {
+      void deleteServerSecrets(id);
       update(state => ({
         ...state,
         servers: state.servers.filter(s => s.id !== id),
@@ -119,11 +127,53 @@ export const mcpStore = createMCPStore();
 
 const MCP_STORE_FILE = 'mcp-config.json';
 
+// ── Secret handling ──────────────────────────────────────────────────
+//
+// A server's `env` (stdio) and `headers` (sse/http) carry real credentials —
+// API secrets, bearer tokens. They used to be written verbatim into
+// mcp-config.json, a plaintext file on disk, which the project's security rules
+// forbid for any credential. They now live in the OS keychain, keyed by server
+// id, exactly like AI provider keys; only the KEY NAMES stay on disk so the
+// settings UI can still show which variables a server expects.
+
+const KEYCHAIN_MCP_PREFIX = 'mcp-secrets:';
+
+/** Write a server's secret map into the OS keychain. */
+async function saveServerSecrets(server: MCPServerConfig): Promise<void> {
+  if (!hasPlaintextSecrets(server)) return;
+  try {
+    await invoke('keychain_set', {
+      key: `${KEYCHAIN_MCP_PREFIX}${server.id}`,
+      value: JSON.stringify(secretsOf(server)),
+    });
+  } catch { /* keychain unavailable — the value simply is not cached */ }
+}
+
+/** Read a server's secret map back from the keychain. */
+async function loadServerSecrets(id: string): Promise<Record<string, string> | null> {
+  try {
+    const raw = await invoke<string | null>('keychain_get', { key: `${KEYCHAIN_MCP_PREFIX}${id}` });
+    return raw ? (JSON.parse(raw) as Record<string, string>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Drop a removed server's credentials from the keychain. */
+async function deleteServerSecrets(id: string): Promise<void> {
+  try {
+    await invoke('keychain_delete', { key: `${KEYCHAIN_MCP_PREFIX}${id}` });
+  } catch { /* nothing stored / keychain unavailable */ }
+}
+
 async function persistMCPServers() {
   try {
     const state = mcpStore.getState();
+    // Credentials go to the keychain; the file gets the same servers with the
+    // secret values blanked out (key names kept so the UI can show them).
+    await Promise.all(state.servers.map(saveServerSecrets));
     const store = await load(MCP_STORE_FILE);
-    await store.set('servers', state.servers);
+    await store.set('servers', state.servers.map(withoutSecretValues));
     await store.save();
   } catch { /* ignore */ }
 }
@@ -151,10 +201,27 @@ export async function initMCPStore() {
         }
         return true;
       });
-      for (const s of cleaned) {
+      // Rehydrate credentials from the keychain, and migrate any that a
+      // previous version left in the plaintext file: those values are read
+      // once, moved into the keychain, and blanked on disk by the persist
+      // below. Without the migration an existing server would silently lose
+      // its credentials on upgrade.
+      let migratedSecrets = false;
+      const hydrated = await Promise.all(
+        cleaned.map(async (s) => {
+          if (hasPlaintextSecrets(s)) {
+            await saveServerSecrets(s);
+            migratedSecrets = true;
+            return s;
+          }
+          const stored = await loadServerSecrets(s.id);
+          return stored ? withSecretValues(s, stored) : s;
+        }),
+      );
+      for (const s of hydrated) {
         mcpStore.addServer(s);
       }
-      if (cleaned.length < servers.length) {
+      if (cleaned.length < servers.length || migratedSecrets) {
         persistMCPServers();
       }
     }
