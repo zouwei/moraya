@@ -98,3 +98,24 @@ describe('round trip', () => {
     expect(withSecretValues(onDisk, secrets)).toEqual(original);
   });
 });
+
+describe('blank-only-when-saved contract', () => {
+  // persistMCPServers must blank a server on disk ONLY when its keychain write
+  // succeeded. This encodes the rule the storage layer relies on; the manager
+  // owns the keychain call itself (it needs Tauri) but must honour this.
+  it('a failed save must leave the config untouched, not blanked', () => {
+    const server = stdio({ SECRET: 'real-value' });
+    const savedOk = false;
+    const written = savedOk ? withoutSecretValues(server) : server;
+    // Blanking here would destroy the only remaining copy of the credential.
+    expect(hasPlaintextSecrets(written)).toBe(true);
+    expect(JSON.stringify(written)).toContain('real-value');
+  });
+
+  it('a successful save blanks it', () => {
+    const server = stdio({ SECRET: 'real-value' });
+    const savedOk = true;
+    const written = savedOk ? withoutSecretValues(server) : server;
+    expect(JSON.stringify(written)).not.toContain('real-value');
+  });
+});

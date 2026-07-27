@@ -3473,16 +3473,32 @@ ${tr('welcome.tip')}
           // saved MCPs worked on install but broke after restart).
           // `connectAllServers` now skips already-connected ids, so this
           // ordering keeps saved services healthy on every launch.
-          try {
-            await initContainerManager();
-          } catch (e) {
-            console.warn('[Startup] initContainerManager failed:', e);
-          }
-          try {
-            await connectAllServers();
-          } catch (e) {
-            console.warn('[Startup] connectAllServers failed:', e);
-          }
+          // Detached from the startup chain: MCP connect spawns child processes
+          // and waits on a JSON-RPC handshake with a 25s ceiling per request in
+          // Rust, and `npx -y <pkg>` downloads its package on first run. Awaited
+          // here, that time was spent behind the opaque boot splash — which only
+          // lifts on an 8s safety timer — and it also delayed restoring the
+          // opened file and knowledge base below. The window looked frozen on
+          // every launch. Servers now come online in the background; the tool
+          // list is reactive, so the UI fills in when each one is ready.
+          //
+          // The ordering still matters and is preserved INSIDE the detached
+          // chain: initContainerManager() connects saved dynamic services
+          // itself, and running it concurrently with connectAllServers would
+          // race on connectServer(id) and double-spawn stdio processes (the
+          // second orphans the first, hanging future tool calls).
+          void (async () => {
+            try {
+              await initContainerManager();
+            } catch (e) {
+              console.warn('[Startup] initContainerManager failed:', e);
+            }
+            try {
+              await connectAllServers();
+            } catch (e) {
+              console.warn('[Startup] connectAllServers failed:', e);
+            }
+          })();
 
           // Restore knowledge base or last opened folder
           const settings = settingsStore.getState();
@@ -4153,7 +4169,8 @@ ${tr('welcome.tip')}
 <div class="app-container">
   <TitleBar title={currentFileName} {tabs} {activeTabId} {externalDropIndex}
     onSwitchTab={handleSwitchTab} onCloseTab={handleCloseTab}
-    onNewFile={() => handleNewFile()} onOpenFile={() => handleOpenFile()}
+    onNewFile={() => handleNewFile()} onNewTypstFile={() => handleNewTypstFile()}
+    onOpenFile={() => handleOpenFile()}
     onReorderTabs={(from, to) => tabsStore.reorderTabs(from, to)}
     onDetachStart={performTabDetachStart} onDetachEnd={performTabDetachEnd}
     onAttachTab={performTabAttach} />

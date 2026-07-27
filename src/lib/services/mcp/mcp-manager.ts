@@ -138,15 +138,29 @@ const MCP_STORE_FILE = 'mcp-config.json';
 
 const KEYCHAIN_MCP_PREFIX = 'mcp-secrets:';
 
-/** Write a server's secret map into the OS keychain. */
-async function saveServerSecrets(server: MCPServerConfig): Promise<void> {
-  if (!hasPlaintextSecrets(server)) return;
+/**
+ * Write a server's secret map into the OS keychain.
+ *
+ * Returns whether the credentials are now safely in the keychain. The caller
+ * MUST NOT blank the on-disk copy unless this said true: a swallowed failure
+ * plus an unconditional blanking would destroy the user's credentials in both
+ * places at once, leaving a server that can never connect again.
+ */
+async function saveServerSecrets(server: MCPServerConfig): Promise<boolean> {
+  if (!hasPlaintextSecrets(server)) return true; // nothing to protect
   try {
     await invoke('keychain_set', {
       key: `${KEYCHAIN_MCP_PREFIX}${server.id}`,
       value: JSON.stringify(secretsOf(server)),
     });
-  } catch { /* keychain unavailable — the value simply is not cached */ }
+    return true;
+  } catch (e) {
+    // Keep the value where it already is rather than losing it. This is the
+    // pre-existing on-disk state, so it leaks nothing new — but it is loud,
+    // because a silent downgrade to plaintext is its own problem.
+    console.warn('[MCP] keychain write failed; credentials left in the config file', e);
+    return false;
+  }
 }
 
 /** Read a server's secret map back from the keychain. */
@@ -171,9 +185,13 @@ async function persistMCPServers() {
     const state = mcpStore.getState();
     // Credentials go to the keychain; the file gets the same servers with the
     // secret values blanked out (key names kept so the UI can show them).
-    await Promise.all(state.servers.map(saveServerSecrets));
+    // Blank ONLY the ones the keychain actually accepted — see saveServerSecrets.
+    const saved = await Promise.all(state.servers.map(saveServerSecrets));
     const store = await load(MCP_STORE_FILE);
-    await store.set('servers', state.servers.map(withoutSecretValues));
+    await store.set(
+      'servers',
+      state.servers.map((s, i) => (saved[i] ? withoutSecretValues(s) : s)),
+    );
     await store.save();
   } catch { /* ignore */ }
 }
@@ -268,14 +286,28 @@ export async function connectServer(config: MCPServerConfig): Promise<void> {
     console.log(`[MCP] Connecting to ${config.name} (${config.transport.type})...`);
     await client.connect();
     clients.set(config.id, client);
+
+    // Discover tools and resources — SEQUENTIALLY. The Rust bridge takes the
+    // child process out of its map for the whole duration of a request
+    // (one reader, one writer), so two in-flight requests for the same server
+    // cannot both succeed: whichever is scheduled second fails immediately with
+    // "MCP server not connected". When that loser was tools/list, the server
+    // ended up marked connected with zero tools — the AI then sees no MCP tools
+    // at all, which is the "installed fine, useless after restart" report.
+    const tools = await client.listTools().catch((e) => {
+      console.error(`[MCP] listTools failed for ${config.name}:`, e);
+      return [];
+    });
+    const resources = await client.listResources().catch((e) => {
+      console.error(`[MCP] listResources failed for ${config.name}:`, e);
+      return [];
+    });
+
+    // Only now call it connected: a timed-out tools/list kills the child on the
+    // Rust side, so announcing success before this point advertises a server
+    // that is already dead.
     mcpStore.setConnected(config.id, true);
     console.log(`[MCP] Connected to ${config.name}`);
-
-    // Discover tools and resources
-    const [tools, resources] = await Promise.all([
-      client.listTools().catch((e) => { console.error(`[MCP] listTools failed for ${config.name}:`, e); return []; }),
-      client.listResources().catch((e) => { console.error(`[MCP] listResources failed for ${config.name}:`, e); return []; }),
-    ]);
 
     console.log(`[MCP] ${config.name}: discovered ${tools.length} tools, ${resources.length} resources`);
     if (tools.length > 0) console.log(`[MCP] Tools:`, tools.map(t => t.name).join(', '));
