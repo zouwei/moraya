@@ -51,7 +51,11 @@
 
 /* Strong & Emphasis */
 .moraya-editor strong {
-  font-weight: 600;
+  /* Real bold (700), not 600: at 600 the emphasis barely separated from body
+     text — especially in CJK, where many system faces have no 600 cut and the
+     renderer picks the regular one. Also matches web/mobile, which have no
+     strong rule at all and therefore use the browser default (bold = 700). */
+  font-weight: 700;
 }
 
 .moraya-editor em {
