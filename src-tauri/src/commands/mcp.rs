@@ -17,6 +17,48 @@ const READ_LINE_TIMEOUT: Duration = Duration::from_secs(20);
 /// outputs many non-JSON progress lines (each line would otherwise reset READ_LINE_TIMEOUT)
 const TOTAL_RESPONSE_TIMEOUT: Duration = Duration::from_secs(25);
 
+/// How long a `--version` probe may run before we give up and kill it. Long
+/// enough for a cold `npx` resolve, short enough that a hung binary cannot
+/// stall the MCP panel.
+const VERSION_PROBE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Wait for `child`, killing it and returning `Ok(None)` once `deadline` passes.
+///
+/// `Child::wait_with_output` has no timeout, so a command that never exits would
+/// hold the caller forever. Polling with `try_wait` keeps the bound while still
+/// collecting the pipes on the normal path.
+fn wait_with_deadline(
+    child: &mut Child,
+    deadline: Duration,
+) -> Result<Option<std::process::Output>, String> {
+    let started = std::time::Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let mut stdout = Vec::new();
+                let mut stderr = Vec::new();
+                if let Some(mut o) = child.stdout.take() {
+                    let _ = o.read_to_end(&mut stdout);
+                }
+                if let Some(mut e) = child.stderr.take() {
+                    let _ = e.read_to_end(&mut stderr);
+                }
+                return Ok(Some(std::process::Output { status, stdout, stderr }));
+            }
+            Ok(None) => {
+                if started.elapsed() >= deadline {
+                    let _ = child.kill();
+                    // Reap it, so a timed-out probe does not leave a zombie.
+                    let _ = child.wait();
+                    return Ok(None);
+                }
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            Err(_) => return Err("Version check failed".to_string()),
+        }
+    }
+}
+
 /// Dangerous or interfering environment variable prefixes that must not be passed to child processes
 const BLOCKED_ENV_PREFIXES: &[&str] = &[
     "LD_PRELOAD",
@@ -265,8 +307,13 @@ fn spawn_reader_thread(stdout: ChildStdout) -> Receiver<ReadResult> {
 }
 
 /// Connect to an MCP server via stdio transport
+///
+/// `async` on purpose: Tauri runs synchronous commands on the MAIN thread, and
+/// spawning a server blocks on process startup plus the JSON-RPC handshake. As a
+/// plain `fn` this froze the window on every launch that reconnected servers.
+/// The body itself never awaits, so no lock is held across a suspension point.
 #[tauri::command]
-pub fn mcp_connect_stdio(
+pub async fn mcp_connect_stdio(
     state: State<'_, MCPProcessManager>,
     server_id: String,
     command: String,
@@ -565,8 +612,10 @@ pub fn mcp_send_notification(
 /// Uses graceful shutdown (SIGTERM → wait → SIGKILL) via the process group,
 /// then cleans up the MCPProcess entry. Dropping MCPProcess closes the channel
 /// receiver, which causes the reader thread to exit on its next send attempt.
+/// `async` for the same reason as `mcp_connect_stdio`: graceful shutdown is
+/// SIGTERM → wait → SIGKILL, and that wait must not happen on the main thread.
 #[tauri::command]
-pub fn mcp_disconnect(
+pub async fn mcp_disconnect(
     state: State<'_, MCPProcessManager>,
     server_id: String,
 ) -> Result<(), String> {
@@ -590,8 +639,13 @@ pub fn mcp_disconnect(
 }
 
 /// Check if an external command exists and return its --version output
+///
+/// `async` + bounded. This runs for every configured stdio server at startup,
+/// and `--version` is not always fast or even terminating — `npx` may resolve or
+/// download a package first. On the main thread with no deadline that is a hung
+/// window, which is what "freezes every launch" was.
 #[tauri::command]
-pub fn check_command_exists(command: String) -> Result<String, String> {
+pub async fn check_command_exists(command: String) -> Result<String, String> {
     #[cfg(target_os = "ios")]
     {
         let _ = &command;
@@ -602,26 +656,67 @@ pub fn check_command_exists(command: String) -> Result<String, String> {
     {
         validate_command(&command)?;
 
-        let output = Command::new(&command)
-            .arg("--version")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .map_err(|_| format!("Command '{}' not found", command))?;
+        tauri::async_runtime::spawn_blocking(move || {
+            let mut child = Command::new(&command)
+                .arg("--version")
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .map_err(|_| format!("Command '{}' not found", command))?;
 
-        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        Ok(if !stdout.is_empty() {
-            stdout
-        } else {
-            String::from_utf8_lossy(&output.stderr).trim().to_string()
+            let output = match wait_with_deadline(&mut child, VERSION_PROBE_TIMEOUT)? {
+                Some(o) => o,
+                None => return Err(format!("Command '{}' timed out", command)),
+            };
+
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            Ok(if !stdout.is_empty() {
+                stdout
+            } else {
+                String::from_utf8_lossy(&output.stderr).trim().to_string()
+            })
         })
+        .await
+        .map_err(|_| "Version check failed".to_string())?
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wait_with_deadline_collects_output_from_a_fast_command() {
+        let mut child = Command::new("echo")
+            .arg("v1.2.3")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn echo");
+        let out = wait_with_deadline(&mut child, Duration::from_secs(5))
+            .expect("no error")
+            .expect("should not time out");
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "v1.2.3");
+    }
+
+    #[test]
+    fn wait_with_deadline_kills_a_command_that_never_exits() {
+        // Before the deadline existed this ran on the main thread with no bound,
+        // which is what froze the window while probing MCP commands at startup.
+        let mut child = Command::new("sleep")
+            .arg("30")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn sleep");
+        let started = std::time::Instant::now();
+        let out = wait_with_deadline(&mut child, Duration::from_millis(300)).expect("no error");
+        assert!(out.is_none(), "should report a timeout");
+        assert!(started.elapsed() < Duration::from_secs(5), "must not wait for the child");
+        // Killed AND reaped — no zombie left behind.
+        assert!(child.try_wait().is_ok());
+    }
 
     #[test]
     fn sanitize_stderr_does_not_panic_on_multibyte_at_boundary() {

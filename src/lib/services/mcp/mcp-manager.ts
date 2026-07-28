@@ -205,20 +205,43 @@ async function persistSyncConfigs() {
   } catch { /* ignore */ }
 }
 
+/**
+ * Drop servers left over from before presets had stable `preset-<id>` ids.
+ *
+ * A leftover is only a leftover if the preset-id twin it duplicates is ALSO
+ * present. The previous rule dropped anything whose name matched a preset's and
+ * whose id did not start with `preset-`, which is not a description of legacy
+ * data at all: `mcp-<timestamp>` is still the id every manually added server and
+ * marketplace install gets today. So a server the user added and named "Git",
+ * "Memory" or "Filesystem" was deleted from memory AND from disk on every single
+ * launch — the "works when installed, gone after restart" report.
+ *
+ * Exported for tests; pure.
+ */
+export function dropLegacyPresetDuplicates(servers: MCPServerConfig[]): MCPServerConfig[] {
+  const presetNames = new Set(MCP_PRESETS.map(p => p.name));
+  const namesHeldByPresetIds = new Set(
+    servers.filter(s => s.id.startsWith('preset-')).map(s => s.name),
+  );
+  return servers.filter(
+    s =>
+      s.id.startsWith('preset-') ||
+      !presetNames.has(s.name) ||
+      !namesHeldByPresetIds.has(s.name),
+  );
+}
+
 /** Load persisted MCP server configs from disk. Call once at app startup. */
 export async function initMCPStore() {
   try {
     const store = await load(MCP_STORE_FILE);
     const servers = await store.get<MCPServerConfig[]>('servers');
     if (servers && servers.length > 0) {
-      // Migration: remove old preset duplicates (timestamp IDs like mcp-123456)
-      const presetNames = new Set(MCP_PRESETS.map(p => p.name));
-      const cleaned = servers.filter(s => {
-        if (presetNames.has(s.name) && !s.id.startsWith('preset-')) {
-          return false; // old duplicate — skip
-        }
-        return true;
-      });
+      // One-shot: this only ever needed to run against pre-`preset-` data, and
+      // a migration that re-runs forever is a migration that keeps deleting.
+      const alreadyDeduped = (await store.get<boolean>('presetDedupDone')) === true;
+      const cleaned = alreadyDeduped ? servers : dropLegacyPresetDuplicates(servers);
+      if (!alreadyDeduped) await store.set('presetDedupDone', true);
       // Rehydrate credentials from the keychain, and migrate any that a
       // previous version left in the plaintext file: those values are read
       // once, moved into the keychain, and blanked on disk by the persist
