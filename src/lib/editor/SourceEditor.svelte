@@ -3,6 +3,7 @@
   import { settingsStore } from '../stores/settings-store';
   import { editorStore, isMarkdownFlushSuppressed } from '../stores/editor-store';
   import OutlinePanel, { type OutlineHeading } from '$lib/components/OutlinePanel.svelte';
+  import { extractSourceHeadings } from './source-outline';
   import katex from 'katex';
   // Side-effect: \ce/\pu (mhchem) for chemistry in the source-mode preview.
   import 'katex/contrib/mhchem';
@@ -82,17 +83,12 @@
   }
 
   function extractHeadingsFromMarkdown() {
-    const heads: OutlineHeading[] = [];
-    const lines = content.split('\n');
-    for (let i = 0; i < lines.length; i++) {
-      const m = lines[i].match(/^(#{1,6})\s+(.+)$/);
-      if (m) {
-        const text = m[2].replace(/\s*#+\s*$/, '');
-        const html = renderHeadingHtml(text);
-        heads.push({ id: `h-${i}`, level: m[1].length, text, ...(html ? { html } : {}) });
-      }
-    }
-    outlineHeadings = heads;
+    // Fence/frontmatter tracking lives in source-outline.ts — a bare per-line
+    // `#` match turned every `#` comment in a code block into an outline row.
+    outlineHeadings = extractSourceHeadings(content).map(h => {
+      const html = renderHeadingHtml(h.text);
+      return { id: `h-${h.line}`, level: h.level, text: h.text, ...(html ? { html } : {}) };
+    });
   }
 
   /** Estimate single-line height from scrollHeight / totalLines */
