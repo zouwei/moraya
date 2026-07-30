@@ -199,50 +199,6 @@ export async function exportDocument(
 }
 
 /**
- * Export the current markdown as a genuinely typeset PDF via the on-demand
- * Typst engine (P0). Unlike `exportDocument(..., 'pdf')` — which screenshots the
- * rendered DOM into a raster PDF — this compiles the markdown through Typst
- * (`cmarker`) for true vector typesetting. The engine (~30 MB) is downloaded and
- * cached on first use; `onToast` surfaces that one-time notice. Errors (incl.
- * trimmed Typst compiler diagnostics) surface in the StatusBar progress pill.
- */
-export async function exportTypstPdf(
-  markdownOrGetter: string | (() => string),
-  opts?: { onToast?: (message: string, type?: 'success' | 'error') => void },
-): Promise<boolean> {
-  const tr = get(t);
-  const path = await saveDialog({
-    title: tr('export.export_as', { format: 'PDF (Typst)' }),
-    defaultPath: 'document.pdf',
-    filters: [{ name: 'PDF', extensions: ['pdf'] }],
-  });
-  if (!path || typeof path !== 'string') return false;
-
-  const markdown =
-    typeof markdownOrGetter === 'function' ? markdownOrGetter() : markdownOrGetter;
-
-  exportProgressStore.start();
-  // Yield one frame so the pill paints before the (potentially long) first-use
-  // engine download + compile blocks on the IPC round-trip.
-  await new Promise((r) => setTimeout(r, 0));
-  try {
-    const engineReady = await invoke<boolean>('typst_engine_status');
-    if (!engineReady) {
-      // First use downloads the engine inside the command — tell the user.
-      opts?.onToast?.(tr('typst.downloading_engine'), 'success');
-    }
-    exportProgressStore.setPhase('rendering');
-    await invoke('typst_export_markdown_pdf', { markdown, outputPath: path });
-    exportProgressStore.done();
-    return true;
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    exportProgressStore.error(msg || tr('typst.export_failed'));
-    return false;
-  }
-}
-
-/**
  * Export a Typst *source* document (a `.typ` tab) via the File → Export menu.
  *
  * Mirrors `exportDocument`'s format menu, but nothing goes through markdown-it

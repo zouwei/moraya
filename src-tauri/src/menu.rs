@@ -47,6 +47,8 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
     // File menu
     let file_new = MenuItem::with_id(app, "file_new", "New Markdown Document", true, Some("CmdOrCtrl+N"))?;
     let file_new_typst = MenuItem::with_id(app, "file_new_typst", "New Typst Document", true, None::<&str>)?;
+    // Typst Universe templates — the engine's own `typst init` does the work.
+    let file_new_template = MenuItem::with_id(app, "file_new_template", "New Typst Document from Template...", true, None::<&str>)?;
     // Convert to the other flavor. Result opens as a NEW document; the source
     // is left untouched because the conversion is lossy. The label is replaced
     // from the frontend with the direction that applies to the active document.
@@ -63,7 +65,6 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
         &[
             &MenuItem::with_id(app, "file_export_html", "HTML", true, Some("CmdOrCtrl+Shift+E"))?,
             &MenuItem::with_id(app, "file_export_pdf", "PDF", true, None::<&str>)?,
-            &MenuItem::with_id(app, "file_export_typst_pdf", "PDF (Typst)", true, None::<&str>)?,
             &MenuItem::with_id(app, "file_export_image", "Image (PNG)", true, None::<&str>)?,
             &MenuItem::with_id(app, "file_export_doc", "Word (.doc)", true, None::<&str>)?,
         ],
@@ -79,6 +80,7 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
         &[
             &file_new,
             &file_new_typst,
+            &file_new_template,
             &file_new_window,
             &file_open,
             &PredefinedMenuItem::separator(app)?,
@@ -103,6 +105,7 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
             &[
                 &file_new,
                 &file_new_typst,
+                &file_new_template,
                 &file_new_window,
                 &file_open,
                 &PredefinedMenuItem::separator(app)?,
@@ -484,7 +487,7 @@ fn update_labels_recursive(items: &[MenuItemKind<Wry>], labels: &HashMap<String,
 /// the action exists. `states` maps menu item IDs to the desired enabled flag.
 ///
 /// Walks nested submenus because some targets live two levels deep
-/// (File ▸ Export ▸ "PDF (Typst)").
+/// (File ▸ Export ▸ …).
 pub fn set_menu_items_enabled(app: &AppHandle, states: &HashMap<String, bool>) {
     if let Some(menu) = app.menu() {
         if let Ok(items) = menu.items() {

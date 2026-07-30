@@ -393,13 +393,11 @@ describe('document-flavor scopes (v0.46.0)', () => {
     const ids = SHORTCUT_CATALOG.map((e) => e.id);
     expect(ids).toContain('file.newTypst');
     expect(ids).toContain('file.convertTypst');
-    expect(ids).toContain('file.exportTypstPdf');
   });
 
   it('scopes the Typst-only and Markdown-only file actions', () => {
     const byId = (id: string) => SHORTCUT_CATALOG.find((e) => e.id === id)!;
     expect(scopeOf(byId('file.newTypst'))).toBe('typst');
-    expect(scopeOf(byId('file.exportTypstPdf'))).toBe('markdown');
     // Converting flips the active document either way — available in both.
     expect(scopeOf(byId('file.convertTypst'))).toBe('shared');
   });

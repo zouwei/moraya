@@ -29,6 +29,8 @@
   import Editor from '$lib/editor/Editor.svelte';
   import SourceEditor from '$lib/editor/SourceEditor.svelte';
   import TypstEditor from '$lib/editor/TypstEditor.svelte';
+  import TypstTemplatePicker from '$lib/components/TypstTemplatePicker.svelte';
+  import type { TypstTemplate } from '@moraya/core/typst';
   import { setTypstProjectRoot } from '$lib/editor/typst-compiler';
   import { viewModeForFlavor, rememberViewMode, type ViewModeMemory } from '@moraya/core/typst';
   import type { TypstAction } from '$lib/editor/typst-commands';
@@ -58,7 +60,7 @@
   import { openFile, saveFile, saveFileAs, loadFile, getFileNameFromPath, readImageAsBlobUrl, migrateTempImages, isImageFile } from '$lib/services/file-service';
   import { isTypstFile } from '@moraya/core/typst';
   import { schema } from '$lib/editor/schema';
-  import { exportDocument, exportTypstPdf, exportTypstSource, type ExportFormat } from '$lib/services/export-service';
+  import { exportDocument, exportTypstSource, type ExportFormat } from '$lib/services/export-service';
   import { checkForUpdate, shouldCheckToday, getTodayDateString } from '$lib/services/update-service';
   import { listen, emitTo, type UnlistenFn } from '@tauri-apps/api/event';
   import { invoke } from '@tauri-apps/api/core';
@@ -1282,6 +1284,7 @@ ${tr('welcome.tip')}
       // File menu
       file_new: tr('menu.new'),
       file_new_typst: tr('menu.new_typst'),
+      file_new_template: tr('menu.new_from_template'),
       // Flavor-aware: the entry offers whichever flavor the document is not.
       file_convert_typst: activeTypstTab ? tr('menu.save_as_markdown') : tr('menu.save_as_typst'),
       file_new_window: tr('menu.new_window'),
@@ -1291,7 +1294,6 @@ ${tr('welcome.tip')}
       menu_export: tr('menu.export'),
       file_export_html: tr('menu.export_html'),
       file_export_pdf: tr('menu.export_pdf'),
-      file_export_typst_pdf: tr('menu.export_typst_pdf'),
       file_export_image: tr('menu.export_image'),
       file_export_doc: tr('menu.export_doc'),
       // Paragraph menu
@@ -1465,7 +1467,6 @@ ${tr('welcome.tip')}
       case 'file.saveAs': handleSave(true); return true;
       case 'file.exportHtml': handleExport('html'); return true;
       case 'file.exportPdf': handleExport('pdf'); return true;
-      case 'file.exportTypstPdf': handleExportTypstPdf(); return true;
       case 'file.exportImage': handleExport('image'); return true;
       case 'file.exportDoc': handleExport('doc'); return true;
 
@@ -1936,6 +1937,59 @@ ${tr('welcome.tip')}
     tabsStore.addTab({ flavor: 'typst', content: '', fileName: 'Untitled.typ' });
     content = '';
     resetWorkflowState();
+  }
+
+  // ── New from a Typst Universe template ────────────────────────────────────
+  let templatePickerOpen = $state(false);
+
+  /**
+   * Create a project from a template and open its entry document.
+   *
+   * The scaffold is a real folder on disk — `typst init` writes it and the
+   * files inside refer to each other by name, so they stay together. The user
+   * picks where it goes; there is no sensible implicit location for something
+   * that creates a directory.
+   */
+  async function handlePickTemplate(template: TypstTemplate) {
+    const parentDir = await selectTemplateParent();
+    if (!parentDir) return;
+
+    const { createFromTemplate } = await import('$lib/services/typst-templates');
+    const result = await createFromTemplate(template, parentDir);
+    if (!result.ok) {
+      showToast(result.message || $t('typst.templates.failed'), 'error');
+      return;
+    }
+
+    templatePickerOpen = false;
+    handleFileSelect(result.entryPath);
+    // The sidebar tree predates the new folder. Refresh it when the project
+    // landed inside the open knowledge base; otherwise there is nothing to
+    // show and re-reading the tree would be wasted work.
+    const state = filesStore.getState();
+    const kb = state.knowledgeBases.find(k => k.id === state.activeKnowledgeBaseId);
+    if (kb && result.entryPath.startsWith(kb.path)) {
+      try {
+        const tree = await invoke<import('$lib/stores/files-store').FileEntry[]>('read_dir_recursive', {
+          path: kb.path,
+          depth: 3,
+          allFiles: state.sidebarViewMode === 'tree',
+        });
+        filesStore.setFileTree(tree);
+      } catch { /* the document still opened */ }
+    }
+    showToast($t('typst.templates.created'), 'success');
+  }
+
+  /** Ask where the project folder should be created. */
+  async function selectTemplateParent(): Promise<string | null> {
+    const { open: openDialog } = await import('@tauri-apps/plugin-dialog');
+    const picked = await openDialog({
+      directory: true,
+      multiple: false,
+      title: $t('typst.templates.title'),
+    });
+    return typeof picked === 'string' ? picked : null;
   }
 
   /**
@@ -2613,13 +2667,6 @@ ${tr('welcome.tip')}
     } else {
       exportDocument(getCurrentContent, format);
     }
-  }
-
-  /** Export → "PDF (Typst)": markdown-only entry that routes the current
-   *  markdown through cmarker for true typesetting. Typst tabs already get
-   *  native typeset output from the regular PDF item, so this is hidden there. */
-  function handleExportTypstPdf() {
-    exportTypstPdf(getCurrentContent, { onToast: showToast });
   }
 
   /** Typst source edits: keep `content` + editorStore in sync so Save /
@@ -3787,6 +3834,7 @@ ${tr('welcome.tip')}
         // File
         'menu:file_new': () => handleNewFile(),
         'menu:file_new_typst': () => handleNewTypstFile(),
+        'menu:file_new_template': () => { templatePickerOpen = true; },
         'menu:file_convert_typst': () => handleConvertFlavor(),
         'menu:file_new_window': () => isIPadOS ? handleNewFile() : invoke('create_new_window').catch(e => { console.error('[NewWindow] create_new_window failed:', e); }),
         'menu:file_open': () => handleOpenFile(),
@@ -3798,7 +3846,6 @@ ${tr('welcome.tip')}
         // the main thread and delay the dialog by that long.
         'menu:file_export_html': () => handleExport('html'),
         'menu:file_export_pdf': () => handleExport('pdf'),
-        'menu:file_export_typst_pdf': () => handleExportTypstPdf(),
         'menu:file_export_image': () => handleExport('image'),
         'menu:file_export_doc': () => handleExport('doc'),
         // Edit — undo/redo (split mode: route to whichever pane is focused)
@@ -4427,6 +4474,8 @@ ${tr('welcome.tip')}
     {indexingTotal}
   />
 </div>
+
+<TypstTemplatePicker bind:open={templatePickerOpen} onPick={handlePickTemplate} />
 
 {#if showSettings}
   {#await import('$lib/components/SettingsPanel.svelte') then { default: SettingsPanel }}

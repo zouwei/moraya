@@ -118,9 +118,6 @@ export const SHORTCUT_CATALOG_STATIC: ShortcutEntry[] = [
   // flips the active document between the two flavors (hence shared).
   { id: 'file.newTypst',    category: 'file', scope: 'typst', alwaysAvailable: true, labelKey: 'shortcuts.actions.file.new_typst', mac: '', win: '', customizable: true, menuItemId: 'file_new_typst'},
   { id: 'file.convertTypst', category: 'file',                   labelKey: 'shortcuts.actions.file.convert_typst', mac: '', win: '', customizable: true, menuItemId: 'file_convert_typst'},
-  // Renders a MARKDOWN document to PDF through the Typst engine — not
-  // applicable while editing a .typ file (which exports via plain PDF).
-  { id: 'file.exportTypstPdf', category: 'file', scope: 'markdown', labelKey: 'shortcuts.actions.file.export_typst_pdf', mac: '', win: '', customizable: true, menuItemId: 'file_export_typst_pdf'},
   // v0.41.5 (Phase B): export PDF/Image/Word — no default accelerators;
   // user can set their own via Settings → Shortcuts.
   { id: 'file.exportPdf',   category: 'file', labelKey: 'shortcuts.actions.file.export_pdf',   mac: '', win: '', customizable: true, menuItemId: 'file_export_pdf' },
@@ -215,8 +212,6 @@ export const FLAVOR_ONLY_MENU_ITEMS: Record<Exclude<DocScope, 'shared'>, string[
     // Typst is a print format — no audio/video embeds.
     'insert_cloud_audio',
     'insert_cloud_video',
-    // Renders a markdown document through the Typst engine.
-    'file_export_typst_pdf',
     // Find/Replace read the ProseMirror document; not wired to the Typst source
     // pane yet. (The outline IS shared — TypstEditor renders the same
     // OutlinePanel from its own heading extraction.)
