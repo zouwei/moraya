@@ -1050,3 +1050,178 @@ mod asset_tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 }
+
+// ── Templates (Typst Universe) ───────────────────────────────────────────────
+
+/// The registry index, cached on disk.
+///
+/// The frontend cannot fetch it directly: the app's CSP restricts `connect-src`
+/// to the Tauri IPC origin, and the project rule is that all external calls go
+/// through Rust regardless. Caching here rather than in the webview also means
+/// the 2 MB download is shared by every window and survives a reload.
+const TEMPLATE_INDEX_URL: &str = "https://packages.typst.org/preview/index.json";
+/// Templates are published continuously; a day-old list is fine for a picker.
+const TEMPLATE_INDEX_TTL_SECS: u64 = 24 * 60 * 60;
+
+fn template_index_path() -> Result<PathBuf, String> {
+    Ok(typst_dir()?.join("template-index.json"))
+}
+
+/// True when the cached index is younger than the TTL.
+fn index_is_fresh(path: &Path, ttl_secs: u64) -> bool {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return false;
+    };
+    let Ok(modified) = meta.modified() else {
+        return false;
+    };
+    modified
+        .elapsed()
+        .map(|age| age.as_secs() < ttl_secs)
+        .unwrap_or(false)
+}
+
+/// Fetch the Typst Universe package index (raw JSON; the frontend parses it
+/// with `@moraya/core/typst`).
+///
+/// Serves a stale cache when the network is unavailable — a list from last week
+/// beats an empty picker, and the only cost is missing the newest templates.
+#[tauri::command]
+pub async fn typst_template_index(force: Option<bool>) -> Result<String, String> {
+    let path = template_index_path()?;
+    let force = force.unwrap_or(false);
+
+    if !force && index_is_fresh(&path, TEMPLATE_INDEX_TTL_SECS) {
+        if let Ok(cached) = std::fs::read_to_string(&path) {
+            return Ok(cached);
+        }
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .user_agent("Moraya/1.0")
+        .build()
+        .map_err(|_| "HTTP client error".to_string())?;
+
+    match client.get(TEMPLATE_INDEX_URL).send().await {
+        Ok(resp) if resp.status().is_success() => match resp.text().await {
+            Ok(body) => {
+                let _ = std::fs::write(&path, body.as_bytes());
+                Ok(body)
+            }
+            Err(_) => read_stale_index(&path),
+        },
+        _ => read_stale_index(&path),
+    }
+}
+
+/// Last resort for the index: whatever was cached, however old.
+fn read_stale_index(path: &Path) -> Result<String, String> {
+    std::fs::read_to_string(path).map_err(|_| "Template list unavailable".to_string())
+}
+
+/// Pick a directory name that does not exist yet.
+///
+/// `typst init` refuses to write into an existing directory, so the collision
+/// has to be resolved before it runs rather than reported afterwards.
+fn free_project_dir(parent: &Path, name: &str) -> PathBuf {
+    let base = parent.join(name);
+    if !base.exists() {
+        return base;
+    }
+    for n in 2..1000 {
+        let candidate = parent.join(format!("{name}-{n}"));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    parent.join(format!("{name}-{}", std::process::id()))
+}
+
+/// Create a project from a Typst Universe template.
+///
+/// Runs the engine's own `typst init`, which downloads the package, unpacks the
+/// scaffold and writes it — the desktop does not need the browser's hand-rolled
+/// tar reader. Returns the path of the entry document to open.
+///
+/// `spec` is a package reference like `@preview/charged-ieee:0.1.4`; `entrypoint`
+/// comes from the same registry index and is NOT always `main.typ`.
+#[tauri::command]
+pub async fn typst_init_template(
+    app: AppHandle,
+    spec: String,
+    parent_dir: String,
+    folder_name: String,
+    entrypoint: String,
+) -> Result<String, String> {
+    // Reject anything that is not a plain `@preview/name:version`, and a folder
+    // name that could escape the parent — both reach a process argument.
+    if !spec.starts_with("@preview/")
+        || !spec[9..]
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':'))
+    {
+        return Err("Unsupported template reference".to_string());
+    }
+    if folder_name.is_empty()
+        || folder_name.contains('/')
+        || folder_name.contains('\\')
+        || folder_name.contains("..")
+    {
+        return Err("Invalid project name".to_string());
+    }
+
+    let parent = file_cmd::validate_path(&parent_dir)?;
+    if !parent.is_dir() {
+        return Err("Target folder not found".to_string());
+    }
+
+    let bin = typst_ensure_engine(app).await?;
+    let dest = free_project_dir(&parent, &folder_name);
+
+    let output = std::process::Command::new(&bin)
+        .arg("init")
+        .arg(&spec)
+        .arg(&dest)
+        .current_dir(&parent)
+        .output()
+        .map_err(|_| "Failed to launch the Typst engine".to_string())?;
+
+    if !output.status.success() {
+        return Err(trim_diagnostic(&output.stderr));
+    }
+
+    let entry = dest.join(&entrypoint);
+    if !entry.exists() {
+        // The template declared an entrypoint its package does not contain.
+        return Err("The template did not produce its entry document".to_string());
+    }
+    Ok(entry.to_string_lossy().to_string())
+}
+
+#[cfg(test)]
+mod template_tests {
+    use super::*;
+
+    #[test]
+    fn free_dir_uses_the_name_when_available() {
+        let tmp = std::env::temp_dir().join(format!("moraya-tpl-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&tmp);
+        assert_eq!(free_project_dir(&tmp, "paper"), tmp.join("paper"));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn free_dir_skips_an_existing_one() {
+        let tmp = std::env::temp_dir().join(format!("moraya-tpl2-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(tmp.join("paper"));
+        assert_eq!(free_project_dir(&tmp, "paper"), tmp.join("paper-2"));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn stale_index_is_not_fresh() {
+        let missing = std::env::temp_dir().join("moraya-no-such-index.json");
+        assert!(!index_is_fresh(&missing, 60));
+    }
+}

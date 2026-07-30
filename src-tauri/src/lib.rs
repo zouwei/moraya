@@ -1009,6 +1009,8 @@ pub fn run() {
             commands::typst_engine::typst_ensure_engine,
             commands::typst_engine::typst_export_markdown_pdf,
             commands::typst_engine::typst_compile_source,
+            commands::typst_engine::typst_template_index,
+            commands::typst_engine::typst_init_template,
             commands::typst_engine::typst_heading_positions,
             commands::typst_engine::typst_materialize_asset,
             commands::file::read_dir_recursive,
