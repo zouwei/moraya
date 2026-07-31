@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Moraya logo master (C1 Ink Stroke, final) — full-bleed square, NO baked corner radius.
+       Broad-nib calligraphic M: thin upstrokes + thick downstrokes, composed from
+       overlapping round-cap strokes sharing one userSpace gradient (seamless joins).
+       Zero filters / text / CSS — compatible with resvg AND librsvg pipelines.
+       Palette: paper #fcfbf7→#f2efe4 · ink #1b3350/#1E3A5F → blue #2d7dd2 -->
+  <defs>
+    <linearGradient id="mor-bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fcfbf7"/>
+      <stop offset="1" stop-color="#f2efe4"/>
+    </linearGradient>
+    <linearGradient id="mor-ink" x1="112" y1="100" x2="412" y2="410" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1b3350"/>
+      <stop offset="0.4" stop-color="#1E3A5F"/>
+      <stop offset="1" stop-color="#2d7dd2"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#mor-bg)"/>
+  <path d="M 100 404 C 116 300 144 180 168 118 C 192 190 224 292 244 338 C 264 282 296 180 328 118 C 352 190 382 310 396 400"
+        fill="none" stroke="url(#mor-ink)" stroke-width="26"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 168 118 C 192 190 224 292 244 338"
+        fill="none" stroke="url(#mor-ink)" stroke-width="58"
+        stroke-linecap="round"/>
+  <path d="M 328 118 C 352 190 382 310 396 400"
+        fill="none" stroke="url(#mor-ink)" stroke-width="58"
+        stroke-linecap="round"/>
+</svg>

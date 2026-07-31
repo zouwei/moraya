@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Moraya logo small (16–32px) — angular simplification, flat single color,
+       exaggerated weight contrast. Feeds favicon 16/32 and .ico small frames. -->
+  <path d="M 96 416 L 164 112 L 248 316 L 332 112 L 400 416"
+        fill="none" stroke="#2d7dd2" stroke-width="44"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 164 112 L 248 316"
+        fill="none" stroke="#2d7dd2" stroke-width="80"
+        stroke-linecap="round"/>
+  <path d="M 332 112 L 400 416"
+        fill="none" stroke="#2d7dd2" stroke-width="80"
+        stroke-linecap="round"/>
+</svg>
