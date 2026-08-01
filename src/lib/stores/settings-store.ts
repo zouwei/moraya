@@ -160,6 +160,22 @@ interface Settings {
   mcpToolShortcuts: { catalogId: string; serverId: string; toolName: string }[];
 }
 
+/**
+ * Outline panel width, kept identical to the web build
+ * (moraya-web EditorOutlinePanel.svelte + the edit route's readOutlineWidth)
+ * so the outline is the same size wherever a document is opened.
+ *
+ * 260 rather than the original 200: headings are the longest strings in the
+ * panel and CJK is the dense case — at 200px, after the scroll padding, the
+ * base indent and 1em per nesting level, a level-3 heading had only ~14
+ * Chinese characters of room and wrapped constantly. This does not narrow the
+ * prose column: `.editor-content-area`'s max-width is
+ * `editorLineWidth + outlineWidth`, so the outline takes gutter, not text.
+ */
+export const OUTLINE_DEFAULT_WIDTH = 260;
+/** The pre-widening default; only this exact stored value is migrated. */
+const OUTLINE_LEGACY_DEFAULT_WIDTH = 200;
+
 const DEFAULT_SETTINGS: Settings = {
   theme: 'system',
   colorTheme: 'default-light',
@@ -198,7 +214,7 @@ const DEFAULT_SETTINGS: Settings = {
   recordingBackupDir: null,
   voiceSyncDir: null,
   showOutline: false,
-  outlineWidth: 200,
+  outlineWidth: OUTLINE_DEFAULT_WIDTH,
   aiPanelWidth: null,
   rulesHistoryCount: 10,
   versionHistoryEnabled: true,
@@ -457,6 +473,16 @@ export async function initSettingsStore() {
     if (saved) {
       // Merge with defaults to handle new fields added in updates
       settingsStore.update(saved);
+
+      // Migration: the outline default width was widened (200 → 260).
+      // Because settings persist wholesale, an existing install carries the
+      // OLD default on disk forever and would never see the new one. Anyone
+      // sitting on exactly the old value never chose it — it is just what the
+      // panel happened to open at — so carry them across. Any other stored
+      // width is a deliberate drag and is left untouched.
+      if (saved.outlineWidth === OUTLINE_LEGACY_DEFAULT_WIDTH) {
+        settingsStore.update({ outlineWidth: OUTLINE_DEFAULT_WIDTH });
+      }
 
       // Migration: single imageHostConfig → imageHostTargets array
       const current = settingsStore.getState();

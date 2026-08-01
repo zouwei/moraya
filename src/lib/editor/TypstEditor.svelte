@@ -27,7 +27,7 @@
     editorMode = 'split',
     readOnly = false,
     showOutline = false,
-    outlineWidth = 200,
+    outlineWidth = 260,
     onContentChange,
     onOutlineWidthChange,
   }: {

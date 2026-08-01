@@ -12,7 +12,7 @@
     content = $bindable(''),
     hideScrollbar = false,
     showOutline = false,
-    outlineWidth = 200,
+    outlineWidth = 260,
     showBlame = false,
     blameData = [],
     readOnly = false,

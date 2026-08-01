@@ -9,7 +9,7 @@
   }
 
   const OUTLINE_MIN_WIDTH = 120;
-  const OUTLINE_MAX_WIDTH = 400;
+  const OUTLINE_MAX_WIDTH = 500;
 
   let {
     headings = [],

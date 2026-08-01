@@ -62,7 +62,7 @@
   let {
     content = $bindable(''),
     showOutline = false,
-    outlineWidth = 200,
+    outlineWidth = 260,
     readOnly = false,
     skipDestroyFlush = false,
     onEditorReady,
