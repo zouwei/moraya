@@ -1288,6 +1288,8 @@ ${tr('welcome.tip')}
       // Flavor-aware: the entry offers whichever flavor the document is not.
       file_convert_typst: activeTypstTab ? tr('menu.save_as_markdown') : tr('menu.save_as_typst'),
       file_new_window: tr('menu.new_window'),
+      file_close_tab: tr('tabs.close'),
+      file_close_window: tr('menu.close_window'),
       file_open: tr('menu.open'),
       file_save: tr('menu.save'),
       file_save_as: tr('menu.save_as'),
@@ -2294,6 +2296,14 @@ ${tr('welcome.tip')}
       }
     }
     return true;
+  }
+
+  /** Cmd/Ctrl+W — close the ACTIVE tab, taking the same path as its × button
+   *  (unsaved prompt, and only closing the window once the last tab goes). */
+  function handleCloseActiveTab() {
+    const state = tabsStore.getState();
+    const tab = state.tabs.find(t => t.id === state.activeTabId);
+    if (tab) void handleCloseTab(tab);
   }
 
   async function handleCloseTab(tab: import('$lib/stores/tabs-store').TabItem) {
@@ -3844,6 +3854,8 @@ ${tr('welcome.tip')}
         // save dialog can appear immediately. Markdown serialization for huge
         // docs takes seconds-to-minutes; calling it eagerly here would block
         // the main thread and delay the dialog by that long.
+        'menu:file_close_tab': () => handleCloseActiveTab(),
+        'menu:file_close_window': () => { void getCurrentWindow().close(); },
         'menu:file_export_html': () => handleExport('html'),
         'menu:file_export_pdf': () => handleExport('pdf'),
         'menu:file_export_image': () => handleExport('image'),

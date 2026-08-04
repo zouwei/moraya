@@ -69,7 +69,21 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
             &MenuItem::with_id(app, "file_export_doc", "Word (.doc)", true, None::<&str>)?,
         ],
     )?;
-    let close_window = PredefinedMenuItem::close_window(app, Some("Close Window"))?;
+    // Cmd/Ctrl+W closes the TAB, not the window — Moraya is tabbed, and the
+    // predefined close_window item claims that accelerator, so quitting was one
+    // keystroke away from any editing session. The frontend runs the same
+    // handler as the tab's × (unsaved prompt included) and only falls through to
+    // closing the window when the last tab goes. Closing the window outright
+    // moves to Cmd/Ctrl+Shift+W, matching the browser convention.
+    let close_tab =
+        MenuItem::with_id(app, "file_close_tab", "Close Tab", true, Some("CmdOrCtrl+W"))?;
+    let close_window = MenuItem::with_id(
+        app,
+        "file_close_window",
+        "Close Window",
+        true,
+        Some("CmdOrCtrl+Shift+W"),
+    )?;
 
     #[cfg(target_os = "macos")]
     let file_menu = Submenu::with_id_and_items(
@@ -90,6 +104,7 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
             &PredefinedMenuItem::separator(app)?,
             &export_submenu,
             &PredefinedMenuItem::separator(app)?,
+            &close_tab,
             &close_window,
         ],
     )?;
@@ -117,6 +132,7 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
                 &PredefinedMenuItem::separator(app)?,
                 &preferences,
                 &PredefinedMenuItem::separator(app)?,
+                &close_tab,
                 &close_window,
             ],
         )?
