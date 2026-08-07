@@ -47,41 +47,6 @@
   --transition-fast: 0.15s ease;
   --transition-normal: 0.25s ease;
 
-  /* Syntax highlighting - Light */
-  --hljs-keyword: #d73a49;
-  --hljs-string: #032f62;
-  --hljs-number: #005cc5;
-  --hljs-comment: #6a737d;
-  --hljs-function: #6f42c1;
-  --hljs-variable: #e36209;
-  --hljs-type: #005cc5;
-  --hljs-built-in: #e36209;
-  --hljs-literal: #0550ae;
-  --hljs-title: #6f42c1;
-  --hljs-params: #e36209;
-  --hljs-meta: #6a737d;
-  --hljs-tag: #22863a;
-  --hljs-name: #22863a;
-  --hljs-attr: #005cc5;
-  --hljs-attribute: #032f62;
-  --hljs-selector: #22863a;
-  --hljs-property: #005cc5;
-  --hljs-punctuation: #24292e;
-  --hljs-operator: #d73a49;
-  --hljs-regexp: #032f62;
-  --hljs-subst: #e36209;
-  --hljs-variable-constant: #005cc5;
-  --hljs-title-class-inherited: #22863a;
-  --hljs-selector-attr: #6f42c1;
-  --hljs-section: #005cc5;
-  --hljs-bullet: #e36209;
-  --hljs-link: #0366d6;
-  --hljs-quote: #6a737d;
-  --hljs-code: #e36209;
-  --hljs-addition-color: #22863a;
-  --hljs-addition-bg: rgba(34, 134, 58, 0.1);
-  --hljs-deletion-color: #b31d28;
-  --hljs-deletion-bg: rgba(179, 29, 40, 0.1);
 
   /* Math source editing (in-place LaTeX) - Light.
      A dedicated indigo/violet "math zone" palette, distinct from the gray
@@ -127,41 +92,6 @@
 
   --scrollbar-thumb: #4a4a4a;
 
-  /* Syntax highlighting - Dark */
-  --hljs-keyword: #c586c0;
-  --hljs-string: #ce9178;
-  --hljs-number: #b5cea8;
-  --hljs-comment: #6a9955;
-  --hljs-function: #dcdcaa;
-  --hljs-variable: #9cdcfe;
-  --hljs-type: #4ec9b0;
-  --hljs-built-in: #dcdcaa;
-  --hljs-literal: #569cd6;
-  --hljs-title: #dcdcaa;
-  --hljs-params: #9cdcfe;
-  --hljs-meta: #569cd6;
-  --hljs-tag: #569cd6;
-  --hljs-name: #569cd6;
-  --hljs-attr: #9cdcfe;
-  --hljs-attribute: #ce9178;
-  --hljs-selector: #d7ba7d;
-  --hljs-property: #9cdcfe;
-  --hljs-punctuation: #d4d4d4;
-  --hljs-operator: #d4d4d4;
-  --hljs-regexp: #d16969;
-  --hljs-subst: #9cdcfe;
-  --hljs-variable-constant: #4fc1ff;
-  --hljs-title-class-inherited: #4ec9b0;
-  --hljs-selector-attr: #d7ba7d;
-  --hljs-section: #569cd6;
-  --hljs-bullet: #d7ba7d;
-  --hljs-link: #58a6ff;
-  --hljs-quote: #6a9955;
-  --hljs-code: #ce9178;
-  --hljs-addition-color: #b5cea8;
-  --hljs-addition-bg: rgba(181, 206, 168, 0.1);
-  --hljs-deletion-color: #ce9178;
-  --hljs-deletion-bg: rgba(206, 145, 120, 0.1);
 
   /* Math source editing (in-place LaTeX) - Dark. */
   --math-src-bg: #2b2640;
@@ -198,41 +128,6 @@
 
     --scrollbar-thumb: #4a4a4a;
 
-    /* Syntax highlighting - Dark (system) */
-    --hljs-keyword: #c586c0;
-    --hljs-string: #ce9178;
-    --hljs-number: #b5cea8;
-    --hljs-comment: #6a9955;
-    --hljs-function: #dcdcaa;
-    --hljs-variable: #9cdcfe;
-    --hljs-type: #4ec9b0;
-    --hljs-built-in: #dcdcaa;
-    --hljs-literal: #569cd6;
-    --hljs-title: #dcdcaa;
-    --hljs-params: #9cdcfe;
-    --hljs-meta: #569cd6;
-    --hljs-tag: #569cd6;
-    --hljs-name: #569cd6;
-    --hljs-attr: #9cdcfe;
-    --hljs-attribute: #ce9178;
-    --hljs-selector: #d7ba7d;
-    --hljs-property: #9cdcfe;
-    --hljs-punctuation: #d4d4d4;
-    --hljs-operator: #d4d4d4;
-    --hljs-regexp: #d16969;
-    --hljs-subst: #9cdcfe;
-    --hljs-variable-constant: #4fc1ff;
-    --hljs-title-class-inherited: #4ec9b0;
-    --hljs-selector-attr: #d7ba7d;
-    --hljs-section: #569cd6;
-    --hljs-bullet: #d7ba7d;
-    --hljs-link: #58a6ff;
-    --hljs-quote: #6a9955;
-    --hljs-code: #ce9178;
-    --hljs-addition-color: #b5cea8;
-    --hljs-addition-bg: rgba(181, 206, 168, 0.1);
-    --hljs-deletion-color: #ce9178;
-    --hljs-deletion-bg: rgba(206, 145, 120, 0.1);
 
     /* Math source editing (in-place LaTeX) - Dark (system). */
     --math-src-bg: #2b2640;

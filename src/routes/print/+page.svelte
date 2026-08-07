@@ -18,6 +18,12 @@
   import { markdownToHtmlBody } from '$lib/services/export-service';
   import { renderMermaid, ensureMermaidLoaded } from '@moraya/core/plugins/mermaid-renderer';
   import 'katex/dist/katex.min.css';
+  // This route deliberately loads no global CSS, which is why printed/PDF code
+  // came out monochrome — it never saw the token rules. The palette stylesheet
+  // is self-contained, so importing it here colours code without dragging in
+  // the editor chrome. The route forces data-theme="light" below, so the light
+  // half of the palette is what applies.
+  import '@moraya/core/plugins/syntax.css';
 
   interface PrintPayload {
     job_id: string;

@@ -262,6 +262,9 @@ function applyTheme(theme: Theme) {
   }
 }
 
+/** Custom properties the currently applied color theme wrote onto <html>. */
+let appliedThemeProps: string[] = [];
+
 function applyColorTheme(settings: Settings) {
   const dark = isDarkMode(settings.theme);
   let themeId: string;
@@ -284,6 +287,14 @@ function applyColorTheme(settings: Settings) {
   const root = document.documentElement;
 
   if (colorTheme) {
+    // Clear what the PREVIOUS theme wrote before applying this one. Themes are
+    // applied as inline properties on <html>, which outrank every stylesheet,
+    // so a key that one theme sets and the next omits would otherwise stay
+    // stuck for the rest of the session.
+    for (const prop of appliedThemeProps) {
+      if (!(prop in colorTheme.colors)) root.style.removeProperty(prop);
+    }
+    appliedThemeProps = Object.keys(colorTheme.colors);
     for (const [prop, value] of Object.entries(colorTheme.colors)) {
       root.style.setProperty(prop, value);
     }
