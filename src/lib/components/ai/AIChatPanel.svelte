@@ -38,6 +38,7 @@
   import { parseMemorizeCommand, memorizeFromInput } from '$lib/services/memory';
   import { compressImage, blobToBase64 } from '$lib/services/ai/image-utils';
   import ThinkingOrb from './ThinkingOrb.svelte';
+  import { recall, caretAtEdge, initialHistoryState } from '$lib/services/ai/input-history';
   import TemplateGallery from './TemplateGallery.svelte';
   import PromptPalette from '../PromptPalette.svelte';
   import TemplateParamPanel from './TemplateParamPanel.svelte';
@@ -591,6 +592,9 @@
     showCommands = false;
     userAtBottom = true;
     resetInputHeight();
+    // Leaving history-browsing mode: the next ↑ starts from the newest message
+    // again (which is about to include this one).
+    historyState = initialHistoryState;
 
     // /memorize — capture a long-term memory locally (no LLM round-trip).
     if (parseMemorizeCommand(message)) {
@@ -1160,9 +1164,56 @@
     } catch { /* handled by store */ }
   }
 
+  /**
+   * Shell-style input history (↑ / ↓). Mirrors moraya-web's AI chat input.
+   *
+   * Sent messages are read straight off `chatMessages` rather than kept in a
+   * parallel list, so the history follows conversation switches for free and
+   * cannot drift from what is on screen. The index arithmetic lives in
+   * `$lib/services/ai/input-history` so its edge cases stay unit-testable.
+   */
+  let historyState = $state(initialHistoryState);
+  const userHistory = $derived(
+    chatMessages.filter((m) => m.role === 'user' && (m.content ?? '').trim()).map((m) => m.content),
+  );
+
+  /** Returns true when the key was consumed by history recall. */
+  function tryRecall(up: boolean): boolean {
+    if (!inputEl) return false;
+    if (!caretAtEdge(inputEl.value, inputEl.selectionStart, inputEl.selectionEnd, up)) return false;
+    const r = recall(userHistory, historyState, inputText, up);
+    historyState = r.state;
+    if (r.text !== undefined) {
+      const text = r.text;
+      inputText = text;
+      requestAnimationFrame(() => {
+        if (!inputEl) return;
+        inputEl.setSelectionRange(text.length, text.length);
+        autoResizeInput();
+      });
+    }
+    return r.consumed;
+  }
+
   function handleKeydown(event: KeyboardEvent) {
     if (event.isComposing) return;
     if (inlineRecordingState === 'recording') return;
+    // History recall. Skipped while a popup owns the arrows (slash commands /
+    // prompt recall) and for modified arrows (Alt+↑ etc. are word/line motions).
+    if (
+      (event.key === 'ArrowUp' || event.key === 'ArrowDown') &&
+      !showCommands &&
+      !showPromptRecall &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      !event.shiftKey
+    ) {
+      if (tryRecall(event.key === 'ArrowUp')) {
+        event.preventDefault();
+        return;
+      }
+    }
     // Enter behavior is user-configurable (Settings → Shortcuts).
     //  - `modEnterSend` (default): Cmd/Ctrl+Enter sends, Enter = newline.
     //  - `enterSend`:               Enter sends, Shift+Enter = newline.
