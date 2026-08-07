@@ -1,6 +1,6 @@
 {
   "name": "moraya",
-  "version": "0.45.9",
+  "version": "0.45.10",
   "description": "",
   "type": "module",
   "scripts": {
@@ -58,7 +58,8 @@
     "prosemirror-state": "^1.4.4",
     "prosemirror-tables": "^1.8.5",
     "prosemirror-view": "^1.41.6",
-    "qrcode": "^1.5.4"
+    "qrcode": "^1.5.4",
+    "thinking-orbs-universal": "^1.0.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",

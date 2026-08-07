@@ -107,6 +107,9 @@ importers:
       qrcode:
         specifier: ^1.5.4
         version: 1.5.4
+      thinking-orbs-universal:
+        specifier: ^1.0.0
+        version: 1.0.0
     devDependencies:
       '@playwright/test':
         specifier: ^1.61.1
@@ -1813,6 +1816,20 @@ packages:
 
   text-segmentation@1.0.3:
     resolution: {integrity: sha512-iOiPUo/BGnZ6+54OsWxZidGCsdU8YbE4PSpdPinp7DeMtUJNJBoJ/ouUSTJjHkh1KntHaltHl/gDs2FC4i5+Nw==}
+
+  thinking-orbs-universal@1.0.0:
+    resolution: {integrity: sha512-TCFLkmPaqS1xUmA/MJTKmSk5hbLkbPIXUe4q9HDW8c16lnlN+kHRBtFNWt9607yDHJ1zZNXjF70Vfa7D1Blt5A==}
+    peerDependencies:
+      react: '>=18.0.0'
+      react-dom: '>=18.0.0'
+      vue: ^3.0.0
+    peerDependenciesMeta:
+      react:
+        optional: true
+      react-dom:
+        optional: true
+      vue:
+        optional: true
 
   tinybench@2.9.0:
     resolution: {integrity: sha512-0+DUvqWMValLmha6lr4kD8iAMK1HzV0/aKnCtWb9v9641TnP/MFb7Pc2bxoxQjTXAErryXVgUOfv2YqNllqGeg==}
@@ -3678,6 +3695,8 @@ snapshots:
   text-segmentation@1.0.3:
     dependencies:
       utrie: 1.0.2
+
+  thinking-orbs-universal@1.0.0: {}
 
   tinybench@2.9.0: {}
 

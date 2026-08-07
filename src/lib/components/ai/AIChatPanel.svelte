@@ -37,6 +37,7 @@
   import { t } from '$lib/i18n';
   import { parseMemorizeCommand, memorizeFromInput } from '$lib/services/memory';
   import { compressImage, blobToBase64 } from '$lib/services/ai/image-utils';
+  import ThinkingOrb from './ThinkingOrb.svelte';
   import TemplateGallery from './TemplateGallery.svelte';
   import PromptPalette from '../PromptPalette.svelte';
   import TemplateParamPanel from './TemplateParamPanel.svelte';
@@ -2135,10 +2136,24 @@
                 {/if}
               </button>
             {:else if isLoading}
-              <button class="icon-btn primary-btn stop-btn" onclick={abortAIRequest} title={$t('ai.stop')}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <rect x="6" y="6" width="12" height="12" rx="2" stroke="currentColor" stroke-width="2"/>
-                </svg>
+              <!-- While a response streams the action button shows the
+                   thinking orb with NO fill, and swaps to a stop glyph on
+                   hover/focus. It is still the stop control (same handler, same
+                   `ai.stop` title for assistive tech, so the orb itself is
+                   aria-hidden or it would be announced twice). Mirrors
+                   moraya-web's MobileAIChat composing state. -->
+              <button
+                class="icon-btn composing-btn"
+                onclick={abortAIRequest}
+                title={$t('ai.composing')}
+                aria-label={$t('ai.stop')}
+              >
+                <span class="composing-orb"><ThinkingOrb orbState="composing" size={20} /></span>
+                <span class="composing-stop">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <rect x="6" y="6" width="12" height="12" rx="2" stroke="currentColor" stroke-width="2"/>
+                  </svg>
+                </span>
               </button>
             {:else if isRealtimeVoiceActive}
               <span class="recording-wave rt-wave" aria-hidden="true">
@@ -3169,6 +3184,48 @@
   .stop-btn:hover:not(:disabled) {
     background: #c62f3d;
     color: #fff;
+  }
+
+  /* Streaming ("composing") state — kept in step with moraya-web.
+     No fill: the orb sits directly on the input bar. A filled pill (accent,
+     grey, or red) all failed for the same reason — the orb's dot contrast was
+     measured against each and a mid-luminance fill swallows it, while the pill
+     itself made the state read as a greyed-out send button rather than as the
+     AI working. Hover uses the app's ordinary hover wash, not red: this is a
+     "stop" control, not an alert. */
+  .composing-btn {
+    position: relative;
+    background: transparent;
+    color: var(--text-secondary);
+  }
+  .composing-btn .composing-orb,
+  .composing-btn .composing-stop {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity var(--transition-fast);
+  }
+  /* Both layers are SPAN wrappers. Putting these rules on the <svg> itself
+     pinned the glyph to the top-left corner — `inset: 0` cannot stretch a
+     replaced element that carries its own width/height attributes, and
+     `display: flex` does nothing to an SVG's internal layout. */
+  .composing-btn .composing-stop {
+    opacity: 0;
+  }
+  .composing-btn:hover,
+  .composing-btn:focus-visible {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+  .composing-btn:hover .composing-orb,
+  .composing-btn:focus-visible .composing-orb {
+    opacity: 0;
+  }
+  .composing-btn:hover .composing-stop,
+  .composing-btn:focus-visible .composing-stop {
+    opacity: 1;
   }
 
   .ghost-btn {
