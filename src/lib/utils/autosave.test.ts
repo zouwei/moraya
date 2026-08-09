@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { shouldAutoSave } from './autosave';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { shouldAutoSave, noteEdit, lastEditTime, resetEditClock } from './autosave';
 
 const MIN = 60_000;
 const TIMING = { maxMinutes: 10, idleMinutes: 3 };
@@ -48,5 +48,52 @@ describe('shouldAutoSave', () => {
     // maxMinutes 0 clamps to 1 minute
     expect(shouldAutoSave(now, now - 30_000, now, { maxMinutes: 0, idleMinutes: 0 })).toBe(false);
     expect(shouldAutoSave(now, now - MIN, now, { maxMinutes: 0, idleMinutes: 0 })).toBe(true);
+  });
+});
+
+// ── Edit-activity clock ─────────────────────────────────────────────────────
+
+describe('edit clock', () => {
+  beforeEach(() => resetEditClock());
+
+  it('starts unset', () => {
+    expect(lastEditTime()).toBe(0);
+  });
+
+  it('advances on every edit, not just the first', () => {
+    // The whole point: markDirty() stops notifying once a document is dirty and
+    // visual mode never re-serializes content, so the store could only ever
+    // report the FIRST keystroke. The idle timer measured from there, turning
+    // "save once input pauses" into "save N minutes after you start typing".
+    noteEdit(1_000);
+    noteEdit(2_000);
+    noteEdit(9_000);
+    expect(lastEditTime()).toBe(9_000);
+  });
+
+  it('keeps the idle condition from firing while the user is still typing', () => {
+    const timing = { maxMinutes: 10, idleMinutes: 3 };
+    const started = 0;
+    noteEdit(started);
+
+    // Two minutes in, still typing every 30s.
+    for (let t = 30_000; t <= 120_000; t += 30_000) noteEdit(t);
+    // Three minutes after the FIRST edit — the old frozen timestamp fired here.
+    expect(shouldAutoSave(180_000, started + 1, lastEditTime(), timing)).toBe(false);
+
+    // Now they stop: three idle minutes after the LAST edit.
+    expect(shouldAutoSave(120_000 + 180_000, started + 1, lastEditTime(), timing)).toBe(true);
+  });
+
+  it('still force-saves at the max interval while typing continuously', () => {
+    const timing = { maxMinutes: 10, idleMinutes: 3 };
+    for (let t = 0; t <= 600_000; t += 30_000) noteEdit(t);
+    expect(shouldAutoSave(600_001, 1, lastEditTime(), timing)).toBe(true);
+  });
+
+  it('resets', () => {
+    noteEdit(5_000);
+    resetEditClock();
+    expect(lastEditTime()).toBe(0);
   });
 });

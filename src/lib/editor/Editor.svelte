@@ -20,6 +20,7 @@
   import { parseMarkdown, parseMarkdownAsync, serializeMarkdown } from './markdown';
   import { docCache } from './doc-cache';
   import { editorStore, isMarkdownFlushSuppressed } from '../stores/editor-store';
+  import { noteEdit } from '$lib/utils/autosave';
   import { settingsStore } from '../stores/settings-store';
   import { editorLoadingStore } from '../stores/editor-loading-store';
   import { readImageAsBlobUrl } from '../services/file-service';
@@ -2256,6 +2257,7 @@
         if (syncingFromExternal) return;
         lastSyncWasExternal = false;
         internalChange = true;
+        noteEdit();
         const full = storedFrontmatter + markdown;
         lastSyncedMd = full; // Prevent applySyncToEditor from re-syncing this content back
         content = full;
@@ -2270,6 +2272,9 @@
         if (!isMounted) return;
         if (syncingFromExternal) return;
         lastSyncWasExternal = false;
+        // markDirty() is a no-op once dirty (it must not notify per keystroke),
+        // so the autosave idle timer needs this separate, silent clock.
+        noteEdit();
         editorStore.markDirty();
         editorStore.scheduleWordCountFromText(textContent);
         scheduleExtractHeadings();

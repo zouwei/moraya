@@ -55,7 +55,7 @@
   import { registerKbInterval, clearAllIntervals, runSync, kbSyncStore } from '$lib/services/kb-sync/sync-service';
   import type { KbSyncState } from '$lib/services/kb-sync/types';
   import { snapshotVersion, isVersionedPath } from '$lib/services/version-history';
-  import { shouldAutoSave } from '$lib/utils/autosave';
+  import { shouldAutoSave, lastEditTime, noteEdit } from '$lib/utils/autosave';
   import { preloadEnhancementPlugins } from '$lib/editor/setup';
   import { openFile, saveFile, saveFileAs, loadFile, getFileNameFromPath, readImageAsBlobUrl, migrateTempImages, isImageFile } from '$lib/services/file-service';
   import { isTypstFile } from '@moraya/core/typst';
@@ -886,18 +886,21 @@ ${tr('welcome.tip')}
 
   // Autosave activity tracking (plain vars, not $state — read by the ticker only).
   // pendingEditsSince = when the first unsaved edit occurred (0 = none pending);
-  // lastEditAt = most recent edit. handleSave resets pendingEditsSince on success.
+  // The most-recent-edit timestamp lives in lastEditTime() (utils/autosave).
+  // handleSave resets pendingEditsSince on success.
   let pendingEditsSince = 0;
-  let lastEditAt = 0;
   let prevAutosaveContent: string | null = null;
 
   const unsubEditor = editorStore.subscribe(state => {
     // Autosave: record edit activity on dirty content changes. Unchanged
     // content is usually the same string reference, so the !== check is cheap.
+    // Only opens the pending-edits window. The "most recent edit" timestamp
+    // cannot come from here: in visual-only mode `content` never changes and
+    // markDirty() stops notifying once dirty, so this fires exactly once per
+    // document. noteEdit() in the editors' change hooks owns that clock.
     if (state.isDirty && state.content !== prevAutosaveContent) {
       prevAutosaveContent = state.content;
-      lastEditAt = Date.now();
-      if (pendingEditsSince === 0) pendingEditsSince = lastEditAt;
+      if (pendingEditsSince === 0) pendingEditsSince = Date.now();
     }
     // Only recompute file name when path actually changes
     if (state.currentFilePath !== prevFilePath) {
@@ -1384,7 +1387,7 @@ ${tr('welcome.tip')}
       // Dirty without a tracked edit (e.g. dirty tab restored) — start the clock now
       if (pendingEditsSince === 0) pendingEditsSince = Date.now();
       const s = settingsStore.getState();
-      if (shouldAutoSave(Date.now(), pendingEditsSince, lastEditAt, {
+      if (shouldAutoSave(Date.now(), pendingEditsSince, lastEditTime(), {
         maxMinutes: s.autoSaveMaxMinutes,
         idleMinutes: s.autoSaveIdleMinutes,
       })) {
@@ -2669,6 +2672,7 @@ ${tr('welcome.tip')}
     // are never mounted while a Typst tab is active, any call here in that
     // state is necessarily stale — drop it.
     if (activeTypstTab) return;
+    noteEdit();
     content = newContent;
   }
 
