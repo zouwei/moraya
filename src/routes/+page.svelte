@@ -3387,6 +3387,12 @@ ${tr('welcome.tip')}
   });
 
   onMount(() => {
+    // Let the tab store read the LIVE document instead of editorStore.content,
+    // which the visual-only editor never refreshes (it skips per-keystroke
+    // serialization). Without this, switching or closing a tab wrote pre-edit
+    // text back into it and the next save put that on disk.
+    tabsStore.setContentProvider(getCurrentContent);
+
     // Background memory auto-sync (focus + interval, debounced; no-op until
     // cloud sync is configured).
     startMemoryAutoSync();

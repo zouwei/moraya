@@ -56,6 +56,24 @@ function createTabsStore() {
     activeTabId: initialTab.id,
   });
 
+  /**
+   * Reads the LIVE document out of the mounted editor.
+   *
+   * `editorStore.content` is not a reliable mirror of what the user has typed.
+   * The visual-only editor is mounted without `onContentChange`, so it takes
+   * the cheap `onDocChanged` path that only marks the document dirty — no
+   * markdown is serialized per keystroke, and the text exists solely in the
+   * ProseMirror doc until something calls `getFullMarkdown()`. Saving reads the
+   * live doc, so files on disk were always correct; it was `syncFromEditor`,
+   * reading the stale mirror, that wrote pre-edit text back into a tab. The
+   * next switch loaded it into the editor and the following save — autosave
+   * included — put it on disk, reverting the document.
+   *
+   * Injected rather than imported so the store keeps no editor dependency; the
+   * host registers `getCurrentContent` once at mount.
+   */
+  let liveContent: (() => string) | null = null;
+
   /** Save current editor state into the active tab */
   function syncFromEditor() {
     const s = get({ subscribe });
@@ -64,13 +82,16 @@ function createTabsStore() {
     // never absorb editor state (their content is a fixed historical snapshot).
     if (activeTab?.isImage || activeTab?.readOnly) return;
     const edState = editorStore.getState();
+    // Fall back to the mirror when no editor is mounted (secondary windows,
+    // cold start, tests).
+    const content = liveContent ? liveContent() : edState.content;
     update(state => ({
       ...state,
       tabs: state.tabs.map(tab =>
         tab.id === state.activeTabId
           ? {
               ...tab,
-              content: edState.content,
+              content,
               isDirty: edState.isDirty,
               filePath: edState.currentFilePath,
               cursorOffset: edState.cursorOffset,
@@ -79,6 +100,8 @@ function createTabsStore() {
           : tab
       ),
     }));
+    // Keep the mirror honest for every other reader of editorStore.content.
+    if (content !== edState.content) editorStore.setContent(content);
   }
 
   /** Restore a tab's state into the editor.
@@ -390,6 +413,15 @@ function createTabsStore() {
         tabs.splice(toIndex, 0, moved);
         return { ...state, tabs };
       });
+    },
+
+    /**
+     * Register the live-document reader (the host's `getCurrentContent`).
+     * Pass null to detach — secondary windows and tests then fall back to
+     * `editorStore.content`.
+     */
+    setContentProvider(fn: (() => string) | null) {
+      liveContent = fn;
     },
 
     getState() {
