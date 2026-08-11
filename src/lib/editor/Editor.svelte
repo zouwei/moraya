@@ -113,6 +113,33 @@
 
   // ── Scroll container height (for OutlinePanel) ──
   let wrapperHeight = $state(0);
+  let wrapperWidth = $state(0);
+  let wrapperEl: HTMLDivElement | undefined = $state();
+  /**
+   * Free space to the RIGHT of the centred content column, in px.
+   *
+   * The reading measure is deliberately narrow — 800px is already ~53 CJK /
+   * ~113 Latin characters per line, at the top of the comfortable range — but
+   * a table has no reason to obey it. Publishing this as a custom property
+   * lets wide blocks grow rightwards into the gutter while paragraphs keep
+   * their measure, instead of forcing the whole document wider and hurting
+   * prose to make tables fit.
+   */
+  let wideExtra = $state(0);
+
+  $effect(() => {
+    const w = wrapperWidth;
+    const column = showOutline ? editorLineWidth + outlineWidth : editorLineWidth;
+    if (!wrapperEl || w <= 0) {
+      wideExtra = 0;
+      return;
+    }
+    // Horizontal padding is a clamp() of the pane width, so it has to be read
+    // rather than assumed. Resize-only — never on the scroll path.
+    const cs = getComputedStyle(wrapperEl);
+    const inner = w - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    wideExtra = Math.max(0, Math.round((inner - column) / 2));
+  });
 
   // ── Outline ──
   let outlineHeadings = $state<OutlineHeading[]>([]);
@@ -3361,7 +3388,7 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="editor-wrapper" class:ready={isReady} class:has-outline={showOutline} bind:clientHeight={wrapperHeight} oncontextmenu={(e) => {
+<div class="editor-wrapper" class:ready={isReady} class:has-outline={showOutline} bind:this={wrapperEl} bind:clientHeight={wrapperHeight} bind:clientWidth={wrapperWidth} oncontextmenu={(e) => {
   // Right-click in empty area below content (outside .ProseMirror) — show editor context menu.
   // Clicks inside .ProseMirror are handled by handleContextMenu (registered on proseMirrorEl)
   // which calls stopPropagation(), so this handler only fires for the empty space.
@@ -3398,7 +3425,7 @@
     updateActiveHeading();
   });
 }} onmousemove={handleBlockHover} onmouseleave={handleBlockHoverLeave}>
-  <div class="editor-content-area" style="max-width: {showOutline ? `${editorLineWidth + outlineWidth}px` : `${editorLineWidth}px`}">
+  <div class="editor-content-area" style="max-width: {showOutline ? `${editorLineWidth + outlineWidth}px` : `${editorLineWidth}px`}; --wide-extra: {wideExtra}px">
     {#if showOutline}
       <OutlinePanel headings={outlineHeadings} activeId={activeHeadingId} width={outlineWidth} containerHeight={wrapperHeight} onSelect={handleOutlineSelect} onWidthChange={onOutlineWidthChange} />
     {/if}

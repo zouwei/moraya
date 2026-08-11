@@ -317,9 +317,23 @@
   margin: 1.5em 0;
 }
 
-/* Tables — prosemirror-tables wraps each table in .tableWrapper */
+/* Tables — prosemirror-tables wraps each table in .tableWrapper
+ *
+ * A table breaks OUT of the reading measure. Prose wants ~50 CJK / ~110 Latin
+ * characters per line, which is what the content column is sized for; a table
+ * only wants enough room for its columns, and on a wide display there is a lot
+ * of empty gutter next to it. `--wide-extra` (set by Editor.svelte) is the free
+ * space to the right of the centred column, so the wrapper can grow rightwards
+ * into it while the left edge stays aligned with the text above.
+ *
+ * The three bounds together: `max-content` sizes to the columns, `min-width`
+ * keeps a small table filling the column exactly as before, and `max-width`
+ * stops it at the edge of the visible area — past that it scrolls, as it did.
+ * All three resolve against the parent, so there is no circular sizing. */
 .moraya-editor .tableWrapper {
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
+  max-width: calc(100% + var(--wide-extra, 0px));
   overflow-x: auto;
 }
 

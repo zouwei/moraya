@@ -446,7 +446,7 @@
                     <input
                       id="settings-line-width"
                       type="range"
-                      min="600" max="1200" step="50"
+                      min="600" max="1600" step="50"
                       value={editorLineWidth}
                       oninput={handleLineWidthChange}
                       class="gx-range"
