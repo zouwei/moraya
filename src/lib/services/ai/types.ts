@@ -14,6 +14,27 @@ export type { AIProvider };
 /** Cloud chat providers surfaced on desktop, in catalog order (excludes on-device). */
 export const CHAT_PROVIDERS: AIProvider[] = resolveCatalog({ platform: 'desktop' }).map((p) => p.id);
 
+/**
+ * Providers that run entirely on-device: no API key, no per-token cost.
+ * App-local UI concept — @moraya/core's ProviderMeta has no such field
+ * (kept out of the shared package for now; see v1.32.0 iteration doc).
+ */
+export const FREE_LOCAL_PROVIDERS: readonly AIProvider[] = ['ollama'];
+
+/** Console/API-key-creation pages for providers that need one. Ollama and
+ *  the generic 'custom' endpoint intentionally have no entry. */
+export const PROVIDER_API_KEY_URLS: Partial<Record<AIProvider, string>> = {
+  claude: 'https://console.anthropic.com/settings/keys',
+  openai: 'https://platform.openai.com/api-keys',
+  gemini: 'https://aistudio.google.com/apikey',
+  deepseek: 'https://platform.deepseek.com/api_keys',
+  grok: 'https://console.x.ai',
+  mistral: 'https://console.mistral.ai/api-keys/',
+  glm: 'https://open.bigmodel.cn/usercenter/apikeys',
+  minimax: 'https://platform.minimaxi.com/user-center/basic-information/interface-key',
+  doubao: 'https://console.volcengine.com/ark',
+};
+
 export interface AIProviderConfig {
   id: string;
   provider: AIProvider;

@@ -4371,6 +4371,7 @@ ${tr('welcome.tip')}
           onReplace={handleAIReplace}
           onOpenSettings={() => { settingsInitialTab = 'ai'; showSettings = true; }}
           onOpenVoiceSettings={() => { settingsInitialTab = 'voice'; showSettings = true; }}
+          onToast={showToast}
         />
       {/await}
     {/if}

@@ -32,6 +32,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { rendererManager } from '$lib/services/plugin/renderer-manager';
 import { reviewStore } from '$lib/services/review/review-store';
 import { locale as i18nLocale } from '$lib/i18n';
+import { computeIsConfigured } from './is-configured';
+export { computeIsConfigured } from './is-configured';
 
 /**
  * v0.32.0: Detect a likely locale for AI-directed prompts based on document text.
@@ -274,11 +276,6 @@ interface AIState {
   activeConfigId: string | null;
   realtimeVoiceConfigs: RealtimeVoiceAIConfig[];
   activeRealtimeVoiceConfigId: string | null;
-}
-
-function computeIsConfigured(configs: AIProviderConfig[], activeId: string | null): boolean {
-  const active = configs.find(c => c.id === activeId);
-  return !!active?.apiKey;
 }
 
 function createAIStore() {

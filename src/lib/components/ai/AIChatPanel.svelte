@@ -44,6 +44,7 @@
   import TemplateParamPanel from './TemplateParamPanel.svelte';
   import TemplateManagePanel from './TemplateManagePanel.svelte';
   import { Select } from '$lib/components/ui';
+  import AIOnboardingEmptyState from './AIOnboardingEmptyState.svelte';
 
   let {
     documentContent = '',
@@ -53,6 +54,7 @@
     onReplace,
     onOpenSettings,
     onOpenVoiceSettings,
+    onToast,
   }: {
     documentContent?: string;
     selectedText?: string;
@@ -62,6 +64,7 @@
     onReplace?: (text: string) => void;
     onOpenSettings?: () => void;
     onOpenVoiceSettings?: () => void;
+    onToast?: (text: string, type?: 'success' | 'error') => void;
   } = $props();
 
   /** Get the latest document content, preferring the on-demand getter. */
@@ -1835,13 +1838,7 @@
   {/if}
 
   {#if !isConfigured}
-    <div class="ai-unconfigured">
-      <p>{$t('ai.unconfigured')}</p>
-      <p class="hint">{$t('ai.unconfigured_hint', { shortcut: navigator.platform.includes('Mac') ? 'Cmd+,' : 'Ctrl+,' })}</p>
-      {#if onOpenSettings}
-        <button class="open-settings-btn" onclick={onOpenSettings}>{$t('ai.open_settings')}</button>
-      {/if}
-    </div>
+    <AIOnboardingEmptyState {onOpenSettings} {onToast} />
   {:else}
     <div class="ai-messages" bind:this={messagesEl} onscroll={handleMessagesScroll}>
       {#if chatMessages.length === 0 && !isLoading && !showCommands && !isRealtimeVoiceActive && !isRealtimeVoiceConnecting && !showTranscription}
@@ -2562,40 +2559,6 @@
 
   .template-menu-item svg {
     flex-shrink: 0;
-    color: var(--text-muted);
-  }
-
-  .ai-unconfigured {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 1.5rem;
-    text-align: center;
-    color: var(--text-muted);
-    font-size: var(--font-size-sm);
-    gap: 0.5rem;
-  }
-
-  .open-settings-btn {
-    margin-top: 0.5rem;
-    padding: 0.4rem 1rem;
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-    font-size: var(--font-size-sm);
-    cursor: pointer;
-    transition: background var(--transition-fast);
-  }
-
-  .open-settings-btn:hover {
-    background: var(--bg-hover);
-  }
-
-  .hint {
-    font-size: var(--font-size-xs);
     color: var(--text-muted);
   }
 

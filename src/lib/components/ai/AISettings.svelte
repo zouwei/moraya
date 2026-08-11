@@ -3,6 +3,8 @@
     aiStore,
     testAIConnectionWithResolve,
     CHAT_PROVIDERS,
+    FREE_LOCAL_PROVIDERS,
+    PROVIDER_API_KEY_URLS,
     DEFAULT_MODELS,
     PROVIDER_BASE_URLS,
     REALTIME_VOICE_DEFAULT_MODELS,
@@ -17,6 +19,7 @@
   import { onDestroy } from 'svelte';
   import { t } from '$lib/i18n';
   import { Select } from '$lib/components/ui';
+  import { openUrl } from '@tauri-apps/plugin-opener';
 
   // ── Session chat model state ──
   let chatConfigs = $state<AIProviderConfig[]>([]);
@@ -83,7 +86,12 @@
     ],
   };
 
-  let chatProviderOptions = $derived(CHAT_PROVIDERS.map(p => ({ value: p, label: $t(`ai.providers.${p}`) })));
+  let chatProviderOptions = $derived(CHAT_PROVIDERS.map(p => ({
+    value: p,
+    label: FREE_LOCAL_PROVIDERS.includes(p)
+      ? `${$t(`ai.providers.${p}`)}  ${$t('ai.onboarding.free_badge')}`
+      : $t(`ai.providers.${p}`),
+  })));
   let realtimeProviderOptions = $derived(REALTIME_PROVIDERS.map(p => ({ value: p, label: getRealtimeProviderLabel(p) })));
 
   function getChatBaseUrlPresets(provider: AIProvider): { value: string; label: string }[] {
@@ -427,6 +435,14 @@
               bind:value={formApiKey}
               placeholder={formProvider === 'ollama' ? $t('ai.config.api_key_not_required') : $t('ai.config.api_key_placeholder', { provider: formProvider })}
             />
+            {#if PROVIDER_API_KEY_URLS[formProvider]}
+              <button type="button" class="get-api-key-link" onclick={() => openUrl(PROVIDER_API_KEY_URLS[formProvider]!)}>
+                {$t('ai.onboarding.get_api_key')} ↗
+              </button>
+            {/if}
+            {#if formProvider !== 'ollama' && formProvider !== 'custom'}
+              <p class="cost-hint">{$t('ai.onboarding.cost_hint')}</p>
+            {/if}
           </div>
 
           <div class="setting-group">
@@ -493,7 +509,7 @@
               class:success={formTestStatus === 'success'}
               class:failed={formTestStatus === 'failed'}
               onclick={handleChatTest}
-              disabled={formTestStatus === 'testing' || !formApiKey}
+              disabled={formTestStatus === 'testing' || (!formApiKey && formProvider !== 'ollama')}
             >
               {#if formTestStatus === 'testing'}{$t('ai.config.testing')}
               {:else if formTestStatus === 'success'}{$t('ai.config.connected')}
@@ -513,6 +529,9 @@
         <div class="config-item">
           <div class="config-info">
             <span class="config-provider">{$t(`ai.providers.${config.provider}`)}</span>
+            {#if FREE_LOCAL_PROVIDERS.includes(config.provider)}
+              <span class="free-local-badge">{$t('ai.onboarding.free_badge')}</span>
+            {/if}
             <span class="config-model">{config.model}</span>
             <span class="config-tokens">{config.maxTokens || 41920}</span>
             {#if config.id === activeChatConfigId}
@@ -547,6 +566,14 @@
             bind:value={formApiKey}
             placeholder={formProvider === 'ollama' ? $t('ai.config.api_key_not_required') : $t('ai.config.api_key_placeholder', { provider: formProvider })}
           />
+          {#if PROVIDER_API_KEY_URLS[formProvider]}
+            <button type="button" class="get-api-key-link" onclick={() => openUrl(PROVIDER_API_KEY_URLS[formProvider]!)}>
+              {$t('ai.onboarding.get_api_key')} ↗
+            </button>
+          {/if}
+          {#if formProvider !== 'ollama' && formProvider !== 'custom'}
+            <p class="cost-hint">{$t('ai.onboarding.cost_hint')}</p>
+          {/if}
         </div>
 
         <div class="setting-group">
@@ -613,7 +640,7 @@
             class:success={formTestStatus === 'success'}
             class:failed={formTestStatus === 'failed'}
             onclick={handleChatTest}
-            disabled={formTestStatus === 'testing' || !formApiKey}
+            disabled={formTestStatus === 'testing' || (!formApiKey && formProvider !== 'ollama')}
           >
             {#if formTestStatus === 'testing'}{$t('ai.config.testing')}
             {:else if formTestStatus === 'success'}{$t('ai.config.connected')}
@@ -990,6 +1017,39 @@
     color: white;
     font-weight: 500;
     flex-shrink: 0;
+  }
+
+  .free-local-badge {
+    font-size: 10px;
+    padding: 0.05rem 0.35rem;
+    border-radius: 8px;
+    background: var(--success-color, #2e7d32);
+    color: white;
+    font-weight: 500;
+    flex-shrink: 0;
+  }
+
+  .get-api-key-link {
+    align-self: flex-start;
+    margin-top: 0.35rem;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--accent-color);
+    font-size: var(--font-size-xs);
+    cursor: pointer;
+    text-decoration: underline;
+  }
+
+  .get-api-key-link:hover {
+    opacity: 0.8;
+  }
+
+  .cost-hint {
+    margin-top: 0.35rem;
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    line-height: 1.4;
   }
 
   .config-actions {
