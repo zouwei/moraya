@@ -56,6 +56,7 @@
   import type { KbSyncState } from '$lib/services/kb-sync/types';
   import { snapshotVersion, isVersionedPath } from '$lib/services/version-history';
   import { shouldAutoSave, lastEditTime, noteEdit } from '$lib/utils/autosave';
+  import { lineOffsetAt } from '$lib/editor/line-metrics';
   import { preloadEnhancementPlugins } from '$lib/editor/setup';
   import { openFile, saveFile, saveFileAs, loadFile, getFileNameFromPath, readImageAsBlobUrl, migrateTempImages, isImageFile } from '$lib/services/file-service';
   import { isTypstFile } from '@moraya/core/typst';
@@ -3228,6 +3229,12 @@ ${tr('welcome.tip')}
     if (!textarea || !pm) return [];
 
     const lineHeight = parseFloat(getComputedStyle(textarea).lineHeight) || 24;
+    // Real per-line offsets from the source pane's ghost mirror — these include
+    // soft wrapping. `index * lineHeight` (the fallback) treats every logical
+    // line as one visual row, which under-counts every wrapped paragraph and is
+    // what made the visual pane outrun the source pane further down a document.
+    const lineTops = splitSourceRef?.getLineOffsets() ?? null;
+    const lineTop = (line: number) => lineOffsetAt(lineTops, line, lineHeight);
     const srcRect = sourceScroll.getBoundingClientRect();
     const visRect = visualScroll.getBoundingClientRect();
     const srcST = sourceScroll.scrollTop;
@@ -3240,7 +3247,7 @@ ${tr('welcome.tip')}
     for (const child of pm.children) {
       const el = child as HTMLElement;
       const vY = el.getBoundingClientRect().top - visRect.top + visST;
-      const sY = textareaTop + currentLine * lineHeight;
+      const sY = textareaTop + lineTop(currentLine);
       anchors.push({ sourceY: sY, visualY: vY });
 
       // Estimate how many source lines this block occupies

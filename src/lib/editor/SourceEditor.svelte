@@ -4,6 +4,7 @@
   import { editorStore, isMarkdownFlushSuppressed } from '../stores/editor-store';
   import OutlinePanel, { type OutlineHeading } from '$lib/components/OutlinePanel.svelte';
   import { extractSourceHeadings } from './source-outline';
+  import { cumulativeLineOffsets } from './line-metrics';
   import katex from 'katex';
   // Side-effect: \ce/\pu (mhchem) for chemistry in the source-mode preview.
   import 'katex/contrib/mhchem';
@@ -299,6 +300,27 @@
 
   /** Set highlight line from external source (e.g. visual editor in split mode).
    *  Only updates the line highlight background, not the custom caret. */
+  /**
+   * Cumulative Y offset of every logical line, measured from the first line.
+   *
+   * `offsets[i]` is where line `i` starts; length is lines + 1 so the last
+   * entry is the total height. Comes from the ghost mirror, which lays the
+   * text out exactly as the textarea does, so a line that SOFT-WRAPS to
+   * several visual rows contributes all of them.
+   *
+   * Split-view scroll sync needs this. Estimating a line's position as
+   * `index * lineHeight` assumes one logical line is one visual row, which
+   * fails for any paragraph wider than the pane — and in split view the pane
+   * is half a window wide, so it fails almost everywhere. The estimate then
+   * runs short, and the further down the document the reader goes the further
+   * ahead the visual pane lands (issue #87).
+   *
+   * Returns null until the ghost has been measured.
+   */
+  export function getLineOffsets(): number[] | null {
+    return lineHeights.length === 0 ? null : cumulativeLineOffsets(lineHeights);
+  }
+
   export function setHighlightLine(lineIndex: number) {
     if (!ghostEl || !ghostEl.children.length) return;
     if (lineIndex < 0 || lineIndex >= ghostEl.children.length - 1) return;
