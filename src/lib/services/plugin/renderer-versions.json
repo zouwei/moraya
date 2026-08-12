@@ -7,7 +7,7 @@
   "jsmind": "0.9.1",
   "@pintora/standalone": "0.8.1",
   "chart.js": "4.5.1",
-  "cytoscape": "3.34.0",
+  "cytoscape": "3.34.1",
   "@viz-js/viz": "3.29.0",
   "@morcad/moraya": "0.2.8"
 }
