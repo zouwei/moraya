@@ -2365,6 +2365,11 @@
       dispatchTransaction(tr) {
         const view = editor!.view;
         const oldFrom = view.state.selection.from;
+        // BEFORE updateState: the re-render reads the `decorations` prop, so a
+        // set remapped afterwards would not be painted until some later,
+        // unrelated render — the highlights would stay on the old coordinates
+        // exactly as they did before this fix.
+        if (tr.docChanged) remapSearchState(tr, tr.doc);
         view.updateState(view.state.apply(tr));
         updateVisualCaret();
         if (view.state.selection.from !== oldFrom) {
@@ -2745,6 +2750,20 @@
 
   interface MatchPos { from: number; to: number }
   let searchMatches: MatchPos[] = [];
+  /**
+   * Live decoration set for search hits.
+   *
+   * It has to be a mutable holder rather than a value baked into the
+   * `decorations` prop closure. Editor props are plain values — ProseMirror
+   * maps decorations through a transaction only when they live in a PLUGIN's
+   * state. A frozen set handed to `setProps` keeps the absolute positions it
+   * was built with, so as soon as text is inserted or removed ahead of a hit
+   * the highlight stays put and lands on the wrong characters (issue #86).
+   *
+   * `dispatchTransaction` below remaps this on every document change, which is
+   * what a plugin's `apply` would have done.
+   */
+  let searchDecoSet: DecorationSet = DecorationSet.empty;
   let searchIndex = -1;
   /** Cached search state for regex replace with capture groups */
   let lastSearchRegex: boolean = false;
@@ -2864,17 +2883,48 @@
   function applySearchDecorations(matches: MatchPos[], activeIdx: number) {
     if (!editor) return;
     const view = editor.view;
-    if (matches.length === 0) {
-      (view as any).setProps({ decorations: () => DecorationSet.empty });
-      return;
+    searchDecoSet = matches.length === 0
+      ? DecorationSet.empty
+      : DecorationSet.create(
+          view.state.doc,
+          matches.map((m, i) =>
+            Decoration.inline(m.from, m.to, {
+              class: i === activeIdx ? 'search-highlight-current' : 'search-highlight',
+            })
+          ),
+        );
+    // The prop reads the holder, so remapping it later takes effect without
+    // re-running the search.
+    (view as any).setProps({ decorations: () => searchDecoSet });
+  }
+
+  /**
+   * Slide the search hits along with an edit.
+   *
+   * Both the decorations and `searchMatches` carry absolute positions, and both
+   * are consumed after the fact — the decorations to paint, the positions to
+   * scroll to and to replace through. Mapping only one of them would fix the
+   * highlights while leaving Find-Next jumping to stale offsets.
+   *
+   * A hit whose range collapses was deleted outright, so it stops being a hit.
+   */
+  function remapSearchState(tr: import('prosemirror-state').Transaction, doc: import('prosemirror-model').Node) {
+    if (searchMatches.length === 0) return;
+    searchDecoSet = searchDecoSet.map(tr.mapping, doc);
+    const active = searchMatches[searchIndex];
+    const mapped: MatchPos[] = [];
+    let nextIndex = -1;
+    for (const m of searchMatches) {
+      // assoc pulls the edges outward so text typed at a boundary is not
+      // swallowed into the hit.
+      const from = tr.mapping.map(m.from, 1);
+      const to = tr.mapping.map(m.to, -1);
+      if (to <= from) continue;
+      if (m === active) nextIndex = mapped.length;
+      mapped.push({ from, to });
     }
-    const decos = matches.map((m, i) =>
-      Decoration.inline(m.from, m.to, {
-        class: i === activeIdx ? 'search-highlight-current' : 'search-highlight',
-      })
-    );
-    const decoSet = DecorationSet.create(view.state.doc, decos);
-    (view as any).setProps({ decorations: () => decoSet });
+    searchMatches = mapped;
+    searchIndex = mapped.length === 0 ? -1 : nextIndex >= 0 ? nextIndex : Math.min(searchIndex, mapped.length - 1);
   }
 
   export function searchText(text: string, cs: boolean, useRegex: boolean = false): number | { error: string } {
