@@ -28,7 +28,7 @@
   import { targetToConfigAsync } from '$lib/services/picora/credentials';
   import { aiStore } from '../services/ai';
   import type { ImageHostConfig, ImageHostTarget } from '../services/image-hosting';
-  import { save as saveDialog } from '@tauri-apps/plugin-dialog';
+  import { save as saveDialog } from '$lib/utils/native-dialog';
   import { invoke } from '@tauri-apps/api/core';
   import { openUrl } from '@tauri-apps/plugin-opener';
   import { isTauri } from '$lib/utils/platform';

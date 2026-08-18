@@ -19,7 +19,7 @@
 	import type { ResolvedReview } from '$lib/services/review/types';
 	import type { KnowledgeBase } from '$lib/stores/files-store';
 	import { invoke } from '@tauri-apps/api/core';
-	import { save } from '@tauri-apps/plugin-dialog';
+	import { save } from '$lib/utils/native-dialog';
 
 	// v0.32.1 §F5: module-level commit cache, persists across HistoryPanel mounts
 	const HISTORY_CACHE_TTL_MS = 5 * 60 * 1000;

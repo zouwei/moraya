@@ -9,7 +9,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { appDataDir, homeDir } from '@tauri-apps/api/path';
 import { load } from '@tauri-apps/plugin-store';
 import { exists, remove, mkdir } from '@tauri-apps/plugin-fs';
-import { ask } from '@tauri-apps/plugin-dialog';
+import { ask } from '$lib/utils/native-dialog';
 import { get } from 'svelte/store';
 import { t } from '$lib/i18n';
 import { settingsStore } from '$lib/stores/settings-store';

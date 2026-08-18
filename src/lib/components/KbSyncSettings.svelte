@@ -12,7 +12,7 @@
   import KbSyncConflictPanel from './KbSyncConflictPanel.svelte';
   import KbSyncTrashPanel from './KbSyncTrashPanel.svelte';
   import KbMemoryAssetPanel from './KbMemoryAssetPanel.svelte';
-  import { ask } from '@tauri-apps/plugin-dialog';
+  import { ask } from '$lib/utils/native-dialog';
 
   let knowledgeBases = $state<KnowledgeBase[]>([]);
   let kbSyncEnabled = $state(true);

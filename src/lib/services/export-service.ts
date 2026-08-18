@@ -1,4 +1,4 @@
-import { save as saveDialog } from '@tauri-apps/plugin-dialog';
+import { save as saveDialog } from '$lib/utils/native-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { get } from 'svelte/store';
 import { t } from '$lib/i18n';

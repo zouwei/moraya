@@ -32,7 +32,7 @@
   // wrappers, TOC anchors, etc).
   import { renderChatMarkdown } from '$lib/services/ai/chat-render';
   import { openUrl } from '@tauri-apps/plugin-opener';
-  import { open as openDialog } from '@tauri-apps/plugin-dialog';
+  import { open as openDialog } from '$lib/utils/native-dialog';
   import { onMount, onDestroy } from 'svelte';
   import { t } from '$lib/i18n';
   import { parseMemorizeCommand, memorizeFromInput } from '$lib/services/memory';

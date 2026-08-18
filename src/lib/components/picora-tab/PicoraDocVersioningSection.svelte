@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
-  import { ask } from '@tauri-apps/plugin-dialog';
+  import { ask } from '$lib/utils/native-dialog';
   import { t } from '$lib/i18n';
   import { settingsStore } from '$lib/stores/settings-store';
   import type { ImageHostTarget } from '$lib/services/image-hosting';

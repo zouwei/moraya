@@ -4,7 +4,7 @@
   import { filesStore, type FileEntry, type FilePreview, type KnowledgeBase } from '../stores/files-store';
   import { settingsStore } from '../stores/settings-store';
   import { invoke } from '@tauri-apps/api/core';
-  import { open, ask, message } from '@tauri-apps/plugin-dialog';
+  import { open, ask, message } from '$lib/utils/native-dialog';
   import { revealItemInDir } from '@tauri-apps/plugin-opener';
   import { t } from '$lib/i18n';
   import { documentExtension } from '@moraya/core/typst';

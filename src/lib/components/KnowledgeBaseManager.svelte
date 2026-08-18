@@ -2,7 +2,7 @@
   import { onDestroy, onMount } from 'svelte';
   import { filesStore, type KnowledgeBase } from '../stores/files-store';
   import { settingsStore } from '$lib/stores/settings-store';
-  import { open, ask } from '@tauri-apps/plugin-dialog';
+  import { open, ask } from '$lib/utils/native-dialog';
   import { t } from '$lib/i18n';
   import { checkGitInstalled, deleteGitToken } from '$lib/services/git';
   import GitBindDialog from './GitBindDialog.svelte';

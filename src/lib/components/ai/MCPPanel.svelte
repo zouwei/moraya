@@ -24,7 +24,7 @@
   import { t } from '$lib/i18n';
   import { Select } from '$lib/components/ui';
   import { isIPadOS, isWindows, isMacOS, isLinux } from '$lib/utils/platform';
-  import { ask } from '@tauri-apps/plugin-dialog';
+  import { ask } from '$lib/utils/native-dialog';
   import { openUrl } from '@tauri-apps/plugin-opener';
   import { containerStore, type DynamicService } from '$lib/services/mcp/container-store';
   import { saveService, removeService, stopService, startService } from '$lib/services/mcp/container-manager';

@@ -10,7 +10,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { homeDir } from '@tauri-apps/api/path';
-import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
+import { open as openDialog, save as saveDialog } from '$lib/utils/native-dialog';
 import { filesStore, type FileEntry } from '$lib/stores/files-store';
 import type { AITemplate, TemplateExportFile, TemplateSource } from './types';
 import { setCustomTemplates } from './registry';

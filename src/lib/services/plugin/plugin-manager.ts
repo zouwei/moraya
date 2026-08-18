@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open } from '$lib/utils/native-dialog';
 import { writable, get } from 'svelte/store';
 import { load } from '@tauri-apps/plugin-store';
 import type {

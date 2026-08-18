@@ -67,7 +67,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { getCurrentWindow, getAllWindows } from '@tauri-apps/api/window';
   import { openUrl } from '@tauri-apps/plugin-opener';
-  import { ask } from '@tauri-apps/plugin-dialog';
+  import { ask, currentDialog } from '$lib/utils/native-dialog';
   import { t, locale } from '$lib/i18n';
   import { get } from 'svelte/store';
   import { getPlatformClass, isIPadOS, isMacOS, isTauri, isVirtualKeyboardVisible } from '$lib/utils/platform';
@@ -2315,6 +2315,19 @@ ${tr('welcome.tip')}
   }
 
   async function handleCloseTab(tab: import('$lib/stores/tabs-store').TabItem) {
+    // Dev-only trace. A user reported this path locking the app after renaming
+    // the document in the sidebar, with neither dialog button responding; the
+    // sequence could not be reproduced from the code alone, so the build now
+    // narrates it. Each step prints, which pins down where it stops.
+    const trace = (step: string, extra?: unknown) => {
+      if (import.meta.env.DEV) console.log(`[closeTab] ${step}`, extra ?? '');
+    };
+    trace('enter', {
+      id: tab.id, path: tab.filePath, dirty: tab.isDirty,
+      tabs: tabsStore.getState().tabs.length,
+      storePath: editorStore.getState().currentFilePath,
+      dialogOpen: currentDialog(),
+    });
     if (tab.isDirty) {
       const shouldSave = await ask(
         $t('tabs.unsaved_msg', { fileName: tab.fileName }),
@@ -2325,8 +2338,10 @@ ${tr('welcome.tip')}
           cancelLabel: $t('tabs.discard'),
         }
       );
+      trace('prompt answered', { save: shouldSave });
       if (shouldSave) {
         const saved = await handleSave();
+        trace('save returned', { saved });
         if (!saved) return; // User cancelled SaveAs → don't close
       }
     }
@@ -2337,17 +2352,19 @@ ${tr('welcome.tip')}
     // close-requested guard.
     const state = tabsStore.getState();
     if (state.tabs.length <= 1) {
+      trace('last tab → destroying window');
       // Same safety net as the window-close guard: destroy(), and quit outright
       // if that leaves us still running as the last window.
       void (async () => {
         const lastWindow = (await getAllWindows().catch(() => [])).length <= 1;
-        await getCurrentWindow().destroy().catch(() => {});
-        if (lastWindow) setTimeout(() => { invoke('quit_app').catch(() => {}); }, 500);
+        await getCurrentWindow().destroy().catch((e) => { trace('destroy failed', e); });
+        if (lastWindow) setTimeout(() => { invoke('quit_app').catch((e) => trace('quit failed', e)); }, 500);
       })();
       return;
     }
 
     tabsStore.closeTab(tab.id);
+    trace('closed', { remaining: tabsStore.getState().tabs.length });
   }
 
   // ── Tab Detach / Attach (Chrome-like cross-window tab transfer) ──

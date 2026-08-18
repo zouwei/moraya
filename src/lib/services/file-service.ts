@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
+import { open as openDialog, save as saveDialog } from '$lib/utils/native-dialog';
 import { readFile } from '@tauri-apps/plugin-fs';
 import { editorStore } from '../stores/editor-store';
 import { filesStore, type FileEntry } from '../stores/files-store';

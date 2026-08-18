@@ -15,7 +15,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import { ask, message } from '@tauri-apps/plugin-dialog';
+import { ask, message } from '$lib/utils/native-dialog';
 import { isMacOS } from '$lib/utils/platform';
 import { settingsStore } from '$lib/stores/settings-store';
 import { get as storeGet } from 'svelte/store';
