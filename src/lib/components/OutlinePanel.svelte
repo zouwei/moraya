@@ -40,7 +40,15 @@
      * drag has to apply twice the pointer delta to stay under the cursor.
      */
     centered?: boolean;
-    /** Reserved gutter between the outline and the content, in px. */
+    /**
+     * Lane reserved for the host's floating block buttons, in px.
+     *
+     * Taken OUT of the panel's own width rather than added beside it: the
+     * outline's footprint is what the user sees and sizes, and growing it by
+     * 44px of empty space to make room for two icons reads as "the outline
+     * got wider" — which it did, and which was wrong. Headings stop before
+     * the lane; the buttons float in it.
+     */
     trailingGutter?: number;
     onSelect?: (heading: OutlineHeading) => void;
     onWidthChange?: (width: number) => void;
@@ -89,8 +97,8 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="outline-wrapper" class:dragging style="width: {width}px; margin-inline-end: {trailingGutter}px{containerHeight > 0 ? `; --_ch: ${containerHeight}px` : ''}">
-  <nav class="outline-scroll">
+<div class="outline-wrapper" class:dragging style="width: {width}px{containerHeight > 0 ? `; --_ch: ${containerHeight}px` : ''}">
+  <nav class="outline-scroll" style="padding-inline-end: {Math.max(8, trailingGutter)}px">
     {#if headings.length === 0}
       <span class="outline-empty">{$t('outline.empty')}</span>
     {:else}
@@ -131,7 +139,6 @@
     height: 100%;
     overflow-y: auto;
     overflow-x: hidden;
-    padding-right: 8px;
     scrollbar-width: none;
   }
 
@@ -232,11 +239,6 @@
   }
 
   /* RTL overrides */
-  :global([dir="rtl"]) .outline-scroll {
-    padding-right: 0;
-    padding-left: 8px;
-  }
-
   :global([dir="rtl"]) .outline-item {
     text-align: right;
   }

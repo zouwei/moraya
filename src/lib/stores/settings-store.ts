@@ -165,16 +165,25 @@ interface Settings {
  * (moraya-web EditorOutlinePanel.svelte + the edit route's readOutlineWidth)
  * so the outline is the same size wherever a document is opened.
  *
- * 260 rather than the original 200: headings are the longest strings in the
- * panel and CJK is the dense case — at 200px, after the scroll padding, the
- * base indent and 1em per nesting level, a level-3 heading had only ~14
- * Chinese characters of room and wrapped constantly. This does not narrow the
- * prose column: `.editor-content-area`'s max-width is
- * `editorLineWidth + outlineWidth`, so the outline takes gutter, not text.
+ * The value has moved twice, for opposite reasons:
+ *
+ *   200 → 260  headings are the longest strings in the panel and CJK is the
+ *              dense case; at 200px, after the scroll padding, the base indent
+ *              and 1em per nesting level, a level-3 heading had only ~14
+ *              Chinese characters of room and wrapped constantly.
+ *   260 → 240  the panel now reserves a 44px lane at its inner edge for the
+ *              editor's floating block buttons, so at 260 the left block read
+ *              as noticeably bulky. 240 keeps ~196px of heading room — the
+ *              width the 200 default actually had once its own padding is
+ *              counted — while giving 20px back to the page.
+ *
+ * This does not narrow the prose column either way: `.editor-content-area`'s
+ * max-width is `editorLineWidth + outlineWidth`, so the outline takes gutter,
+ * not text.
  */
-export const OUTLINE_DEFAULT_WIDTH = 260;
-/** The pre-widening default; only this exact stored value is migrated. */
-const OUTLINE_LEGACY_DEFAULT_WIDTH = 200;
+export const OUTLINE_DEFAULT_WIDTH = 240;
+/** Superseded defaults. Only these exact stored values are migrated. */
+const OUTLINE_LEGACY_DEFAULT_WIDTHS = [200, 260];
 
 const DEFAULT_SETTINGS: Settings = {
   theme: 'system',
@@ -485,13 +494,16 @@ export async function initSettingsStore() {
       // Merge with defaults to handle new fields added in updates
       settingsStore.update(saved);
 
-      // Migration: the outline default width was widened (200 → 260).
-      // Because settings persist wholesale, an existing install carries the
-      // OLD default on disk forever and would never see the new one. Anyone
-      // sitting on exactly the old value never chose it — it is just what the
-      // panel happened to open at — so carry them across. Any other stored
-      // width is a deliberate drag and is left untouched.
-      if (saved.outlineWidth === OUTLINE_LEGACY_DEFAULT_WIDTH) {
+      // Migration: the outline default width has changed twice (200 → 260 →
+      // 240). Because settings persist wholesale, an existing install carries
+      // the OLD default on disk forever and would never see the new one.
+      // Anyone sitting on exactly a superseded default never chose it — it is
+      // just what the panel happened to open at — so carry them across. Any
+      // other stored width is a deliberate drag and is left untouched.
+      if (
+        saved.outlineWidth !== undefined &&
+        OUTLINE_LEGACY_DEFAULT_WIDTHS.includes(saved.outlineWidth)
+      ) {
         settingsStore.update({ outlineWidth: OUTLINE_DEFAULT_WIDTH });
       }
 

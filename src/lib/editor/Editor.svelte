@@ -149,22 +149,22 @@
   let wideExtra = $state(0);
 
   /**
-   * Lane reserved between the outline and the prose column for the floating
-   * block buttons (insert "+" and drag handle), in px.
+   * Lane reserved between the outline's headings and the prose column for the
+   * floating block buttons (insert "+" and drag handle), in px.
    *
    * Without it the buttons hang over the outline's last 40px and cover its
-   * headings. It is added to the content box's max-width rather than taken
-   * out of either column, so opening the outline still costs the prose column
-   * nothing — the same principle as the outline's own width.
+   * headings. It comes OUT of the outline panel's own width, not in addition
+   * to it: adding it widened the whole left block by 44px of empty space,
+   * which reads as "the outline got wider" — and did.
    *
    * Only needed when the outline is open; otherwise the wrapper's own padding
    * and the centring slack already leave the gutter empty.
    */
   const BLOCK_BUTTON_GUTTER = 44;
 
-  /** Total width of the centred content box, including outline and gutter. */
+  /** Total width of the centred content box. */
   const contentMaxWidth = $derived(
-    showOutline ? editorLineWidth + outlineWidth + BLOCK_BUTTON_GUTTER : editorLineWidth,
+    showOutline ? editorLineWidth + outlineWidth : editorLineWidth,
   );
 
   $effect(() => {
@@ -552,6 +552,29 @@
   let insertHandleLeft = $state(0);
   let showInsertMenu = $state(false);
   let insertMenuPosition = $state({ top: 0, left: 0 });
+  /**
+   * Viewport bounds of the scroll box, captured whenever the buttons are
+   * repositioned. The scroll handler compares against these numerically —
+   * measuring on the scroll path is forbidden (see the performance rules), and
+   * the box itself does not move while scrolling, so a cached pair is exact.
+   */
+  let wrapperViewTop = $state(0);
+  let wrapperViewBottom = $state(0);
+  /** scrollTop at the last reposition, for the scroll-delta shift. */
+  let lastButtonScrollTop = 0;
+  /** RAF for re-anchoring to the caret after a transaction. */
+  let caretAnchorRaf: number | undefined;
+  /**
+   * Buttons scrolled out of the visible box hide themselves, but keep their
+   * tracked position — scrolling back brings them straight back, with no
+   * mouse movement or keystroke needed to re-resolve them.
+   */
+  const blockButtonsInView = $derived(
+    // Fully inside, not merely overlapping: they are `position: fixed`, so a
+    // partially-scrolled-out button is not clipped by the scroll box — it
+    // draws over the tab bar or the status bar instead.
+    dragHandleTop >= wrapperViewTop && dragHandleTop + DRAG_HANDLE_HEIGHT <= wrapperViewBottom,
+  );
   let isDraggingBlock = $state(false);
   let dragInsertLineTop = $state(0);
   let dragInsertLineLeft = $state(0);
@@ -1932,7 +1955,17 @@
     cancelHandleHide();
     dragHandleHideTimer = setTimeout(() => {
       dragHandleHideTimer = undefined;
-      if (!isDraggingBlock && !showInsertMenu) showDragHandle = false;
+      if (isDraggingBlock || showInsertMenu) return;
+      // The hover really did end. Fall back to the caret's block before
+      // giving up — the buttons mark where you are writing, and only a
+      // blurred editor leaves nothing to point at.
+      //
+      // Deciding this HERE rather than in the mouseleave handler matters: the
+      // buttons live outside the wrapper's subtree, so reaching for one fires
+      // mouseleave first. Re-anchoring immediately would yank them to the
+      // caret's block the instant the pointer reached for them.
+      if (anchorButtonsToCaret()) return;
+      showDragHandle = false;
     }, DRAG_HANDLE_HIDE_DELAY_MS);
   }
 
@@ -1977,19 +2010,126 @@
     );
   }
 
-  /** Position the drag handle over whichever unit the mouse is hovering: a
-   *  single list item when nested inside a list (see resolveDragUnit), else
-   *  the whole top-level block (always the whole table/code block/math
-   *  block/blockquote, never a fragment nested inside one). RAF-throttled
-   *  like handleCheckboxHover, for the same reason — but unlike that simpler
-   *  cursor-style toggle, this reads the LATEST mouse position at the moment
-   *  the RAF actually fires (lastHoverX/Y), not whatever position happened to
-   *  trigger scheduling it: a burst of mousemove events all collapsing onto
-   *  one throttled tick must still reflect where the cursor ended up, or a
-   *  fast movement that stops moving right as it arrives would leave the
-   *  handle stuck showing an earlier, stale position instead of following it. */
+  /**
+   * Put the block buttons beside whatever block `pos` falls in, and return
+   * whether it worked.
+   *
+   * The buttons mark a BLOCK, not a mouse position, and two things move that
+   * block: the caret and the pointer. Both funnel through here so the two
+   * routes cannot drift apart — before this existed, only the pointer could
+   * place them, which is why the buttons sat next to a heading while the user
+   * was typing inside the code block below it, and why a freshly-opened empty
+   * line showed nothing at all.
+   *
+   * The UNIT is a single list item when `pos` is nested inside a list (see
+   * resolveDragUnit), otherwise the whole top-level block — always the whole
+   * table / code block / math block / blockquote, never a fragment inside one.
+   */
+  function positionBlockButtons(pos: number): boolean {
+    if (!editor || isDraggingBlock) return false;
+    try {
+      const view = editor.view;
+      const unit = resolveDragUnit(view.state.doc, pos);
+      const dom = unit && (view.nodeDOM(unit.from) as HTMLElement | null);
+      if (!unit || !dom || typeof dom.getBoundingClientRect !== 'function') return false;
+      const rect = dom.getBoundingClientRect();
+      // Horizontal position always comes from the OUTERMOST top-level block,
+      // never the unit's own rect: a list item's <li> is indented by the
+      // list's own padding (and its bullet/number marker sits right there
+      // too), so anchoring the gutter to the item itself crowds the icon into
+      // the marker. Using the outer block's left edge keeps the icon at the
+      // same gutter distance regardless of list nesting depth.
+      const outer = topLevelBlockRange(view.state.doc, pos);
+      const outerDom = outer && (view.nodeDOM(outer.from) as HTMLElement | null);
+      const outerRect = outerDom?.getBoundingClientRect() ?? rect;
+      cancelHandleHide();
+      dragUnitFrom = unit.from;
+      dragUnitTo = unit.to;
+      dragOuterFrom = outer?.from ?? unit.from;
+      dragOuterTo = outer?.to ?? unit.to;
+      dragContainerFrom = unit.containerFrom;
+      dragContainerTo = unit.containerTo;
+      dragHandleTop = handleTopFor(view, unit.from, unit.to, rect);
+      dragHandleLeft = outerRect.left - DRAG_HANDLE_GUTTER;
+      // Never let the pair run off the window: on a very narrow pane the
+      // gutter is smaller than the two buttons need, and they already
+      // overhang into the neighbouring chrome (the drag handle always has).
+      insertHandleLeft = Math.max(2, outerRect.left - INSERT_HANDLE_GUTTER);
+      // Recompute the safe zone for THIS newly-shown position. It starts at
+      // the OUTER button so the trip from text to "+" never leaves the zone
+      // and re-resolves the hover mid-crossing.
+      dragHandleZoneLeft = insertHandleLeft - 4;
+      dragHandleZoneRight = outerRect.right;
+      dragHandleZoneTop = Math.min(dragHandleTop, rect.top) - 4;
+      dragHandleZoneBottom = Math.max(dragHandleTop + DRAG_HANDLE_HEIGHT, rect.bottom) + 4;
+      if (wrapperEl) {
+        const wr = wrapperEl.getBoundingClientRect();
+        wrapperViewTop = wr.top;
+        wrapperViewBottom = wr.bottom;
+        lastButtonScrollTop = wrapperEl.scrollTop;
+      }
+      showDragHandle = true;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Anchor the buttons to the block the caret is in. */
+  function anchorButtonsToCaret(): boolean {
+    if (!editor || isDraggingBlock) return false;
+    if (!editor.view.hasFocus()) return false;
+    return positionBlockButtons(editor.view.state.selection.from);
+  }
+
+  /** Re-anchor after a transaction, coalesced to one frame. */
+  function scheduleCaretAnchor() {
+    if (isDraggingBlock || showInsertMenu) return;
+    if (caretAnchorRaf) return;
+    caretAnchorRaf = requestAnimationFrame(() => {
+      caretAnchorRaf = undefined;
+      anchorButtonsToCaret();
+    });
+  }
+
+  /**
+   * Keep the buttons glued to their block while the document scrolls.
+   *
+   * They are `position: fixed`, so without this they hang in the viewport
+   * while the text slides away underneath — which is exactly what the user
+   * saw. The shift is pure arithmetic: content moves 1:1 with scrollTop, so
+   * nothing has to be measured, which is what keeps this legal on the scroll
+   * path (the performance rules forbid coordsAtPos / getBoundingClientRect
+   * there).
+   */
+  function trackBlockButtonsOnScroll() {
+    if (!showDragHandle || !wrapperEl) return;
+    const top = wrapperEl.scrollTop;
+    const delta = top - lastButtonScrollTop;
+    if (!delta) return;
+    lastButtonScrollTop = top;
+    dragHandleTop -= delta;
+    dragHandleZoneTop -= delta;
+    dragHandleZoneBottom -= delta;
+  }
+
+  /** RAF-throttled hover tracking. Reads the LATEST mouse position at the
+   *  moment the RAF actually fires (lastHoverX/Y), not whatever position
+   *  happened to trigger scheduling it: a burst of mousemove events all
+   *  collapsing onto one throttled tick must still reflect where the cursor
+   *  ended up, or a fast movement that stops right as it arrives would leave
+   *  the handle at an earlier, stale position instead of following it. */
   function handleBlockHover(event: MouseEvent) {
     if (isDraggingBlock) return; // the drag loop owns positioning while active
+    // The safe zone comes first, ahead of the outline bail-out below. The
+    // button lane is reserved inside the outline panel's own padding, so the
+    // trip from the text out to a button passes over `.outline-wrapper`; if
+    // the bail-out ran first it would hide the buttons mid-reach — the exact
+    // bug the lane exists to prevent.
+    if (inDragHandleZone(event.clientX, event.clientY)) {
+      cancelHandleHide();
+      return;
+    }
     // Listening on .editor-wrapper (not just the ProseMirror content, so the
     // handle's own left-gutter position is covered too — see the note by the
     // template's onmousemove) also picks up the outline panel when it's open;
@@ -1999,60 +2139,18 @@
       showDragHandle = false;
       return;
     }
-    if (inDragHandleZone(event.clientX, event.clientY)) {
-      cancelHandleHide();
-      return;
-    }
     lastHoverX = event.clientX;
     lastHoverY = event.clientY;
     if (dragHoverRaf) return;
     dragHoverRaf = requestAnimationFrame(() => {
       dragHoverRaf = undefined;
       if (isDraggingBlock || !editor) return;
-      const clientX = lastHoverX;
-      const clientY = lastHoverY;
       try {
-        const view = editor.view;
-        const found = view.posAtCoords({ left: clientX, top: clientY });
-        const unit = found && resolveDragUnit(view.state.doc, found.pos);
-        const dom = unit && (view.nodeDOM(unit.from) as HTMLElement | null);
-        if (!unit || !dom || typeof dom.getBoundingClientRect !== 'function') {
-          scheduleHandleHide();
-          return;
-        }
-        const rect = dom.getBoundingClientRect();
-        // Horizontal position always comes from the OUTERMOST top-level
-        // block, never the hovered unit's own rect: a list item's <li> is
-        // indented by the list's own padding (and its bullet/number marker
-        // sits right there too), so anchoring the gutter to the item itself
-        // crowds the icon into the marker. Using the outer block's left edge
-        // keeps the icon at the same gutter distance regardless of list
-        // nesting depth, clear of any marker at any level.
-        const outer = topLevelBlockRange(view.state.doc, found!.pos);
-        const outerDom = outer && (view.nodeDOM(outer.from) as HTMLElement | null);
-        const outerRect = outerDom?.getBoundingClientRect() ?? rect;
-        cancelHandleHide();
-        dragUnitFrom = unit.from;
-        dragUnitTo = unit.to;
-        dragOuterFrom = outer?.from ?? unit.from;
-        dragOuterTo = outer?.to ?? unit.to;
-        dragContainerFrom = unit.containerFrom;
-        dragContainerTo = unit.containerTo;
-        dragHandleTop = handleTopFor(view, unit.from, unit.to, rect);
-        dragHandleLeft = outerRect.left - DRAG_HANDLE_GUTTER;
-        // Never let the pair run off the window: on a very narrow pane the
-        // gutter is smaller than the two buttons need, and they already
-        // overhang into the neighbouring chrome (the drag handle always has).
-        // Overhanging is fine; disappearing past the viewport edge is not.
-        insertHandleLeft = Math.max(2, outerRect.left - INSERT_HANDLE_GUTTER);
-        showDragHandle = true;
-        // Recompute the safe zone for THIS newly-shown handle position. It
-        // starts at the OUTER button so the trip from text to "+" never
-        // leaves the zone and re-resolves the hover mid-crossing.
-        dragHandleZoneLeft = insertHandleLeft - 4;
-        dragHandleZoneRight = outerRect.right;
-        dragHandleZoneTop = Math.min(dragHandleTop, rect.top) - 4;
-        dragHandleZoneBottom = Math.max(dragHandleTop + DRAG_HANDLE_HEIGHT, rect.bottom) + 4;
+        const found = editor.view.posAtCoords({ left: lastHoverX, top: lastHoverY });
+        // No block under the pointer (the gutter beside the column, the
+        // padding below the last block): fall back to the caret rather than
+        // hiding, so the buttons stay where the user is working.
+        if (!found || !positionBlockButtons(found.pos)) scheduleHandleHide();
       } catch {
         scheduleHandleHide();
       }
@@ -2062,11 +2160,12 @@
   function handleBlockHoverLeave() {
     if (dragHoverRaf) { cancelAnimationFrame(dragHoverRaf); dragHoverRaf = undefined; }
     if (isDraggingBlock) return;
-    // Don't hide immediately: the handle sits outside .editor-wrapper's own
-    // subtree (a Svelte template sibling), so moving the mouse onto it is a
-    // cross-element transition that always fires this leave first. Give the
-    // cursor a short grace window to actually reach the icon — its own
-    // mouseenter (or a fresh valid hover elsewhere) cancels this.
+    // Deliberately delayed, not immediate: the buttons sit outside
+    // .editor-wrapper's own subtree (Svelte template siblings), so moving the
+    // mouse ONTO one is a cross-element transition that fires this leave
+    // first. The grace window is cancelled by the button's own mouseenter, or
+    // by a fresh valid hover elsewhere; if it does expire, scheduleHandleHide
+    // falls back to the caret's block rather than hiding outright.
     scheduleHandleHide();
   }
 
@@ -2550,14 +2649,24 @@
         if (view.state.selection.from !== oldFrom) {
           reportCursorLine?.();
         }
+        // Keep the block buttons on the caret's block. Without this they only
+        // ever moved on mousemove, so typing into a different block — or
+        // opening a fresh empty line — left them pointing at the last block
+        // the mouse happened to pass over.
+        if (tr.docChanged || view.state.selection.from !== oldFrom) scheduleCaretAnchor();
       },
     });
 
     // Track clicks + focus/blur for caret updates
     const pmEl = editorEl.querySelector('.ProseMirror') as HTMLElement | null;
     const handleCaretMouseup = () => { updateVisualCaret(); reportCursorLine?.(); };
-    const handleCaretFocus = () => { requestAnimationFrame(updateVisualCaret); };
-    const handleCaretBlur = () => { if (visualCaretEl) visualCaretEl.style.display = 'none'; };
+    const handleCaretFocus = () => { requestAnimationFrame(updateVisualCaret); scheduleCaretAnchor(); };
+    const handleCaretBlur = () => {
+      if (visualCaretEl) visualCaretEl.style.display = 'none';
+      // Nothing to point at once the caret is gone — unless the mouse is
+      // still over a block, in which case the next mousemove re-shows them.
+      scheduleHandleHide();
+    };
     pmEl?.addEventListener('mouseup', handleCaretMouseup);
     pmEl?.addEventListener('focus', handleCaretFocus);
     pmEl?.addEventListener('blur', handleCaretBlur);
@@ -3441,6 +3550,7 @@
     if (dragHoverRaf) cancelAnimationFrame(dragHoverRaf);
     if (dragMoveRaf) cancelAnimationFrame(dragMoveRaf);
     if (dragHandleHideTimer) clearTimeout(dragHandleHideTimer);
+    if (caretAnchorRaf) cancelAnimationFrame(caretAnchorRaf);
     // Defensive: if the component unmounts mid-drag (e.g. a file switch while
     // the mouse button is still down), drop the document-level drag listeners
     // rather than leaking them onto whatever mounts next.
@@ -3639,6 +3749,9 @@
     editor.view.focus();
   }
 }} onscroll={() => {
+  // Before the outline's early return: the buttons have to follow the text
+  // whether or not the outline is open.
+  trackBlockButtonsOnScroll();
   if (!showOutline) return;
   // While an outline-click smooth scroll is animating, keep the clicked item
   // highlighted — don't recompute active from the intermediate scroll position.
@@ -3671,7 +3784,7 @@
   </div>
 </div>
 
-{#if showDragHandle && !isDraggingBlock}
+{#if showDragHandle && blockButtonsInView && !isDraggingBlock}
   <button
     class="block-insert-handle"
     style="top: {dragHandleTop}px; left: {insertHandleLeft}px"
