@@ -69,7 +69,8 @@
     }
     if (e.key === 'Enter' && activeIndex >= 0) {
       e.preventDefault();
-      choose(INSERT_ITEMS[activeIndex].id);
+      const item = INSERT_ITEMS[activeIndex];
+      if (item) choose(item.id);
     }
   }
 

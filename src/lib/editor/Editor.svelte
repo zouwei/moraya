@@ -37,6 +37,7 @@
   import ImageToolbar from './ImageToolbar.svelte';
   import ImageAltEditor from './ImageAltEditor.svelte';
   import OutlinePanel, { type OutlineHeading } from '$lib/components/OutlinePanel.svelte';
+  import { editorHoldsCaret } from './editor-focus';
   import katex from 'katex';
   // Side-effect: \ce/\pu (mhchem) for chemistry in inline previews.
   import 'katex/contrib/mhchem';
@@ -2078,7 +2079,11 @@
   /** Anchor the buttons to the block the caret is in. */
   function anchorButtonsToCaret(): boolean {
     if (!editor || isDraggingBlock) return false;
-    if (!editor.view.hasFocus()) return false;
+    // Deliberately NOT view.hasFocus(): see editor-focus.ts. Clicking in the
+    // document can leave DOM focus on a container while the caret stays in
+    // the text, and the strict test made the buttons disappear on the very
+    // click that selected the block the user wanted to act on.
+    if (!editorHoldsCaret(editor.view.dom, document.activeElement)) return false;
     return positionBlockButtons(editor.view.state.selection.from);
   }
 
