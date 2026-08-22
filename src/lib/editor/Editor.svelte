@@ -52,6 +52,21 @@
   import PluginContextMenu from './PluginContextMenu.svelte';
   import EditorContextMenu from './EditorContextMenu.svelte';
   import { resolveDragUnit, siblingRangeInContainer, topLevelBlockRange, firstContentPos, moveBlockTransaction } from '@moraya/core/plugins/block-drag';
+  import ContentWidthHandle from './ContentWidthHandle.svelte';
+  import BlockInsertMenu from './BlockInsertMenu.svelte';
+  import { INLINE_ACTIONS, type InsertActionId } from './block-insert-items';
+  import {
+    setHeading,
+    wrapInBlockquote,
+    wrapInBulletList,
+    wrapInOrderedList,
+    wrapInTaskList,
+    insertCodeBlock,
+    insertHorizontalRule,
+    insertTable,
+    insertMathBlock,
+  } from './commands';
+  import { setBlockType } from 'prosemirror-commands';
 
   /** Stored frontmatter block (including `---` fences and trailing newline) */
   let storedFrontmatter = '';
@@ -79,6 +94,8 @@
     onInsertCloudImage,
     onInsertCloudAudio,
     onInsertCloudVideo,
+    onInsertImage,
+    onLineWidthChange,
   }: {
     content?: string;
     showOutline?: boolean;
@@ -106,6 +123,10 @@
     onInsertCloudImage?: (pos: number | null) => void;
     onInsertCloudAudio?: (pos: number | null) => void;
     onInsertCloudVideo?: (pos: number | null) => void;
+    /** Open the local image-insert dialog (owned by the page, not the editor). */
+    onInsertImage?: () => void;
+    /** Persist a new prose-column width dragged from the content edge. */
+    onLineWidthChange?: (width: number) => void;
   } = $props();
 
   let editorLineWidth = $state(settingsStore.getState().editorLineWidth);
@@ -127,9 +148,28 @@
    */
   let wideExtra = $state(0);
 
+  /**
+   * Lane reserved between the outline and the prose column for the floating
+   * block buttons (insert "+" and drag handle), in px.
+   *
+   * Without it the buttons hang over the outline's last 40px and cover its
+   * headings. It is added to the content box's max-width rather than taken
+   * out of either column, so opening the outline still costs the prose column
+   * nothing — the same principle as the outline's own width.
+   *
+   * Only needed when the outline is open; otherwise the wrapper's own padding
+   * and the centring slack already leave the gutter empty.
+   */
+  const BLOCK_BUTTON_GUTTER = 44;
+
+  /** Total width of the centred content box, including outline and gutter. */
+  const contentMaxWidth = $derived(
+    showOutline ? editorLineWidth + outlineWidth + BLOCK_BUTTON_GUTTER : editorLineWidth,
+  );
+
   $effect(() => {
     const w = wrapperWidth;
-    const column = showOutline ? editorLineWidth + outlineWidth : editorLineWidth;
+    const column = contentMaxWidth;
     if (!wrapperEl || w <= 0) {
       wideExtra = 0;
       return;
@@ -492,6 +532,10 @@
   // control over the insertion-line indicator.
   const DRAG_HANDLE_GUTTER = 22; // px from the block's left edge to the icon
   const DRAG_HANDLE_HEIGHT = 22; // keep in sync with .block-drag-handle's CSS height
+  // The insert "+" button occupies the next slot out from the drag handle, so
+  // the pair reads left-to-right as "add a block" then "move this block".
+  // Matches BLOCK_BUTTON_GUTTER, which is what reserves the lane for them.
+  const INSERT_HANDLE_GUTTER = 44;
   // Grace window before hiding the handle on mouseleave (from either the
   // content or the handle itself) — NOT a relatedTarget check: the handle
   // sits outside .ProseMirror's own box, and .ProseMirror is inside
@@ -505,6 +549,9 @@
   let showDragHandle = $state(false);
   let dragHandleTop = $state(0);
   let dragHandleLeft = $state(0);
+  let insertHandleLeft = $state(0);
+  let showInsertMenu = $state(false);
+  let insertMenuPosition = $state({ top: 0, left: 0 });
   let isDraggingBlock = $state(false);
   let dragInsertLineTop = $state(0);
   let dragInsertLineLeft = $state(0);
@@ -519,6 +566,12 @@
   // that same list, never jumps out to some other block in the document.
   let dragContainerFrom = 0;
   let dragContainerTo = 0;
+  // The hovered unit's enclosing TOP-LEVEL block. Captured here rather than
+  // re-derived on demand: `dragUnitFrom` is a boundary position, and resolving
+  // a boundary back to a child index is ambiguous — it can land on either
+  // neighbour. The insert "+" needs the exact block it is standing next to.
+  let dragOuterFrom = 0;
+  let dragOuterTo = 0;
   // Latest mousemove coordinates during hover, updated on EVERY event
   // regardless of whether a RAF is currently pending — the RAF callback reads
   // these at FIRE time, not whatever was current when it got scheduled. Using
@@ -1872,10 +1925,14 @@
   }
 
   function scheduleHandleHide() {
+    // The insert menu's backdrop covers the editor, so opening it fires a
+    // mouseleave on the wrapper. Hiding the buttons underneath the menu they
+    // launched would leave the popup floating with nothing anchoring it.
+    if (showInsertMenu) return;
     cancelHandleHide();
     dragHandleHideTimer = setTimeout(() => {
       dragHandleHideTimer = undefined;
-      if (!isDraggingBlock) showDragHandle = false;
+      if (!isDraggingBlock && !showInsertMenu) showDragHandle = false;
     }, DRAG_HANDLE_HIDE_DELAY_MS);
   }
 
@@ -1977,13 +2034,22 @@
         cancelHandleHide();
         dragUnitFrom = unit.from;
         dragUnitTo = unit.to;
+        dragOuterFrom = outer?.from ?? unit.from;
+        dragOuterTo = outer?.to ?? unit.to;
         dragContainerFrom = unit.containerFrom;
         dragContainerTo = unit.containerTo;
         dragHandleTop = handleTopFor(view, unit.from, unit.to, rect);
         dragHandleLeft = outerRect.left - DRAG_HANDLE_GUTTER;
+        // Never let the pair run off the window: on a very narrow pane the
+        // gutter is smaller than the two buttons need, and they already
+        // overhang into the neighbouring chrome (the drag handle always has).
+        // Overhanging is fine; disappearing past the viewport edge is not.
+        insertHandleLeft = Math.max(2, outerRect.left - INSERT_HANDLE_GUTTER);
         showDragHandle = true;
-        // Recompute the safe zone for THIS newly-shown handle position.
-        dragHandleZoneLeft = dragHandleLeft - 4;
+        // Recompute the safe zone for THIS newly-shown handle position. It
+        // starts at the OUTER button so the trip from text to "+" never
+        // leaves the zone and re-resolves the hover mid-crossing.
+        dragHandleZoneLeft = insertHandleLeft - 4;
         dragHandleZoneRight = outerRect.right;
         dragHandleZoneTop = Math.min(dragHandleTop, rect.top) - 4;
         dragHandleZoneBottom = Math.max(dragHandleTop + DRAG_HANDLE_HEIGHT, rect.bottom) + 4;
@@ -2013,6 +2079,115 @@
   }
   function handleDragHandleLeave() {
     if (!isDraggingBlock) scheduleHandleHide();
+  }
+
+  // ── Block insert "+" ────────────────────────────────────────────────
+  //
+  // The gutter's other button. Where the drag handle rearranges what is
+  // already written, this one writes it: a menu of the markdown constructs a
+  // new user cannot be expected to know the syntax for.
+  //
+  // It always works on a FRESH block below the hovered one, never on the
+  // hovered block itself — clicking "+" next to a finished paragraph and
+  // having it silently become a heading would be a destructive surprise. The
+  // one exception is an empty paragraph, which is reused rather than followed
+  // by a second empty one.
+
+  /**
+   * Put the caret where the chosen construct should land and return true if
+   * it worked. The target is a paragraph after the hovered block's top-level
+   * container (`dragOuter*`, captured during hover) — top level specifically,
+   * because a bare paragraph is always valid there, whereas the position just
+   * after a list ITEM is inside the list, where `list_item+` forbids it.
+   */
+  function prepareInsertTarget(): boolean {
+    if (!editor) return false;
+    try {
+      const view = editor.view;
+      const { state } = view;
+      if (dragOuterTo <= dragOuterFrom || dragOuterTo > state.doc.content.size) return false;
+
+      const node = state.doc.nodeAt(dragOuterFrom);
+      if (node && node.type === schema.nodes.paragraph && node.content.size === 0) {
+        view.dispatch(state.tr.setSelection(TextSelection.create(state.doc, dragOuterFrom + 1)));
+        return true;
+      }
+
+      const tr = state.tr.insert(dragOuterTo, schema.nodes.paragraph.create());
+      tr.setSelection(TextSelection.create(tr.doc, dragOuterTo + 1));
+      view.dispatch(tr.scrollIntoView());
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function handleInsertHandleClick(event: MouseEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!editor) return;
+    if (!prepareInsertTarget()) return;
+    insertMenuPosition = { top: dragHandleTop + DRAG_HANDLE_HEIGHT + 4, left: insertHandleLeft };
+    showInsertMenu = true;
+  }
+
+  /**
+   * Insert sample text carrying `mark` and leave it selected.
+   *
+   * A mark toggled at an empty caret is invisible — the user picks "Bold",
+   * sees nothing change, and concludes it is broken. Giving them a selected
+   * placeholder shows the formatting immediately and types away on the first
+   * keystroke.
+   */
+  function insertMarkedSample(mark: import('prosemirror-model').Mark) {
+    if (!editor) return;
+    const view = editor.view;
+    const tr = get(t);
+    const text = mark.type === schema.marks.link
+      ? tr('editor.insert_sample_link')
+      : tr('editor.insert_sample_text');
+    const trx = view.state.tr.replaceSelectionWith(schema.text(text, [mark]), false);
+    const to = trx.selection.from;
+    trx.setSelection(TextSelection.create(trx.doc, to - text.length, to));
+    view.dispatch(trx.scrollIntoView());
+  }
+
+  function runInsertAction(id: InsertActionId) {
+    if (!editor) return;
+    const view = editor.view;
+    const run = (cmd: (s: typeof view.state, d?: typeof view.dispatch, v?: typeof view) => boolean) => {
+      cmd(view.state, view.dispatch, view);
+    };
+    switch (id) {
+      case 'paragraph': run(setBlockType(schema.nodes.paragraph)); break;
+      case 'h1': run(setHeading(1)); break;
+      case 'h2': run(setHeading(2)); break;
+      case 'h3': run(setHeading(3)); break;
+      case 'bulletList': run(wrapInBulletList); break;
+      case 'orderedList': run(wrapInOrderedList); break;
+      case 'taskList': run(wrapInTaskList); break;
+      case 'quote': run(wrapInBlockquote); break;
+      case 'codeBlock': run(insertCodeBlock); break;
+      case 'table': run(insertTable(3, 3)); break;
+      case 'mathBlock': run(insertMathBlock); break;
+      case 'horizontalRule': run(insertHorizontalRule); break;
+      // The image dialog belongs to the page, not the editor — the caret is
+      // already parked on the new paragraph, so whatever it picks lands here.
+      case 'image': onInsertImage?.(); break;
+      case 'link': insertMarkedSample(schema.marks.link.create({ href: '', title: null })); break;
+      case 'bold': insertMarkedSample(schema.marks.strong.create()); break;
+      case 'italic': insertMarkedSample(schema.marks.em.create()); break;
+      case 'strike': insertMarkedSample(schema.marks.strike_through.create()); break;
+      case 'inlineCode': insertMarkedSample(schema.marks.code.create()); break;
+    }
+    // Focus last: several of these dispatch through NodeViews (table, math)
+    // that move the selection themselves.
+    if (id !== 'image') view.focus();
+  }
+
+  function closeInsertMenu() {
+    showInsertMenu = false;
+    scheduleHandleHide();
   }
 
   /** Compute the nearest valid drop gap for (clientX, clientY) — constrained
@@ -3475,11 +3650,16 @@
     updateActiveHeading();
   });
 }} onmousemove={handleBlockHover} onmouseleave={handleBlockHoverLeave}>
-  <div class="editor-content-area" style="max-width: {showOutline ? `${editorLineWidth + outlineWidth}px` : `${editorLineWidth}px`}; --wide-extra: {wideExtra}px">
+  <div class="editor-content-area" style="max-width: {contentMaxWidth}px; --wide-extra: {wideExtra}px">
     {#if showOutline}
-      <OutlinePanel headings={outlineHeadings} activeId={activeHeadingId} width={outlineWidth} containerHeight={wrapperHeight} onSelect={handleOutlineSelect} onWidthChange={onOutlineWidthChange} />
+      <OutlinePanel headings={outlineHeadings} activeId={activeHeadingId} width={outlineWidth} containerHeight={wrapperHeight} resizeEdge="leading" centered trailingGutter={BLOCK_BUTTON_GUTTER} onSelect={handleOutlineSelect} onWidthChange={onOutlineWidthChange} />
     {/if}
     <div bind:this={editorEl} class="editor-root"></div>
+    {#if onLineWidthChange}
+      <!-- Split mode leaves this off: both panes would carry a handle for the
+           same global width, right next to the split divider. -->
+      <ContentWidthHandle width={editorLineWidth} onWidthChange={onLineWidthChange} />
+    {/if}
     {#if initFailure}
       <div class="editor-init-error" role="alert">
         <strong>Editor failed to render.</strong>
@@ -3492,6 +3672,20 @@
 </div>
 
 {#if showDragHandle && !isDraggingBlock}
+  <button
+    class="block-insert-handle"
+    style="top: {dragHandleTop}px; left: {insertHandleLeft}px"
+    title={$t('editor.insert_menu_tooltip')}
+    aria-label={$t('editor.insert_menu_tooltip')}
+    onmousedown={(e) => e.preventDefault()}
+    onclick={handleInsertHandleClick}
+    onmouseenter={handleDragHandleEnter}
+    onmouseleave={handleDragHandleLeave}
+  >
+    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+      <path d="M7 2.5v9M2.5 7h9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+    </svg>
+  </button>
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="block-drag-handle"
@@ -3507,6 +3701,14 @@
       <circle cx="3" cy="15" r="1.5"/><circle cx="9" cy="15" r="1.5"/>
     </svg>
   </div>
+{/if}
+
+{#if showInsertMenu}
+  <BlockInsertMenu
+    position={insertMenuPosition}
+    onSelect={runInsertAction}
+    onClose={closeInsertMenu}
+  />
 {/if}
 
 {#if isDraggingBlock}
@@ -3684,6 +3886,8 @@
   .editor-content-area {
     width: 100%;
     margin: 0 auto;
+    /* Anchors ContentWidthHandle, which spans the box's full height. */
+    position: relative;
   }
 
   .has-outline .editor-content-area {
@@ -3725,6 +3929,31 @@
 
   .block-drag-handle:active {
     cursor: grabbing;
+  }
+
+  /* Insert "+" — same size and rest state as the drag handle so the pair
+     reads as one control group, but a pointer cursor because it opens a menu
+     rather than starting a gesture. */
+  .block-insert-handle {
+    position: fixed;
+    width: 18px;
+    height: 22px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 4px;
+    color: var(--text-muted);
+    cursor: pointer;
+    background: transparent;
+    z-index: 50;
+    user-select: none;
+  }
+
+  .block-insert-handle:hover {
+    background: var(--bg-hover);
+    color: var(--text-secondary);
   }
 
   .block-drag-insert-line {

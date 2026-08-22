@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
+  import { OUTLINE_MIN_WIDTH, OUTLINE_MAX_WIDTH, resizeWidth } from '$lib/editor/content-width';
 
   export interface OutlineHeading {
     id: string;
@@ -8,14 +9,14 @@
     html?: string;
   }
 
-  const OUTLINE_MIN_WIDTH = 120;
-  const OUTLINE_MAX_WIDTH = 500;
-
   let {
     headings = [],
     activeId = null,
     width = 200,
     containerHeight = 0,
+    resizeEdge = 'trailing',
+    centered = false,
+    trailingGutter = 0,
     onSelect,
     onWidthChange,
   }: {
@@ -23,6 +24,24 @@
     activeId?: string | null;
     width?: number;
     containerHeight?: number;
+    /**
+     * Which edge carries the resize strip.
+     *
+     * 'trailing' (the default, and what the Typst pane uses) puts it between
+     * the outline and the content. The markdown editors pass 'leading'
+     * instead: their content column has floating block buttons in that lane,
+     * and a strip there swallows the pointer on the way to them. Their prose
+     * column is resized from its own far edge — see ContentWidthHandle.
+     */
+    resizeEdge?: 'leading' | 'trailing';
+    /**
+     * True when the host centres the outline + content box with auto margins.
+     * A centred box's edge travels half as far as the width grows, so the
+     * drag has to apply twice the pointer delta to stay under the cursor.
+     */
+    centered?: boolean;
+    /** Reserved gutter between the outline and the content, in px. */
+    trailingGutter?: number;
     onSelect?: (heading: OutlineHeading) => void;
     onWidthChange?: (width: number) => void;
   } = $props();
@@ -45,11 +64,15 @@
     document.body.style.cursor = 'col-resize';
 
     function onPointerMove(ev: PointerEvent) {
-      const delta = ev.clientX - startX;
-      const newW = Math.round(
-        Math.min(OUTLINE_MAX_WIDTH, Math.max(OUTLINE_MIN_WIDTH, startW + (isRtl ? -delta : delta))),
+      onWidthChange?.(
+        resizeWidth(startW, ev.clientX - startX, {
+          min: OUTLINE_MIN_WIDTH,
+          max: OUTLINE_MAX_WIDTH,
+          gain: centered ? 2 : 1,
+          leading: resizeEdge === 'leading',
+          rtl: isRtl,
+        }),
       );
-      onWidthChange?.(newW);
     }
 
     function onPointerUp() {
@@ -66,7 +89,7 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="outline-wrapper" class:dragging style="width: {width}px{containerHeight > 0 ? `; --_ch: ${containerHeight}px` : ''}">
+<div class="outline-wrapper" class:dragging style="width: {width}px; margin-inline-end: {trailingGutter}px{containerHeight > 0 ? `; --_ch: ${containerHeight}px` : ''}">
   <nav class="outline-scroll">
     {#if headings.length === 0}
       <span class="outline-empty">{$t('outline.empty')}</span>
@@ -88,7 +111,7 @@
       {/each}
     {/if}
   </nav>
-  <div class="resize-handle" class:hover-visible={hoverVisible} onpointerdown={onPointerDown} onpointerenter={onHandleEnter} onpointerleave={onHandleLeave}></div>
+  <div class="resize-handle" class:leading={resizeEdge === 'leading'} class:hover-visible={hoverVisible} onpointerdown={onPointerDown} onpointerenter={onHandleEnter} onpointerleave={onHandleLeave}></div>
 </div>
 
 <style>
@@ -180,15 +203,22 @@
     background: var(--outline-active-accent, var(--accent-color));
   }
 
-  /* Resize handle — right edge, full height, outside scroll */
+  /* Resize handle — full height, outside the scroll area. Sits on whichever
+     edge `resizeEdge` names, using logical insets so RTL mirrors it for free
+     (the leading edge is the right one there). */
   .resize-handle {
     position: absolute;
     top: 0;
-    right: 0;
+    inset-inline-end: 0;
     width: 4px;
     height: 100%;
     cursor: col-resize;
     z-index: 1;
+  }
+
+  .resize-handle.leading {
+    inset-inline-end: auto;
+    inset-inline-start: 0;
   }
 
   .resize-handle.hover-visible,
@@ -205,11 +235,6 @@
   :global([dir="rtl"]) .outline-scroll {
     padding-right: 0;
     padding-left: 8px;
-  }
-
-  :global([dir="rtl"]) .resize-handle {
-    right: auto;
-    left: 0;
   }
 
   :global([dir="rtl"]) .outline-item {

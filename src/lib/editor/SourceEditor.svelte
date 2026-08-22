@@ -5,6 +5,7 @@
   import OutlinePanel, { type OutlineHeading } from '$lib/components/OutlinePanel.svelte';
   import { extractSourceHeadings } from './source-outline';
   import { cumulativeLineOffsets } from './line-metrics';
+  import ContentWidthHandle from './ContentWidthHandle.svelte';
   import katex from 'katex';
   // Side-effect: \ce/\pu (mhchem) for chemistry in the source-mode preview.
   import 'katex/contrib/mhchem';
@@ -19,6 +20,7 @@
     readOnly = false,
     onContentChange,
     onOutlineWidthChange,
+    onLineWidthChange,
   }: {
     content?: string;
     hideScrollbar?: boolean;
@@ -32,6 +34,8 @@
     readOnly?: boolean;
     onContentChange?: (content: string) => void;
     onOutlineWidthChange?: (width: number) => void;
+    /** Persist a new prose-column width dragged from the content edge. */
+    onLineWidthChange?: (width: number) => void;
   } = $props();
 
   let showLineNumbers = $state(false);
@@ -706,7 +710,7 @@
 }}>
   <div class="source-editor-inner" style="max-width: {showOutline ? `${editorLineWidth + outlineWidth}px` : `${editorLineWidth}px`}">
     {#if showOutline}
-      <OutlinePanel headings={outlineHeadings} activeId={activeHeadingId} width={outlineWidth} containerHeight={outerHeight} onSelect={handleOutlineSelectSource} onWidthChange={onOutlineWidthChange} />
+      <OutlinePanel headings={outlineHeadings} activeId={activeHeadingId} width={outlineWidth} containerHeight={outerHeight} resizeEdge="leading" centered onSelect={handleOutlineSelectSource} onWidthChange={onOutlineWidthChange} />
     {/if}
     {#if showLineNumbers}
       <div class="line-numbers">
@@ -750,6 +754,9 @@
         readonly={readOnly}
       ></textarea>
     </div>
+    {#if onLineWidthChange}
+      <ContentWidthHandle width={editorLineWidth} onWidthChange={onLineWidthChange} />
+    {/if}
   </div>
 </div>
 
@@ -786,6 +793,8 @@
     width: 100%;
     margin: 0 auto;
     min-height: 0;
+    /* Anchors ContentWidthHandle, which spans the box's full height. */
+    position: relative;
     display: flex;
     word-wrap: break-word;
     overflow-wrap: break-word;
