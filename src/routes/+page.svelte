@@ -243,6 +243,8 @@ ${tr('welcome.tip')}
   /** Editing surface from before a view pinned one; see applyView. */
   let viewModeStash: EditorMode | null = null;
   const viewChrome = $derived(chromeFor(creationView));
+  /** The status bar's creation-view popover; owns Escape while it is open. */
+  let viewMenuOpen = $state(false);
 
   /**
    * Switch creation view.
@@ -1665,6 +1667,9 @@ ${tr('welcome.tip')}
     if (
       event.key === 'Escape' &&
       creationView !== 'standard' &&
+      // The status bar's view popover owns Escape while open — closing it and
+      // leaving the view on one keystroke would be two actions for one press.
+      !viewMenuOpen &&
       !showSettings && !showSearch && !showKBManager && !showVersionHistory &&
       !showHistoryPanel && !showImageDialog && !showReviewPanel
     ) {
@@ -4579,6 +4584,7 @@ ${tr('welcome.tip')}
     onModeChange={(mode) => { editorMode = mode; editorStore.setEditorMode(mode); }}
     {creationView}
     onCreationViewChange={setCreationView}
+    bind:showViewMenu={viewMenuOpen}
     onGitSync={gitBound ? handleGitSync : undefined}
     onShowConflicts={() => { conflictKbId = filesStore.getState().activeKnowledgeBaseId; }}
     onToggleVersionHistory={toggleVersionHistory}

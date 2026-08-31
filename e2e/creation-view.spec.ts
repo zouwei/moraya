@@ -42,24 +42,89 @@ async function boot(page: Page) {
   await page.waitForTimeout(600)
 }
 
-/** Click a view button in the status bar's leftmost switcher. */
-async function pickView(page: Page, label: string) {
-  await page.locator('.view-switcher .mode-btn', { hasText: label }).click()
+/** The status-bar icon that opens the creation-view popover. */
+function viewTrigger(page: Page) {
+  return page.locator('.statusbar-left button.status-icon[aria-haspopup="menu"]')
+}
+
+/** Open the popover and pick a view by its stable data-view id. */
+async function pickView(page: Page, view: 'standard' | 'reading' | 'writing') {
+  await viewTrigger(page).click()
+  await expect(page.locator('.view-menu')).toBeVisible()
+  await page.locator(`.view-menu-item[data-view="${view}"]`).click()
+  await expect(page.locator('.view-menu')).toHaveCount(0)
   await page.waitForTimeout(400)
 }
 
-test('the switcher offers exactly the three views and starts on standard', async ({ page }) => {
+test('the popover offers exactly the three views and starts on standard', async ({ page }) => {
   await boot(page)
-  const buttons = page.locator('.view-switcher .mode-btn')
-  await expect(buttons).toHaveCount(3)
-  await expect(buttons.filter({ hasText: 'Standard' })).toHaveClass(/active/)
+  // Collapsed to a single icon until asked — the status bar is not a place to
+  // spend three buttons on a mode that is usually left alone.
+  await expect(page.locator('.view-menu')).toHaveCount(0)
+  await expect(viewTrigger(page)).toBeVisible()
+
+  await viewTrigger(page).click()
+  const items = page.locator('.view-menu-item')
+  await expect(items).toHaveCount(3)
+  await expect(page.locator('.view-menu-item[data-view="standard"]')).toHaveClass(/active/)
+})
+
+test('the trigger sits in the status bar, immediately after the outline icon', async ({ page }) => {
+  await boot(page)
+  // Asserted by ORDER among the left icons, not by a fixed count: the status
+  // bar grows other icons over time (version history already sits there) and
+  // the requirement is "after the outline", not "third".
+  const order = await page.evaluate(() => {
+    const icons = Array.from(document.querySelectorAll('.statusbar-left button.status-icon'))
+    return {
+      outline: icons.findIndex((b) => b.getAttribute('aria-label')?.match(/outline/i)),
+      trigger: icons.findIndex((b) => b.getAttribute('aria-haspopup') === 'menu'),
+    }
+  })
+  expect(order.outline).toBeGreaterThanOrEqual(0)
+  expect(order.trigger).toBe(order.outline + 1)
+
+  const outline = (await page.locator('.statusbar-left button.status-icon').nth(order.outline).boundingBox())!
+  const trigger = (await viewTrigger(page).boundingBox())!
+  expect(trigger.x).toBeGreaterThan(outline.x)
+  expect(Math.abs(trigger.y - outline.y)).toBeLessThan(2)
+})
+
+test('the trigger reflects the active view, and marks that it is not standard', async ({ page }) => {
+  await boot(page)
+  await expect(viewTrigger(page)).not.toHaveClass(/active/)
+  await expect(viewTrigger(page)).toHaveAttribute('title', /Standard/i)
+
+  await pickView(page, 'reading')
+  // A view that removes the caret has to be legible from the chrome alone.
+  await expect(viewTrigger(page)).toHaveClass(/active/)
+  await expect(viewTrigger(page)).toHaveAttribute('title', /Reading/i)
+})
+
+test('the popover closes on a backdrop click and on Escape, without leaving the view', async ({ page }) => {
+  await boot(page)
+  await pickView(page, 'reading')
+
+  await viewTrigger(page).click()
+  await expect(page.locator('.view-menu')).toBeVisible()
+  await page.locator('.view-menu-backdrop').click({ position: { x: 5, y: 5 } })
+  await expect(page.locator('.view-menu')).toHaveCount(0)
+  await expect(page.locator('.editor-wrapper.view-reading')).toHaveCount(1)
+
+  await viewTrigger(page).click()
+  await expect(page.locator('.view-menu')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.view-menu')).toHaveCount(0)
+  // One keystroke does one thing: it closed the popover and did NOT also drop
+  // the reading view.
+  await expect(page.locator('.editor-wrapper.view-reading')).toHaveCount(1)
 })
 
 test('reading view makes the document non-editable', async ({ page }) => {
   await boot(page)
   const before = await page.locator('.ProseMirror').innerText()
 
-  await pickView(page, 'Reading')
+  await pickView(page, 'reading')
   await expect(page.locator('.editor-wrapper.view-reading')).toHaveCount(1)
   await expect(page.locator('.ProseMirror')).toHaveAttribute('contenteditable', 'false')
 
@@ -74,7 +139,7 @@ test('reading view makes the document non-editable', async ({ page }) => {
 
 test('reading view hides the editing affordances', async ({ page }) => {
   await boot(page)
-  await pickView(page, 'Reading')
+  await pickView(page, 'reading')
 
   // Hovering a paragraph in standard view summons both gutter buttons; in
   // reading view there is nothing to drag and nothing to insert.
@@ -89,10 +154,10 @@ test('reading view hides the editing affordances', async ({ page }) => {
 
 test('reading view pins the rendered surface and says why', async ({ page }) => {
   await boot(page)
-  await pickView(page, 'Reading')
+  await pickView(page, 'reading')
 
-  const source = page.locator('.mode-switcher:not(.view-switcher) .mode-btn', { hasText: 'Source' })
-  const split = page.locator('.mode-switcher:not(.view-switcher) .mode-btn', { hasText: 'Split' })
+  const source = page.locator('.mode-switcher .mode-btn', { hasText: 'Source' })
+  const split = page.locator('.mode-switcher .mode-btn', { hasText: 'Split' })
   await expect(source).toHaveClass(/disabled/)
   await expect(split).toHaveClass(/disabled/)
   // Still on screen, with the reason in its tooltip, rather than removed.
@@ -106,20 +171,20 @@ test('reading view pins the rendered surface and says why', async ({ page }) => 
 
 test('reading view restores the surface you came from', async ({ page }) => {
   await boot(page)
-  await page.locator('.mode-switcher:not(.view-switcher) .mode-btn', { hasText: 'Source' }).click()
+  await page.locator('.mode-switcher .mode-btn', { hasText: 'Source' }).click()
   await page.waitForTimeout(400)
   await expect(page.locator('.source-textarea')).toBeVisible()
 
-  await pickView(page, 'Reading')
+  await pickView(page, 'reading')
   await expect(page.locator('.ProseMirror')).toBeVisible()
 
-  await pickView(page, 'Standard')
+  await pickView(page, 'standard')
   await expect(page.locator('.source-textarea')).toBeVisible()
 })
 
 test('a plain click on an anchor link scrolls the document', async ({ page }) => {
   await boot(page)
-  await pickView(page, 'Reading')
+  await pickView(page, 'reading')
 
   const scrollTop = () =>
     page.evaluate(() => (document.querySelector('.editor-wrapper') as HTMLElement).scrollTop)
@@ -135,7 +200,7 @@ test('a plain click on an anchor link scrolls the document', async ({ page }) =>
 
 test('a plain click on a link does not put the caret in the text', async ({ page }) => {
   await boot(page)
-  await pickView(page, 'Reading')
+  await pickView(page, 'reading')
   const before = await page.locator('.ProseMirror').innerText()
 
   await page.locator('.ProseMirror a', { hasText: 'a link' }).click()
@@ -149,7 +214,7 @@ test('a plain click on a link does not put the caret in the text', async ({ page
 
 test('writing view keeps the document editable', async ({ page }) => {
   await boot(page)
-  await pickView(page, 'Writing')
+  await pickView(page, 'writing')
 
   await expect(page.locator('.editor-wrapper.view-writing')).toHaveCount(1)
   await expect(page.locator('.ProseMirror')).toHaveAttribute('contenteditable', 'true')
@@ -162,7 +227,7 @@ test('writing view keeps the document editable', async ({ page }) => {
 
 test('writing view dims every block but the one holding the caret', async ({ page }) => {
   await boot(page)
-  await pickView(page, 'Writing')
+  await pickView(page, 'writing')
   await page.locator('.ProseMirror p').first().click()
   await page.waitForTimeout(400)
 
@@ -183,7 +248,7 @@ test('writing view dims every block but the one holding the caret', async ({ pag
 
 test('the focus mark follows the caret between blocks', async ({ page }) => {
   await boot(page)
-  await pickView(page, 'Writing')
+  await pickView(page, 'writing')
 
   await page.locator('.ProseMirror p').first().click()
   await page.waitForTimeout(300)
@@ -199,12 +264,12 @@ test('the focus mark follows the caret between blocks', async ({ page }) => {
 
 test('standard view leaves no trace of either view behind', async ({ page }) => {
   await boot(page)
-  await pickView(page, 'Writing')
+  await pickView(page, 'writing')
   await page.locator('.ProseMirror p').first().click()
   await page.waitForTimeout(300)
   await expect(page.locator('.moraya-focus-block')).toHaveCount(1)
 
-  await pickView(page, 'Standard')
+  await pickView(page, 'standard')
   await expect(page.locator('.editor-wrapper.view-writing')).toHaveCount(0)
   await expect(page.locator('.editor-wrapper.view-reading')).toHaveCount(0)
   await expect(page.locator('.moraya-focus-block')).toHaveCount(0)
@@ -213,13 +278,13 @@ test('standard view leaves no trace of either view behind', async ({ page }) => 
 
 test('Escape leaves a view, and does nothing in standard', async ({ page }) => {
   await boot(page)
-  await pickView(page, 'Reading')
+  await pickView(page, 'reading')
   await expect(page.locator('.editor-wrapper.view-reading')).toHaveCount(1)
 
   await page.keyboard.press('Escape')
   await page.waitForTimeout(400)
   await expect(page.locator('.editor-wrapper.view-reading')).toHaveCount(0)
-  await expect(page.locator('.view-switcher .mode-btn').filter({ hasText: 'Standard' })).toHaveClass(/active/)
+  await expect(viewTrigger(page)).not.toHaveClass(/active/)
 
   // Already standard: Escape must not disturb anything.
   const before = await page.locator('.ProseMirror').innerText()
@@ -242,7 +307,7 @@ test('search highlights survive sharing the decorations prop with the focus mark
   const standardHits = await page.locator('.search-highlight, .search-highlight-current').count()
   expect(standardHits).toBeGreaterThan(1)
 
-  await pickView(page, 'Writing')
+  await pickView(page, 'writing')
   await page.locator('.ProseMirror p').first().click()
   await page.waitForTimeout(500)
 
@@ -255,9 +320,11 @@ test('the switcher stays reachable inside every view', async ({ page }) => {
   // Reading removes the caret; if the way out were hidden too, the only exits
   // left would be a keystroke and a menu the reporter already failed to find.
   await boot(page)
-  for (const view of ['Reading', 'Writing', 'Standard']) {
+  for (const view of ['reading', 'writing', 'standard'] as const) {
     await pickView(page, view)
-    await expect(page.locator('.view-switcher .mode-btn')).toHaveCount(3)
-    await expect(page.locator('.view-switcher .mode-btn').filter({ hasText: view })).toHaveClass(/active/)
+    await expect(viewTrigger(page)).toBeVisible()
+    await viewTrigger(page).click()
+    await expect(page.locator(`.view-menu-item[data-view="${view}"]`)).toHaveClass(/active/)
+    await page.keyboard.press('Escape')
   }
 })

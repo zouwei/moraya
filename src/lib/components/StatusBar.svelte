@@ -23,6 +23,7 @@
     currentMode = 'visual' as EditorMode,
     creationView = 'standard' as CreationView,
     onCreationViewChange,
+    showViewMenu = $bindable(false),
     aiPanelOpen = false,
     aiConfigured = false,
     aiLoading = false,
@@ -57,6 +58,14 @@
     /** Active creation view — see $lib/editor/creation-view. */
     creationView?: CreationView;
     onCreationViewChange?: (view: CreationView) => void;
+    /**
+     * Whether the creation-view popover is open.
+     *
+     * Bindable because the page needs to see it: the page's own Escape handler
+     * exits the creation view, and both listeners sit on `window`, where
+     * stopPropagation cannot reach a sibling. One keystroke must do one thing.
+     */
+    showViewMenu?: boolean;
     indexingPhase?: string;
     indexingCurrent?: number;
     indexingTotal?: number;
@@ -144,6 +153,33 @@
     writing: 'statusbar.view_writing',
   };
 
+  // Creation-view picker. `position: fixed`, opened upward from the trigger:
+  // the status bar is the last row on screen, so a popover that grew downward
+  // would be clipped by the window edge.
+
+  let viewMenuPos = $state({ left: 0, bottom: 0 });
+  let viewTriggerEl: HTMLButtonElement | undefined = $state();
+
+  function toggleViewMenu() {
+    if (showViewMenu) { showViewMenu = false; return; }
+    const r = viewTriggerEl?.getBoundingClientRect();
+    if (r) {
+      viewMenuPos = {
+        left: Math.max(6, r.left),
+        // Distance from the viewport's bottom edge up to the trigger's top,
+        // plus a small gap — the popover is anchored by `bottom`, so it grows
+        // upward however tall it turns out to be.
+        bottom: Math.max(6, window.innerHeight - r.top + 6),
+      };
+    }
+    showViewMenu = true;
+  }
+
+  function chooseView(view: CreationView) {
+    showViewMenu = false;
+    onCreationViewChange?.(view);
+  }
+
   function getModeLabel(mode: EditorMode): string {
     const labelMap: Record<EditorMode, string> = {
       visual: 'statusbar.visual_mode',
@@ -195,6 +231,19 @@
         <line x1="3" y1="12" x2="3.01" y2="12"/>
         <line x1="3" y1="18" x2="3.01" y2="18"/>
       </svg>
+    </button>
+    <button
+      class="status-icon"
+      class:active={creationView !== 'standard'}
+      bind:this={viewTriggerEl}
+      onclick={toggleViewMenu}
+      title="{$t('statusbar.creation_view')}: {$t(viewLabels[creationView])}"
+      aria-label={$t('statusbar.creation_view')}
+      aria-haspopup="menu"
+      aria-expanded={showViewMenu}
+      type="button"
+    >
+      {@render viewIcon(creationView)}
     </button>
     <span class="status-item">{$t('statusbar.words')}: {wordCount}</span>
     <span class="status-item">{$t('statusbar.characters')}: {charCount}</span>
@@ -358,24 +407,6 @@
   </div>
   <div class="statusbar-right">
     {#if !hideModeSwitcher}
-      <!-- Creation view. Sits LEFT of the surface switcher and is never
-           hidden, including inside the views themselves: reading removes the
-           caret, so the way back out has to stay on screen rather than
-           depending on the user recalling Escape or finding the menu. -->
-      <div class="mode-switcher view-switcher">
-        {#each CREATION_VIEWS as view}
-          <!-- svelte-ignore a11y_click_events_have_key_events -->
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <span
-            class="mode-btn"
-            class:active={creationView === view}
-            title={$t(viewLabels[view])}
-            onclick={() => onCreationViewChange?.(view)}
-          >
-            {$t(viewLabels[view])}
-          </span>
-        {/each}
-      </div>
       <div class="mode-switcher">
         {#each modes as mode}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -432,13 +463,131 @@
   </div>
 </div>
 
+{#snippet viewIcon(view: CreationView)}
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    {#if view === 'standard'}
+      <!-- pencil on a line: writing into a document, the default -->
+      <path d="M12 20h9"/>
+      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/>
+    {:else if view === 'reading'}
+      <!-- open book -->
+      <path d="M2 4h6a3 3 0 0 1 3 3v13a2.5 2.5 0 0 0-2.5-2H2z"/>
+      <path d="M22 4h-6a3 3 0 0 0-3 3v13a2.5 2.5 0 0 1 2.5-2H22z"/>
+    {:else}
+      <!-- framed corners around a single line: the page narrowed to one block -->
+      <path d="M8 3H5a2 2 0 0 0-2 2v3"/>
+      <path d="M16 3h3a2 2 0 0 1 2 2v3"/>
+      <path d="M8 21H5a2 2 0 0 1-2-2v-3"/>
+      <path d="M16 21h3a2 2 0 0 0 2-2v-3"/>
+      <line x1="8" y1="12" x2="16" y2="12"/>
+    {/if}
+  </svg>
+{/snippet}
+
+<svelte:window
+  onkeydown={(e) => {
+    if (!showViewMenu || e.key !== 'Escape') return;
+    // Consume it: the page's own Escape handler exits the creation view, and
+    // one keystroke should close the popover OR leave the view, never both.
+    e.preventDefault();
+    e.stopPropagation();
+    showViewMenu = false;
+  }}
+/>
+
+{#if showViewMenu}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="view-menu-backdrop"
+    onclick={() => (showViewMenu = false)}
+    oncontextmenu={(e) => { e.preventDefault(); showViewMenu = false; }}
+  ></div>
+  <div
+    class="view-menu"
+    role="menu"
+    aria-label={$t('statusbar.creation_view')}
+    style="left: {viewMenuPos.left}px; bottom: {viewMenuPos.bottom}px"
+  >
+    {#each CREATION_VIEWS as view}
+      <button
+        class="view-menu-item"
+        class:active={creationView === view}
+        role="menuitemradio"
+        aria-checked={creationView === view}
+        data-view={view}
+        onclick={() => chooseView(view)}
+        type="button"
+      >
+        <span class="vm-icon">{@render viewIcon(view)}</span>
+        <span class="vm-label">{$t(viewLabels[view])}</span>
+        <span class="vm-check">{creationView === view ? '✓' : ''}</span>
+      </button>
+    {/each}
+  </div>
+{/if}
+
 <style>
-  /* Two switchers sit side by side; a hairline keeps them from reading as one
-     six-button group, since they are different axes. */
-  .view-switcher {
-    margin-right: 6px;
-    padding-right: 6px;
-    border-right: 1px solid var(--border-color);
+  .view-menu-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 998;
+  }
+
+  .view-menu {
+    position: fixed;
+    z-index: 999;
+    min-width: 168px;
+    padding: 4px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.16);
+  }
+
+  .view-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 8px;
+    background: none;
+    border: none;
+    border-radius: 5px;
+    color: var(--text-primary);
+    font-size: var(--font-size-sm);
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .view-menu-item:hover {
+    background: var(--bg-hover);
+  }
+
+  .view-menu-item.active {
+    color: var(--accent-color);
+  }
+
+  .vm-icon {
+    display: flex;
+    flex-shrink: 0;
+    color: var(--text-secondary);
+  }
+
+  .view-menu-item.active .vm-icon {
+    color: var(--accent-color);
+  }
+
+  .vm-label {
+    flex: 1;
+  }
+
+  /* Reserved whether ticked or not, so the labels do not shift as the
+     selection moves. */
+  .vm-check {
+    width: 12px;
+    flex-shrink: 0;
+    text-align: right;
   }
 
   .mode-btn.disabled {
