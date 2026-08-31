@@ -1,6 +1,6 @@
 {
   "name": "moraya",
-  "version": "0.45.14",
+  "version": "0.45.15",
   "description": "",
   "type": "module",
   "scripts": {
@@ -27,7 +27,7 @@
   },
   "dependencies": {
     "@moraya/board": "^0.18.1",
-    "@moraya/core": "file:./vendor/moraya-core-0.19.2.tgz",
+    "@moraya/core": "^0.19.2",
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@tauri-apps/plugin-fs": "^2.4.5",
