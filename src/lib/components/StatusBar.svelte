@@ -1,5 +1,6 @@
 <script lang="ts">
   import { editorStore, type EditorMode } from '../stores/editor-store';
+  import { CREATION_VIEWS, allowsEditorMode, type CreationView } from '$lib/editor/creation-view';
   import { settingsStore } from '../stores/settings-store';
   import { updateStore } from '$lib/services/update-service';
   import { t } from '$lib/i18n';
@@ -20,6 +21,8 @@
     onToggleVersionHistory,
     versionHistoryAvailable = false,
     currentMode = 'visual' as EditorMode,
+    creationView = 'standard' as CreationView,
+    onCreationViewChange,
     aiPanelOpen = false,
     aiConfigured = false,
     aiLoading = false,
@@ -51,6 +54,9 @@
     searchCurrentMatch?: number;
     searchRegexError?: string;
     hideModeSwitcher?: boolean;
+    /** Active creation view — see $lib/editor/creation-view. */
+    creationView?: CreationView;
+    onCreationViewChange?: (view: CreationView) => void;
     indexingPhase?: string;
     indexingCurrent?: number;
     indexingTotal?: number;
@@ -131,6 +137,12 @@
   });
 
   const modes: EditorMode[] = ['visual', 'source', 'split'];
+
+  const viewLabels: Record<CreationView, string> = {
+    standard: 'statusbar.view_standard',
+    reading: 'statusbar.view_reading',
+    writing: 'statusbar.view_writing',
+  };
 
   function getModeLabel(mode: EditorMode): string {
     const labelMap: Record<EditorMode, string> = {
@@ -346,6 +358,24 @@
   </div>
   <div class="statusbar-right">
     {#if !hideModeSwitcher}
+      <!-- Creation view. Sits LEFT of the surface switcher and is never
+           hidden, including inside the views themselves: reading removes the
+           caret, so the way back out has to stay on screen rather than
+           depending on the user recalling Escape or finding the menu. -->
+      <div class="mode-switcher view-switcher">
+        {#each CREATION_VIEWS as view}
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <span
+            class="mode-btn"
+            class:active={creationView === view}
+            title={$t(viewLabels[view])}
+            onclick={() => onCreationViewChange?.(view)}
+          >
+            {$t(viewLabels[view])}
+          </span>
+        {/each}
+      </div>
       <div class="mode-switcher">
         {#each modes as mode}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -353,7 +383,13 @@
           <span
             class="mode-btn"
             class:active={currentMode === mode}
+            class:disabled={!allowsEditorMode(creationView, mode)}
+            title={allowsEditorMode(creationView, mode) ? '' : $t('statusbar.mode_locked_by_reading')}
             onclick={() => {
+              // Left visible but inert in reading view, so the reason a
+              // surface cannot be picked is on screen instead of inferred
+              // from a button that vanished.
+              if (!allowsEditorMode(creationView, mode)) return;
               if (onModeChange) {
                 onModeChange(mode);
               } else {
@@ -397,6 +433,19 @@
 </div>
 
 <style>
+  /* Two switchers sit side by side; a hairline keeps them from reading as one
+     six-button group, since they are different axes. */
+  .view-switcher {
+    margin-right: 6px;
+    padding-right: 6px;
+    border-right: 1px solid var(--border-color);
+  }
+
+  .mode-btn.disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+
   .statusbar {
     display: flex;
     align-items: center;

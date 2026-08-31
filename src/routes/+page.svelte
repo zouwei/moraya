@@ -36,6 +36,7 @@
   import type { TypstAction } from '$lib/editor/typst-commands';
   import SearchBar from '$lib/editor/SearchBar.svelte';
   import type { EditorMode } from '$lib/stores/editor-store';
+  import { chromeFor, applyView, allowsEditorMode, type CreationView } from '$lib/editor/creation-view';
   import TitleBar from '$lib/components/TitleBar.svelte';
   import StatusBar from '$lib/components/StatusBar.svelte';
   import Sidebar from '$lib/components/Sidebar.svelte';
@@ -233,6 +234,37 @@ ${tr('welcome.tip')}
     _prevContentLen = len;
   });
   let showSidebar = $state(false);
+  // ── Creation view (standard / reading / writing) ────────────────────────
+  //
+  // Session state, deliberately NOT persisted: a user who quits while reading
+  // would reopen into an editor that refuses to type, with no memory of why.
+  // Standard on every launch is the recoverable default.
+  let creationView = $state<CreationView>('standard');
+  /** Editing surface from before a view pinned one; see applyView. */
+  let viewModeStash: EditorMode | null = null;
+  const viewChrome = $derived(chromeFor(creationView));
+
+  /**
+   * Switch creation view.
+   *
+   * Panels are masked by `viewChrome`, so nothing here touches settings. The
+   * only state that has to move is the editing surface, which reading pins to
+   * visual and hands back on exit.
+   */
+  function setCreationView(next: CreationView) {
+    if (next === creationView) return;
+    const { mode, stash } = applyView(next, editorStore.getState().editorMode, viewModeStash);
+    viewModeStash = stash;
+    creationView = next;
+    if (mode !== editorStore.getState().editorMode) editorStore.setEditorMode(mode);
+  }
+
+  /** Reading view: follow a link to another document in this knowledge base. */
+  function handleOpenDocument(path: string) {
+    // Same path the file tree uses, so an already-open document focuses its
+    // existing tab instead of opening a second one.
+    handleFileSelect(path);
+  }
   let showSettings = $state(false);
   let settingsInitialTab = $state<'general' | 'ai' | 'voice'>('general');
   let showAIPanel = $state(false);
@@ -1218,6 +1250,17 @@ ${tr('welcome.tip')}
     invoke('set_menu_check', { id: 'view_mode_split', checked: editorMode === 'split' }).catch(() => {});
   });
 
+  // Creation view checkmarks. Radio-shaped: exactly one is checked, and the
+  // Rust side's UPDATING_MODE_CHECKS guard keeps set_checked() from bouncing
+  // an event back and re-triggering this effect (performance rule 1).
+  $effect(() => {
+    if (!isTauri) return;
+    const v = creationView;
+    invoke('set_menu_check', { id: 'view_creation_standard', checked: v === 'standard' }).catch(() => {});
+    invoke('set_menu_check', { id: 'view_creation_reading', checked: v === 'reading' }).catch(() => {});
+    invoke('set_menu_check', { id: 'view_creation_writing', checked: v === 'writing' }).catch(() => {});
+  });
+
   // Sync native menu checkmarks when view panels are toggled.
   $effect(() => {
     if (!isTauri) return;
@@ -1335,6 +1378,9 @@ ${tr('welcome.tip')}
       insert_cloud_video: tr('context_menu.insert_cloud_video'),
       // View menu — append platform-appropriate shortcut hints
       // v0.41.5 (A5): accelerators are now native — no Unicode hints in labels.
+      view_creation_standard: tr('menu.view_standard'),
+      view_creation_reading: tr('menu.view_reading'),
+      view_creation_writing: tr('menu.view_writing'),
       view_mode_visual: tr('menu.visual_mode'),
       view_mode_source: tr('menu.source_mode'),
       view_mode_split: tr('menu.split_mode'),
@@ -1542,6 +1588,9 @@ ${tr('welcome.tip')}
         editorStore.setEditorMode(next);
         return true;
       }
+      case 'view.creationStandard': setCreationView('standard'); return true;
+      case 'view.creationReading': setCreationView('reading'); return true;
+      case 'view.creationWriting': setCreationView('writing'); return true;
       case 'view.toggleSidebar': settingsStore.toggleSidebar(); return true;
       case 'view.toggleAIPanel': showAIPanel = !showAIPanel; return true;
       case 'view.toggleOutline':
@@ -1604,6 +1653,24 @@ ${tr('welcome.tip')}
           return;
         }
       }
+    }
+
+    // Escape leaves a non-standard creation view.
+    //
+    // The reporter asked for a reading mode "and a way out of it" in the same
+    // breath, which is a fair warning: a view that removes the caret has to be
+    // escapable by the key everyone already tries first. Guarded on the modal
+    // surfaces that own Escape themselves, so it only fires when nothing else
+    // would have consumed it.
+    if (
+      event.key === 'Escape' &&
+      creationView !== 'standard' &&
+      !showSettings && !showSearch && !showKBManager && !showVersionHistory &&
+      !showHistoryPanel && !showImageDialog && !showReviewPanel
+    ) {
+      event.preventDefault();
+      setCreationView('standard');
+      return;
     }
 
     const mod = event.metaKey || event.ctrlKey;
@@ -3998,6 +4065,11 @@ ${tr('welcome.tip')}
         // switch to the other". Both items therefore share the same
         // toggle handler; the menu sync $effect re-projects the
         // correct checkmark afterwards.
+        // Radio-shaped: each item SETS its view rather than toggling, so
+        // picking the one already active is a no-op instead of a surprise.
+        'menu:view_creation_standard': () => setCreationView('standard'),
+        'menu:view_creation_reading': () => setCreationView('reading'),
+        'menu:view_creation_writing': () => setCreationView('writing'),
         'menu:view_mode_visual': () => {
           const newBase: 'visual' | 'source' = lastSingleMode === 'visual' ? 'source' : 'visual';
           editorStore.setLastSingleMode(newBase);
@@ -4318,7 +4390,7 @@ ${tr('welcome.tip')}
   {/if}
 
   <div class="app-body">
-    {#if showSidebar}
+    {#if showSidebar && !viewChrome.masksSidebar}
       <Sidebar
         onFileSelect={handleFileSelect}
         onRename={handleFileRename}
@@ -4357,7 +4429,7 @@ ${tr('welcome.tip')}
              with the markdown ProseMirror editor). -->
         <TypstEditor bind:this={typstEditorRef} bind:content {editorMode} {showOutline} {outlineWidth} readOnly={editorReadOnly} onContentChange={handleTypstContentChange} onOutlineWidthChange={(w) => settingsStore.update({ outlineWidth: w })} />
       {:else if editorMode === 'visual'}
-        <Editor bind:this={visualEditorRef} bind:content {showOutline} {outlineWidth} readOnly={editorReadOnly} skipDestroyFlush={activeTypstTab !== null} onEditorReady={handleEditorReady} onNotify={showToast} onOutlineWidthChange={(w) => settingsStore.update({ outlineWidth: w })} onLineWidthChange={(w) => settingsStore.update({ editorLineWidth: w })} onInsertImage={() => { showImageDialog = true; }} onWorkflowSEO={handleWorkflowSEO} onWorkflowImageGen={handleWorkflowImageGen} onWorkflowPublish={handleWorkflowPublish} onForceShowAIPanel={() => { showAIPanel = true; }} onAddReview={handleAddReview} onInsertCloudImage={(pos) => { cloudPickerState = { kind: 'image', pos }; }} onInsertCloudAudio={(pos) => { cloudPickerState = { kind: 'audio', pos }; }} onInsertCloudVideo={(pos) => { cloudPickerState = { kind: 'video', pos }; }} />
+        <Editor bind:this={visualEditorRef} bind:content {showOutline} {outlineWidth} {creationView} onOpenDocument={handleOpenDocument} readOnly={editorReadOnly} skipDestroyFlush={activeTypstTab !== null} onEditorReady={handleEditorReady} onNotify={showToast} onOutlineWidthChange={(w) => settingsStore.update({ outlineWidth: w })} onLineWidthChange={(w) => settingsStore.update({ editorLineWidth: w })} onInsertImage={() => { showImageDialog = true; }} onWorkflowSEO={handleWorkflowSEO} onWorkflowImageGen={handleWorkflowImageGen} onWorkflowPublish={handleWorkflowPublish} onForceShowAIPanel={() => { showAIPanel = true; }} onAddReview={handleAddReview} onInsertCloudImage={(pos) => { cloudPickerState = { kind: 'image', pos }; }} onInsertCloudAudio={(pos) => { cloudPickerState = { kind: 'audio', pos }; }} onInsertCloudVideo={(pos) => { cloudPickerState = { kind: 'video', pos }; }} />
       {:else if editorMode === 'source'}
         <SourceEditor bind:this={sourceEditorRef} bind:content {showOutline} {outlineWidth} {showBlame} {blameData} readOnly={editorReadOnly} onContentChange={handleContentChange} onOutlineWidthChange={(w) => settingsStore.update({ outlineWidth: w })} onLineWidthChange={(w) => settingsStore.update({ editorLineWidth: w })} />
       {:else if editorMode === 'split'}
@@ -4385,7 +4457,7 @@ ${tr('welcome.tip')}
       {/if}
     </main>
 
-    {#if showAIPanel}
+    {#if showAIPanel && !viewChrome.masksAIPanel}
       {#await import('$lib/components/ai/AIChatPanel.svelte') then { default: AIChatPanel }}
         <AIChatPanel
           documentContent={content}
@@ -4505,6 +4577,8 @@ ${tr('welcome.tip')}
     onShowUpdateDialog={() => showUpdateDialog = true}
     onToggleAI={() => showAIPanel = !showAIPanel}
     onModeChange={(mode) => { editorMode = mode; editorStore.setEditorMode(mode); }}
+    {creationView}
+    onCreationViewChange={setCreationView}
     onGitSync={gitBound ? handleGitSync : undefined}
     onShowConflicts={() => { conflictKbId = filesStore.getState().activeKnowledgeBaseId; }}
     onToggleVersionHistory={toggleVersionHistory}

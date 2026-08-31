@@ -38,6 +38,9 @@
   import ImageAltEditor from './ImageAltEditor.svelte';
   import OutlinePanel, { type OutlineHeading } from '$lib/components/OutlinePanel.svelte';
   import { editorHoldsCaret } from './editor-focus';
+  import { chromeFor, type CreationView } from './creation-view';
+  import { resolveLinkTarget } from './link-target';
+  import { tauriLinkOpener } from './adapters/tauri-link-opener';
   import katex from 'katex';
   // Side-effect: \ce/\pu (mhchem) for chemistry in inline previews.
   import 'katex/contrib/mhchem';
@@ -97,12 +100,18 @@
     onInsertCloudVideo,
     onInsertImage,
     onLineWidthChange,
+    creationView = 'standard',
+    onOpenDocument,
   }: {
     content?: string;
     showOutline?: boolean;
     outlineWidth?: number;
     /** Read-only version-preview mode: blocks all editing (ProseMirror editable=false). */
     readOnly?: boolean;
+    /** Standard / reading / writing — see creation-view.ts. */
+    creationView?: CreationView;
+    /** Follow a link to another Moraya document (reading view). */
+    onOpenDocument?: (path: string) => void;
     /** Suppress the onDestroy content flush. Set when this editor is being torn
      *  down because the app switched to a document that is NOT this editor's
      *  markdown (e.g. a Typst tab): the flush writes the serialized ProseMirror
@@ -374,6 +383,14 @@
   }
 
   let isReady = $state(false);
+
+  /**
+   * What the active creation view does to this editor. `readOnly` still comes
+   * in as its own prop — version preview sets it independently of the view, so
+   * the two OR together rather than one replacing the other.
+   */
+  const viewChrome = $derived(chromeFor(creationView));
+  const isReadOnly = $derived(readOnly || viewChrome.readOnly);
   /**
    * Set to a non-null string when createEditor() throws or times out so the
    * user sees something other than a silent blank pane. Critical for diagnosing
@@ -2028,6 +2045,7 @@
    */
   function positionBlockButtons(pos: number): boolean {
     if (!editor || isDraggingBlock) return false;
+    if (!viewChrome.editingAffordances) return false;
     try {
       const view = editor.view;
       const unit = resolveDragUnit(view.state.doc, pos);
@@ -2073,6 +2091,141 @@
       return true;
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Reading view: a plain left click follows a link.
+   *
+   * In every other view this does nothing and the editor behaves as before —
+   * Cmd/Ctrl+click still opens links there, handled by core's editor-props
+   * plugin. That modifier is exactly what issue #88 could not find, so reading
+   * view drops the requirement rather than documenting it harder.
+   *
+   * A sibling `.md` opens as a Moraya tab; everything else local goes to the
+   * OS; a bare `#fragment` scrolls this document. See link-target.ts.
+   */
+  function handleLinkClick(event: MouseEvent) {
+    if (!viewChrome.linksOpenOnClick) return;
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey) return;
+    const anchor = (event.target as HTMLElement | null)?.closest('a[href]');
+    if (!anchor) return;
+    const target = resolveLinkTarget(
+      anchor.getAttribute('href'),
+      editorStore.getState().currentFilePath ?? null,
+    );
+    if (!target) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (target.kind === 'anchor') {
+      scrollToAnchor(target.id);
+    } else if (target.kind === 'document' && onOpenDocument) {
+      onOpenDocument(target.path);
+    } else {
+      // No document handler wired, or a non-document file: the OS knows what
+      // to do with it.
+      const href = target.kind === 'document' ? target.path : target.href;
+      try {
+        tauriLinkOpener.open(href);
+      } catch (e) {
+        console.warn('[reading] open failed:', href, e);
+      }
+    }
+  }
+
+  /** Scroll a same-document `#fragment` into view. */
+  function scrollToAnchor(id: string) {
+    if (!editorEl) return;
+    let decoded = id;
+    try { decoded = decodeURIComponent(id); } catch { /* keep the raw form */ }
+
+    // An explicit id wins when the document carries one (raw HTML anchors).
+    const byId = editorEl.querySelector(`[id="${CSS.escape(decoded)}"]`);
+    if (byId) {
+      byId.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+    // Headings in this schema render without an id, so match on the slug of
+    // the heading text instead.
+    //
+    // Scanned straight from the document rather than from `outlineHeadings`:
+    // that list is only populated while the outline PANEL is open (the
+    // performance rules skip extraction when the feature is off), so using it
+    // would make anchor links work or not depending on whether an unrelated
+    // panel happened to be showing.
+    if (!editor) return;
+    const view = editor.view;
+    let target: number | null = null;
+    view.state.doc.descendants((node, pos) => {
+      if (target !== null) return false;
+      if (node.type.name !== 'heading') return true;
+      if (slugify(node.textContent) === decoded) target = pos;
+      return false;
+    });
+    if (target === null) return;
+    const dom = view.nodeDOM(target);
+    if (dom instanceof HTMLElement) dom.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  /** GitHub-style heading slug, for `#fragment` matching. */
+  function slugify(text: string): string {
+    return text
+      .trim()
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\s-]/gu, '')
+      .replace(/\s+/g, '-');
+  }
+
+  /**
+   * Writing view: mark the block holding the caret so CSS can dim the rest.
+   *
+   * A class on one DOM node rather than a ProseMirror decoration: the
+   * `decorations` prop is already owned by search (see applySearchDecorations),
+   * and reconfiguring the plugin list would hand ProseMirror a new plugin array
+   * — which the file-switch path explicitly depends on NOT happening.
+   *
+   * No layout is read here, so it is safe on the per-transaction path.
+   */
+  let focusRange: { from: number; to: number } | null = null;
+  function updateFocusedBlock() {
+    if (!editor || !isReady) return;
+    let next: { from: number; to: number } | null = null;
+    if (viewChrome.focusHighlight) {
+      try {
+        const view = editor.view;
+        next = topLevelBlockRange(view.state.doc, view.state.selection.from);
+      } catch { next = null; }
+    }
+    if (next?.from === focusRange?.from && next?.to === focusRange?.to) return;
+    focusRange = next;
+    // setProps re-runs the decorations function, which is how the new mark
+    // reaches the DOM. Only fires when the focused block actually changes.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (editor.view as any).setProps({ decorations: blockDecorations });
+  }
+
+  /**
+   * The single owner of ProseMirror's `decorations` prop.
+   *
+   * Search highlights and the writing view's focus mark both want it, and a
+   * prop has one value — so they compose here rather than overwriting each
+   * other. Anything else that needs decorations must join this function, not
+   * call setProps with its own.
+   *
+   * A node decoration rather than a class set on `nodeDOM`: ProseMirror owns
+   * those elements and recreates them freely, which silently drops any class
+   * put there by hand. (It did exactly that — the mark was applied and gone
+   * again before the next frame.)
+   */
+  function blockDecorations(state: EditorState): DecorationSet {
+    if (!focusRange) return searchDecoSet;
+    try {
+      return searchDecoSet.add(state.doc, [
+        Decoration.node(focusRange.from, focusRange.to, { class: 'moraya-focus-block' }),
+      ]);
+    } catch {
+      // Range no longer addressable (mid-edit); the next call recomputes it.
+      return searchDecoSet;
     }
   }
 
@@ -2546,7 +2699,7 @@
     const editorOptions: Parameters<typeof createEditor>[0] = {
       root: editorEl,
       defaultValue: body,
-      editable: !readOnly,
+      editable: !isReadOnly,
       onFocus: () => {
         if (isMounted) editorStore.setFocused(true);
       },
@@ -2658,7 +2811,10 @@
         // ever moved on mousemove, so typing into a different block — or
         // opening a fresh empty line — left them pointing at the last block
         // the mouse happened to pass over.
-        if (tr.docChanged || view.state.selection.from !== oldFrom) scheduleCaretAnchor();
+        if (tr.docChanged || view.state.selection.from !== oldFrom) {
+          scheduleCaretAnchor();
+          updateFocusedBlock();
+        }
       },
     });
 
@@ -2675,10 +2831,16 @@
     pmEl?.addEventListener('mouseup', handleCaretMouseup);
     pmEl?.addEventListener('focus', handleCaretFocus);
     pmEl?.addEventListener('blur', handleCaretBlur);
+    // Capture phase, so a plain click on a link is claimed before ProseMirror's
+    // own click handler sees it. Registered once and gated internally on the
+    // active view rather than added and removed as the view changes — one
+    // listener with a guard is easier to reason about than a lifecycle.
+    pmEl?.addEventListener('click', handleLinkClick, true);
     cursorLineCleanup = () => {
       pmEl?.removeEventListener('mouseup', handleCaretMouseup);
       pmEl?.removeEventListener('focus', handleCaretFocus);
       pmEl?.removeEventListener('blur', handleCaretBlur);
+      pmEl?.removeEventListener('click', handleLinkClick, true);
     };
 
     // Apply any content that was requested while the editor was still initializing
@@ -3022,10 +3184,18 @@
   // Read-only toggle (version preview): re-evaluate ProseMirror editability
   // whenever readOnly flips (the editor instance is reused across tab switches).
   $effect(() => {
-    const ro = readOnly;
+    const ro = isReadOnly;
     if (!isReady || !editor) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (editor.view as any).setProps({ editable: () => !ro });
+  });
+
+  // Entering or leaving the writing view has to repaint the focus mark itself:
+  // no transaction fires just because the view changed.
+  $effect(() => {
+    void creationView;
+    if (!isReady) return;
+    updateFocusedBlock();
   });
 
   // When outline is toggled on (e.g. after async settings load), extract headings.
@@ -3184,7 +3354,7 @@
         );
     // The prop reads the holder, so remapping it later takes effect without
     // re-running the search.
-    (view as any).setProps({ decorations: () => searchDecoSet });
+    (view as any).setProps({ decorations: blockDecorations });
   }
 
   /**
@@ -3396,7 +3566,11 @@
       if (searchMatches.length > 0) {
         searchMatches = [];
         searchIndex = -1;
-        (view as any).setProps({ decorations: () => DecorationSet.empty });
+        // Clear the SEARCH set only, then re-install the composed function —
+        // replacing the prop outright would drop the writing view's focus mark
+        // along with the highlights.
+        searchDecoSet = DecorationSet.empty;
+        (view as any).setProps({ decorations: blockDecorations });
       }
     } finally {
       if (syncResetTimer) clearTimeout(syncResetTimer);
@@ -3508,7 +3682,8 @@
     searchIndex = -1;
     if (!editor) return;
     try {
-      (editor.view as any).setProps({ decorations: () => DecorationSet.empty });
+      searchDecoSet = DecorationSet.empty;
+      (editor.view as any).setProps({ decorations: blockDecorations });
     } catch {
       // Editor may be destroyed
     }
@@ -3728,7 +3903,7 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="editor-wrapper" class:ready={isReady} class:has-outline={showOutline} bind:this={wrapperEl} bind:clientHeight={wrapperHeight} bind:clientWidth={wrapperWidth} oncontextmenu={(e) => {
+<div class="editor-wrapper" class:ready={isReady} class:has-outline={showOutline} class:view-reading={creationView === 'reading'} class:view-writing={creationView === 'writing'} bind:this={wrapperEl} bind:clientHeight={wrapperHeight} bind:clientWidth={wrapperWidth} oncontextmenu={(e) => {
   // Right-click in empty area below content (outside .ProseMirror) — show editor context menu.
   // Clicks inside .ProseMirror are handled by handleContextMenu (registered on proseMirrorEl)
   // which calls stopPropagation(), so this handler only fires for the empty space.
@@ -3773,7 +3948,7 @@
       <OutlinePanel headings={outlineHeadings} activeId={activeHeadingId} width={outlineWidth} containerHeight={wrapperHeight} resizeEdge="leading" centered trailingGutter={BLOCK_BUTTON_GUTTER} onSelect={handleOutlineSelect} onWidthChange={onOutlineWidthChange} />
     {/if}
     <div bind:this={editorEl} class="editor-root"></div>
-    {#if onLineWidthChange}
+    {#if onLineWidthChange && viewChrome.editingAffordances}
       <!-- Split mode leaves this off: both panes would carry a handle for the
            same global width, right next to the split divider. -->
       <ContentWidthHandle width={editorLineWidth} onWidthChange={onLineWidthChange} />
@@ -3789,7 +3964,7 @@
   </div>
 </div>
 
-{#if showDragHandle && blockButtonsInView && !isDraggingBlock}
+{#if showDragHandle && blockButtonsInView && !isDraggingBlock && viewChrome.editingAffordances}
   <button
     class="block-insert-handle"
     style="top: {dragHandleTop}px; left: {insertHandleLeft}px"

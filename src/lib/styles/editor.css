@@ -722,3 +722,52 @@
    (imported in +page.svelte). The --math-src-* theme tokens in
    variables.css override its color fallbacks for light/dark. */
 
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Creation views (see src/lib/editor/creation-view.ts)
+
+   Only the two non-standard views appear here; `standard` is the absence of
+   both classes, so it needs no rules and cannot be broken by them.
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* Reading — the document is a document, not a text field. ProseMirror is
+   already `editable: false`, so this is purely about how the pointer reads:
+   an I-beam over prose you cannot type into is a lie. */
+.editor-wrapper.view-reading,
+.editor-wrapper.view-reading .ProseMirror {
+  cursor: default;
+}
+
+.editor-wrapper.view-reading .ProseMirror a {
+  cursor: pointer;
+}
+
+/* The one affordance reading ADDS: links look followable on hover, because
+   following them with a plain click is the whole point of the view. */
+.editor-wrapper.view-reading .ProseMirror a:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Writing — everything but the block holding the caret recedes.
+
+   `opacity` rather than `color`: it dims code blocks, tables, images and
+   math uniformly, where a colour override would have to chase every element
+   that sets its own. The focused block is left at full strength rather than
+   given a highlight — the effect should read as the surroundings stepping
+   back, not as the current line lighting up. */
+.editor-wrapper.view-writing .ProseMirror > * {
+  opacity: 0.32;
+  transition: opacity 0.18s ease-out;
+}
+
+.editor-wrapper.view-writing .ProseMirror > .moraya-focus-block {
+  opacity: 1;
+}
+
+/* While a selection spans blocks, or the caret sits between them, nothing
+   carries the mark. Dimming the entire document at that moment reads as a
+   glitch, so an unmarked document stays fully legible. */
+.editor-wrapper.view-writing .ProseMirror:not(:has(.moraya-focus-block)) > * {
+  opacity: 1;
+}

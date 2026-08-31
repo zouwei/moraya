@@ -149,6 +149,9 @@ export const SHORTCUT_CATALOG_STATIC: ShortcutEntry[] = [
   { id: 'format.insertImage',  category: 'format', labelKey: 'shortcuts.actions.format.insert_image',  mac: 'Cmd+Shift+G', win: 'Ctrl+Shift+G', customizable: true, menuItemId: 'fmt_image'},
 
   // ── View ───────────────────────────────────────────────────────
+  { id: 'view.creationStandard', category: 'view', labelKey: 'shortcuts.actions.view.creation_standard', mac: 'Cmd+Shift+1', win: 'Ctrl+Shift+1', customizable: true, menuItemId: 'view_creation_standard'},
+  { id: 'view.creationReading',  category: 'view', labelKey: 'shortcuts.actions.view.creation_reading',  mac: 'Cmd+Shift+2', win: 'Ctrl+Shift+2', customizable: true, menuItemId: 'view_creation_reading'},
+  { id: 'view.creationWriting',  category: 'view', labelKey: 'shortcuts.actions.view.creation_writing',  mac: 'Cmd+Shift+3', win: 'Ctrl+Shift+3', customizable: true, menuItemId: 'view_creation_writing'},
   { id: 'view.toggleMode',     category: 'view', labelKey: 'shortcuts.actions.view.toggle_mode',     mac: 'Cmd+/',       win: 'Ctrl+/',       customizable: true, menuItemId: 'view_mode_visual'},
   { id: 'view.toggleSplit',    category: 'view', labelKey: 'shortcuts.actions.view.toggle_split',    mac: 'Cmd+Shift+/', win: 'Ctrl+Shift+/', customizable: true, menuItemId: 'view_mode_split'},
   { id: 'view.toggleSidebar',  category: 'view', labelKey: 'shortcuts.actions.view.toggle_sidebar',  mac: 'Cmd+\\',      win: 'Ctrl+\\',      customizable: true, menuItemId: 'view_sidebar'},

@@ -223,12 +223,25 @@ pub fn create_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
     let mode_source = CheckMenuItem::with_id(app, "view_mode_source", "Source Mode", true, false, None::<&str>)?;
     let mode_split = CheckMenuItem::with_id(app, "view_mode_split", "Split Mode", true, false, Some("CmdOrCtrl+Shift+/"))?;
 
+    // Creation views — a second, orthogonal axis to the three modes above:
+    // those pick WHAT you look at, these pick WHAT YOU ARE DOING. Kept FLAT in
+    // the View menu rather than nested in a submenu of their own, because
+    // `set_check_item` walks exactly one level of submenus; a nested group
+    // would never receive its checkmark sync.
+    let view_standard = CheckMenuItem::with_id(app, "view_creation_standard", "Standard View", true, true, Some("CmdOrCtrl+Shift+1"))?;
+    let view_reading = CheckMenuItem::with_id(app, "view_creation_reading", "Reading View", true, false, Some("CmdOrCtrl+Shift+2"))?;
+    let view_writing = CheckMenuItem::with_id(app, "view_creation_writing", "Writing View", true, false, Some("CmdOrCtrl+Shift+3"))?;
+
     let view_menu = Submenu::with_id_and_items(
         app,
         "menu_view",
         "View",
         true,
         &[
+            &view_standard,
+            &view_reading,
+            &view_writing,
+            &PredefinedMenuItem::separator(app)?,
             &mode_visual,
             &mode_source,
             &mode_split,
