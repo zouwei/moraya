@@ -49,7 +49,7 @@ Prefer a fully local, \~10MB native app? The desktop version below remains free 
 - **Full Markdown Support** — CommonMark + GFM: tables with floating toolbar, task lists, strikethrough, emoji, definition lists.
 - **Math Rendering** — Inline and block LaTeX via KaTeX.
 - **Code Blocks** — Syntax highlighting, language selector dropdown (25+ languages), one-click copy, hover toolbar.
-- **Mermaid Diagrams** — 9 diagram types (flowchart, sequence, gantt, state, class, ER, pie, mindmap, journey) with edit/preview dual mode, lazy-loaded rendering (\~1.2MB loaded only on first use), and automatic theme adaptation.
+- **Mermaid Diagrams** — 9 diagram types (flowchart, sequence, gantt, state, class, ER, pie, mindmap, journey) with edit/preview dual mode, lazy-loaded rendering (\~1.2MB loaded only on first use), automatic theme adaptation, and a full-window zoom preview (scroll to zoom, drag to pan) for dense diagrams.
 - **Image Tools** — Floating toolbar for resizing, right-click context menu, drag-and-drop.
 - **Sidebar File Explorer** — Directory memory across sessions, real-time file refresh, list/tree dual views, right-click context menu (new, rename, delete), and full-text file search across the open folder.
 - **Find & Replace** — Full-text search and replace within documents.

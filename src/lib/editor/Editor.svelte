@@ -36,6 +36,8 @@
   import ImageContextMenu from './ImageContextMenu.svelte';
   import ImageToolbar from './ImageToolbar.svelte';
   import ImageAltEditor from './ImageAltEditor.svelte';
+  import MermaidZoomModal from './MermaidZoomModal.svelte';
+  import { detectDiagramType } from './mermaid-zoom';
   import OutlinePanel, { type OutlineHeading } from '$lib/components/OutlinePanel.svelte';
   import { editorHoldsCaret } from './editor-focus';
   import { chromeFor, type CreationView } from './creation-view';
@@ -533,6 +535,11 @@
   let editorContextMenuClickPos = $state<number | null>(null);
   let editorContextMenuInSpecialBlock = $state(false);
   let pluginInvokingId = $state<string | null>(null);
+
+  // Mermaid zoom preview state (GitHub issue #89). Holds a detached clone of
+  // the rendered diagram; the modal takes ownership of it.
+  let mermaidZoomSvg = $state<SVGSVGElement | null>(null);
+  let mermaidZoomCaption = $state<string | null>(null);
 
   // Image click toolbar state
   let showImageToolbar = $state(false);
@@ -2105,6 +2112,26 @@
    * A sibling `.md` opens as a Moraya tab; everything else local goes to the
    * OS; a bare `#fragment` scrolls this document. See link-target.ts.
    */
+  /**
+   * Reading view: claim mousedown over a link before ProseMirror sees it.
+   *
+   * Core expands an `<a>` into its literal markdown source on mousedown (the
+   * cursor-syntax behaviour that lets you edit a link by clicking it). In a
+   * read-only view that is doubly wrong — the user cannot edit, and the raw
+   * `[text](url)` appears in what is supposed to be a rendered document. The
+   * click handler below runs too late to stop it, so the press is taken here.
+   *
+   * (Caught on the Web build, where it reproduced; taken here too so the two
+   * implementations do not drift on a difference nobody chose.)
+   */
+  function handleLinkMouseDown(event: MouseEvent) {
+    if (!viewChrome.linksOpenOnClick) return;
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey) return;
+    if (!(event.target as HTMLElement | null)?.closest('a[href]')) return;
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
   function handleLinkClick(event: MouseEvent) {
     if (!viewChrome.linksOpenOnClick) return;
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey) return;
@@ -2577,6 +2604,70 @@
   }
 
 
+  // ── Mermaid zoom preview (GitHub issue #89) ────────────────────────────
+  // Dense diagrams render too small to read inline, so the code-block toolbar
+  // gets a magnifier that opens the diagram full-window with zoom + pan.
+  //
+  // The code_block NodeView (toolbar included) is built by `@moraya/core`, and
+  // this is a desktop-first iteration, so the button is grafted onto core's
+  // `.code-toolbar-right` group from here instead of being added to the shared
+  // NodeView. That group is append-only in core and its mutations are already
+  // outside the NodeView's `contentDOM`, so `ignoreMutation` / `stopEvent`
+  // treat the extra button exactly like core's own copy button.
+  //
+  // Visibility is left entirely to CSS (`.mermaid-preview-mode .mermaid-zoom-btn`
+  // in editor.css) so toggling preview ⇄ edit needs no bookkeeping here, and
+  // clicking the diagram body keeps its existing "enter edit mode" meaning.
+  const MERMAID_ZOOM_BTN_CLASS = 'mermaid-zoom-btn';
+
+  function ensureMermaidZoomButton(wrapper: HTMLElement) {
+    const group = wrapper.querySelector('.code-toolbar-right');
+    if (!group) return;
+    const label = get(t)('mermaid.zoom');
+    let btn = group.querySelector<HTMLButtonElement>(`.${MERMAID_ZOOM_BTN_CLASS}`);
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = MERMAID_ZOOM_BTN_CLASS;
+      // Static markup only — never user content (see CLAUDE.md §5 XSS rules).
+      btn.innerHTML =
+        '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+        '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M11 8v6M8 11h6"/>' +
+        '</svg>';
+      // mousedown, not click: the same event ProseMirror would otherwise turn
+      // into a selection change, and what core's own toolbar buttons use.
+      btn.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openMermaidZoom(wrapper);
+      });
+      group.insertBefore(btn, group.firstChild);
+    }
+    // Refreshed on every hover so a locale switch reaches buttons that were
+    // created before it.
+    btn.title = label;
+    btn.setAttribute('aria-label', label);
+  }
+
+  /** Open the zoom modal for an already-rendered mermaid code block. */
+  function openMermaidZoom(wrapper: HTMLElement) {
+    const rendered = wrapper.querySelector('.mermaid-preview svg');
+    if (!rendered) return; // still loading, or the diagram failed to render
+    mermaidZoomSvg = rendered.cloneNode(true) as SVGSVGElement;
+    mermaidZoomCaption = detectDiagramType(wrapper.querySelector('.code-block-code')?.textContent ?? '');
+  }
+
+  /**
+   * Lazily attach the zoom button the first time the pointer reaches a mermaid
+   * block. `pointerover` (not `mousemove`) so it fires once per element
+   * crossing rather than per pixel, and so a touch also arms the button.
+   */
+  function handleMermaidPointerOver(event: PointerEvent) {
+    const target = event.target as HTMLElement | null;
+    const wrapper = target?.closest?.('.code-block-wrapper.mermaid-preview-mode') as HTMLElement | null;
+    if (wrapper) ensureMermaidZoomButton(wrapper);
+  }
+
   /** Handle left-click on images to show floating resize toolbar */
   function handleImageClick(event: MouseEvent) {
     const target = event.target as HTMLElement;
@@ -2835,11 +2926,13 @@
     // own click handler sees it. Registered once and gated internally on the
     // active view rather than added and removed as the view changes — one
     // listener with a guard is easier to reason about than a lifecycle.
+    pmEl?.addEventListener('mousedown', handleLinkMouseDown, true);
     pmEl?.addEventListener('click', handleLinkClick, true);
     cursorLineCleanup = () => {
       pmEl?.removeEventListener('mouseup', handleCaretMouseup);
       pmEl?.removeEventListener('focus', handleCaretFocus);
       pmEl?.removeEventListener('blur', handleCaretBlur);
+      pmEl?.removeEventListener('mousedown', handleLinkMouseDown, true);
       pmEl?.removeEventListener('click', handleLinkClick, true);
     };
 
@@ -3045,6 +3138,7 @@
 
     if (proseMirrorEl) {
       proseMirrorEl.addEventListener('click', handleProseMirrorClick as EventListener);
+      proseMirrorEl.addEventListener('pointerover', handleMermaidPointerOver as EventListener);
       proseMirrorEl.addEventListener('mousemove', handleCheckboxHover as EventListener);
       proseMirrorEl.addEventListener('paste', handlePaste as EventListener, true);
       proseMirrorEl.addEventListener('contextmenu', handleContextMenu as EventListener);
@@ -3749,6 +3843,7 @@
     }
     if (mountedProseMirrorEl && mountedHandlers) {
       mountedProseMirrorEl.removeEventListener('click', mountedHandlers.handleProseMirrorClick as EventListener);
+      mountedProseMirrorEl.removeEventListener('pointerover', handleMermaidPointerOver as EventListener);
       mountedProseMirrorEl.removeEventListener('mousemove', handleCheckboxHover as EventListener);
       mountedProseMirrorEl.removeEventListener('paste', handlePaste as EventListener, true);
       mountedProseMirrorEl.removeEventListener('contextmenu', handleContextMenu as EventListener);
@@ -4112,6 +4207,18 @@
     onSave={handleAltSave}
     onCancel={() => showAltEditor = false}
   />
+{/if}
+
+{#if mermaidZoomSvg}
+  <!-- Keyed so a second diagram gets a fresh component (and a fresh fit)
+       rather than reusing the first one's mounted SVG. -->
+  {#key mermaidZoomSvg}
+    <MermaidZoomModal
+      svg={mermaidZoomSvg}
+      caption={mermaidZoomCaption}
+      onClose={() => { mermaidZoomSvg = null; mermaidZoomCaption = null; }}
+    />
+  {/key}
 {/if}
 
 

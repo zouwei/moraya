@@ -112,6 +112,33 @@
   color: var(--text-primary);
 }
 
+/* Mermaid zoom button (issue #89).
+   The element is created by Editor.svelte and inserted into core's
+   `.code-toolbar-right` group; core owns neither its markup nor its styling.
+   Visibility is CSS-only so that toggling preview ⇄ edit needs no JS: the
+   wrapper carries `.mermaid-preview-mode` exactly while a diagram is shown. */
+.moraya-editor .mermaid-zoom-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.moraya-editor .code-block-wrapper.mermaid-preview-mode .mermaid-zoom-btn {
+  display: inline-flex;
+}
+
+.moraya-editor .mermaid-zoom-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
 /* Mermaid preview mode: toolbar follows same hover/focus rules as regular code blocks */
 
 /* Mermaid preview container */
