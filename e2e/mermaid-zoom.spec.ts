@@ -46,6 +46,39 @@ test('hovering a rendered diagram reveals the zoom button', async ({ page }) => 
   await expect(page.locator('.mermaid-zoom-btn')).toBeVisible()
 })
 
+test('the three toolbar buttons share one icon language', async ({ page }) => {
+  await bootDiagram(page)
+  await page.hover('.code-block-wrapper.mermaid-preview-mode')
+
+  const buttons = await page.locator('.code-toolbar-right button').evaluateAll((els) =>
+    els.map((el) => {
+      const svg = el.querySelector('svg')
+      return {
+        className: el.className,
+        width: svg?.getAttribute('width') ?? null,
+        height: svg?.getAttribute('height') ?? null,
+        strokeWidth: svg?.getAttribute('stroke-width') ?? null,
+        // A visible text label (the old "✏️ Edit") would show up here.
+        text: (el.textContent || '').trim(),
+        title: el.getAttribute('title'),
+      }
+    }),
+  )
+
+  expect(buttons.map((b) => b.className)).toEqual([
+    'mermaid-zoom-btn',
+    'mermaid-toggle-btn',
+    'code-copy-btn',
+  ])
+  for (const b of buttons) {
+    expect(b.width).toBe('14')
+    expect(b.height).toBe('14')
+    expect(b.strokeWidth).toBe('2')
+    expect(b.text).toBe('')
+    expect(b.title).toBeTruthy() // the label moved to the tooltip
+  }
+})
+
 test('zoom button opens the diagram full-window, fitted and captioned', async ({ page }) => {
   await bootDiagram(page)
   await openZoom(page)
@@ -84,6 +117,21 @@ test('+ / − / 1:1 / fit change the zoom level', async ({ page }) => {
 
   await page.locator('.zoom-text-btn').first().click() // fit
   expect(await readPercent()).toBe(fitted)
+})
+
+test('the header caption is centred, clear of the window buttons', async ({ page }) => {
+  await bootDiagram(page)
+  await openZoom(page)
+
+  // The overlay covers the frameless title bar, and macOS paints its traffic
+  // lights over the top-left corner — a leading-aligned caption sits under them.
+  const overlay = (await page.locator('.mermaid-zoom-overlay').boundingBox())!
+  const caption = (await page.locator('.zoom-caption').boundingBox())!
+
+  const overlayCentre = overlay.x + overlay.width / 2
+  const captionCentre = caption.x + caption.width / 2
+  expect(Math.abs(captionCentre - overlayCentre)).toBeLessThan(2)
+  expect(caption.x).toBeGreaterThan(120)
 })
 
 test('Escape closes the zoom preview', async ({ page }) => {

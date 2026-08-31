@@ -92,25 +92,11 @@
    Everything below this line (mermaid preview, renderer preview, hljs
    token colors, fallback bare <pre>) is still PC-specific and stays. */
 
-/* Mermaid toggle button */
-.moraya-editor .mermaid-toggle-btn {
-  display: none;
-  align-items: center;
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--text-muted);
-  padding: 0.1rem 0.35rem;
-  border-radius: 3px;
-  font-size: 11px;
-  font-family: var(--font-sans);
-  transition: background var(--transition-fast), color var(--transition-fast);
-}
-
-.moraya-editor .mermaid-toggle-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
+/* The preview/edit toggle button (`.mermaid-toggle-btn`) is styled in
+   @moraya/core's code-block.css as of core 0.19.2, together with the copy
+   button it sits beside — the two have to stay identical, so they live in one
+   place. The local copy that used to be here was written for the old
+   emoji + text label (11px sans) and is gone; do NOT re-add it. */
 
 /* Mermaid zoom button (issue #89).
    The element is created by Editor.svelte and inserted into core's
@@ -125,7 +111,9 @@
   border: none;
   cursor: pointer;
   color: var(--text-muted);
-  padding: 0.1rem 0.3rem;
+  /* Matches `.code-copy-btn` / `.mermaid-toggle-btn` in core's code-block.css —
+     the three buttons share one row and must read as one control set. */
+  padding: 0.15rem 0.3rem;
   border-radius: 3px;
   transition: background var(--transition-fast), color var(--transition-fast);
 }

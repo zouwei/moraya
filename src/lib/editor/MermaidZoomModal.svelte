@@ -255,17 +255,24 @@
     user-select: none;
   }
 
+  /* The overlay covers the whole window, including the frameless title bar, and
+     macOS draws its traffic lights over the top-left corner regardless. So the
+     caption is centred rather than leading-aligned — the left corner is not
+     ours to use, in any locale or writing direction. */
   .zoom-header {
+    position: relative;
     flex: 0 0 auto;
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
+    justify-content: center;
     padding: 0.5rem 0.75rem;
     border-bottom: 1px solid var(--border-light);
   }
 
   .zoom-caption {
+    /* Keeps a long caption clear of the traffic lights on one side and the
+       close button on the other instead of running under either. */
+    max-width: calc(100% - 220px);
     font-family: var(--font-mono);
     font-size: var(--font-size-xs);
     color: var(--text-secondary);
@@ -276,6 +283,10 @@
   }
 
   .zoom-close {
+    position: absolute;
+    inset-inline-end: 0.75rem;
+    top: 50%;
+    transform: translateY(-50%);
     display: flex;
     align-items: center;
     justify-content: center;
