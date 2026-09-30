@@ -1326,7 +1326,7 @@ ${tr('welcome.tip')}
   // no Typst counterpart, cloud audio/video cannot go in a print format) are
   // disabled rather than hidden, so the menu shape never shifts under the user.
   //
-  // Safe against the CheckMenuItem feedback loop documented in CLAUDE.md:
+  // Safe against the CheckMenuItem feedback loop documented in AGENTS.md:
   // `set_enabled` does not emit menu events, unlike `set_checked`.
   $effect(() => {
     if (!isTauri) return;

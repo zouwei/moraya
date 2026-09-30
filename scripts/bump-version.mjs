@@ -16,7 +16,7 @@
  *
  * Before touching any of those, it also syncs the `@moraya/core` dependency
  * (see `syncCoreDependency`): if it's still on the local vendored-tarball
- * bridge (`file:./vendor/*.tgz`, per CLAUDE.md §"External Shared Markdown
+ * bridge (`file:./vendor/*.tgz`, per AGENTS.md §"External Shared Markdown
  * Core"), this checks whether that exact version is published on npm and, if
  * so, switches package.json to the real registry range (`^X.Y.Z`) and runs
  * `pnpm install` — so a release built from the bumped version never ships
@@ -67,7 +67,7 @@ function extractNpmErrorLine(e) {
  * range. Fails the whole bump (exit 1, no files touched) if the vendored
  * version isn't published yet, or if the spec is some other non-registry
  * source (file:../sibling, link:, workspace:, git) that should never reach
- * a release per CLAUDE.md's hard rules.
+ * a release per AGENTS.md's hard rules.
  */
 function syncCoreDependency() {
   const pkg = readJSON(files.package);

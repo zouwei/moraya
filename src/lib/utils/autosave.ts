@@ -17,7 +17,7 @@
  * `lastEditAt` cannot be derived from the editor store. `markDirty()` returns
  * the SAME state object once a document is already dirty — deliberately, so a
  * keystroke does not push a notification through every subscriber (the store
- * cascade rule in CLAUDE.md). Subscribers therefore never hear about the
+ * cascade rule in AGENTS.md). Subscribers therefore never hear about the
  * second and later keystrokes, and in visual-only mode `content` does not
  * change either, since that editor skips per-keystroke serialization.
  *

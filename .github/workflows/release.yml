@@ -176,7 +176,7 @@ jobs:
       #   gh api repos/tauri-apps/tauri-action/releases/latest --jq .tag_name
       #
       # and paste the result here (e.g. `@v0.5.22`). Verified pinning is one
-      # of the CLAUDE.md security standards (§9 "pin third-party actions by
+      # of the AGENTS.md security standards (§9 "pin third-party actions by
       # commit SHA, not just tag") — a specific tag is a good middle ground.
       - name: Build and release
         uses: tauri-apps/tauri-action@v0

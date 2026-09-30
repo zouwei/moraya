@@ -2630,7 +2630,7 @@
       btn = document.createElement('button');
       btn.type = 'button';
       btn.className = MERMAID_ZOOM_BTN_CLASS;
-      // Static markup only — never user content (see CLAUDE.md §5 XSS rules).
+      // Static markup only — never user content (see AGENTS.md §5 XSS rules).
       // Geometry copied from core's copy button so the three toolbar buttons
       // read as one set: 14px, currentColor, stroke-width 2, no fill.
       btn.innerHTML =

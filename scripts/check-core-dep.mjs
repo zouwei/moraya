@@ -11,7 +11,7 @@
  *
  * The problem it solves: `@moraya/core` can be consumed locally via a frozen
  * vendored tarball (`file:./vendor/*.tgz`) as a pre-publication bridge (per
- * CLAUDE.md §1.3). That tarball passes ordinary CI and can be BUILT into a
+ * AGENTS.md §1.3). That tarball passes ordinary CI and can be BUILT into a
  * shipped app — but the corresponding core version may never have been
  * published to npm. This guard makes a release FAIL CLOSED until core is
  * published and the dependency is switched back to a registry range.

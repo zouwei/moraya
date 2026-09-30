@@ -29,7 +29,7 @@ check ".gitignore blocks watermarks.local.json"      grep -q '^watermarks.local.
 check ".gitignore blocks *.ots"                      grep -q '^\*\.ots$' .gitignore
 check "audit script present + executable"            test -x scripts/audit-command-order.sh
 check "watermark-update script present + executable" test -x scripts/watermark-update.sh
-check "CLAUDE.md anti-clone section present"         grep -q '^## Anti-Clone Protection (Local Only)$' CLAUDE.md
+check "AGENTS.md anti-clone section present"         grep -q '^## Anti-Clone Protection (Local Only)$' AGENTS.md
 
 blue ""
 blue "== Phase 2: Diagnostics modules =="

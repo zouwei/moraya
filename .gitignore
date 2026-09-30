@@ -108,8 +108,8 @@ watermarks.local.json
 watermarks.local.json.ots
 *.ots
 
-# Claude Code project instructions (local only)
-/CLAUDE.md
+# AI coding agent project instructions (local only)
+/AGENTS.md
 
 # Sibling repo symlink (moraya-core lives in its own git repo)
 /moraya-core
