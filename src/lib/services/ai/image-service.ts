@@ -1,7 +1,6 @@
 /**
  * AIGC Image Generation Service
- * Supports OpenAI DALL-E, Grok (xAI), and Custom (OpenAI-compatible) providers.
- * All providers share the same /images/generations API format.
+ * Supports OpenAI-compatible providers, Gemini Imagen, and DashScope image APIs.
  */
 
 import type { ImageProviderConfig, AIProviderConfig } from './types';
@@ -51,10 +50,23 @@ function dashScopeBase(baseURL: string): string {
  */
 function dashScopeOpenAICandidates(baseURL: string): string[] {
   const base = dashScopeBase(baseURL);
+  if (/\/compatible-mode\/v\d+\/images\/generations\/?$/.test(baseURL)) {
+    return [baseURL.replace(/\/+$/, '')];
+  }
   return [
     `${base}/compatible-mode/v1/images/generations`,
     `${base}/v1/images/generations`,
   ];
+}
+
+function isQwenImage3(model: string): boolean {
+  return /^qwen-image-3\.0(?:-pro)?$/i.test(model.trim());
+}
+
+function isDashScopeSizeValidationError(msg: string): boolean {
+  return (msg.includes('(400)') || msg.includes('(422)'))
+    && /\b(size|resolution|pixels?|area)\b/i.test(msg)
+    && !/url error/i.test(msg);
 }
 
 /** DashScope native endpoint candidates with their API format. */
@@ -194,23 +206,24 @@ async function callDashScopeTaskAPI(
 
 /**
  * DashScope multimodal-generation API (input.messages format).
- * Used by z-image-turbo, qwen-image-2.0 on /multimodal-generation/generation.
+ * Used by z-image-turbo and qwen-image models on /multimodal-generation/generation.
  * Response: output.choices[0].message.content[].image
  */
+function dashScopeMultimodalBody(model: string, prompt: string, size: string): string {
+  return JSON.stringify({
+    model,
+    input: { messages: [{ role: 'user', content: [{ text: prompt }] }] },
+    parameters: { size: size.replace('x', '*'), n: 1 },
+  });
+}
+
 async function callDashScopeMultimodalAPI(
   config: ImageProviderConfig,
   prompt: string,
   size: string,
   url: string,
 ): Promise<ImageGenerationResult> {
-  const dsSize = size.replace('x', '*');
-  const body = JSON.stringify({
-    model: config.model,
-    input: {
-      messages: [{ role: 'user', content: [{ text: prompt }] }],
-    },
-    parameters: { size: dsSize, n: 1 },
-  });
+  const body = dashScopeMultimodalBody(config.model, prompt, size);
 
   const response = await invoke<string>('ai_proxy_fetch', {
     configId: config.id,
@@ -272,7 +285,7 @@ async function generateImageGemini(
  *
  * Routing:
  * - gemini → Imagen predict API (non-OpenAI format)
- * - qwen   → Unified OpenAI-compatible with endpoint auto-discovery & caching
+ * - qwen   → DashScope native or compatible endpoint based on model
  * - others → OpenAI-compatible /images/generations (VolcEngine, OpenAI, Grok, custom)
  */
 export async function generateImage(
@@ -293,6 +306,12 @@ export async function generateImage(
   // Phase 1: OpenAI-compatible endpoints.
   // Phase 2: DashScope native endpoints (task API + multimodal API).
   if (config.provider === 'qwen') {
+    // DashScope's native multimodal endpoint supports Qwen Image 3.0 even when
+    // the compatible images endpoint returns 404 on the same regional host.
+    if (isQwenImage3(config.model)) {
+      const url = dashScopeNativeCandidates(config.baseURL)[0].url;
+      return callDashScopeMultimodalAPI(config, prompt, resolvedSize, url);
+    }
     function callByEndpoint(ep: ResolvedEndpoint, p: string, s: string) {
       if (!ep.native) return callOpenAIImageAPI(config, p, s, ep.url);
       if (ep.format === 'multimodal') return callDashScopeMultimodalAPI(config, p, s, ep.url);
@@ -358,6 +377,25 @@ export async function testImageConnection(config: ImageProviderConfig): Promise<
   }
 
   if (config.provider === 'qwen') {
+    if (isQwenImage3(config.model)) {
+      try {
+        await invoke<string>('ai_proxy_fetch', {
+          configId: config.id,
+          keyPrefix: 'image-key:',
+          apiKeyOverride: config.apiKey !== '***' ? config.apiKey : undefined,
+          provider: 'openai',
+          url: dashScopeNativeCandidates(config.baseURL)[0].url,
+          body: dashScopeMultimodalBody(config.model, 'test', '1x1'),
+        });
+        return { success: true };
+      } catch (e: unknown) {
+        const msg = errMsg(e);
+        return isDashScopeSizeValidationError(msg)
+          ? { success: true }
+          : { success: false, error: msg };
+      }
+    }
+
     // DashScope: two-phase endpoint discovery.
     // 200 = auth OK, 400/422 = auth OK but bad params → endpoint valid.
     // EXCEPTION: 400 "url error" = endpoint doesn't match model → try next.
@@ -371,10 +409,7 @@ export async function testImageConnection(config: ImageProviderConfig): Promise<
     }
 
     function isDashScopeTestOK(msg: string): boolean {
-      // 403 sync/async is NOT proof the endpoint works — only that the call mode is wrong.
-      // Let the loop try the other mode; only 400/422 (non-url-error) proves endpoint validity.
-      if ((msg.includes('(400)') || msg.includes('(422)')) && !msg.toLowerCase().includes('url error')) return true;
-      return false;
+      return isDashScopeSizeValidationError(msg);
     }
 
     function isDashScopeAuthError(msg: string): boolean {
@@ -384,7 +419,6 @@ export async function testImageConnection(config: ImageProviderConfig): Promise<
       return false;
     }
 
-    // Phase 1: OpenAI-compatible endpoints
     for (const url of dashScopeOpenAICandidates(config.baseURL)) {
       try {
         await invoke<string>('ai_proxy_fetch', {
@@ -393,7 +427,7 @@ export async function testImageConnection(config: ImageProviderConfig): Promise<
           apiKeyOverride: config.apiKey !== '***' ? config.apiKey : undefined,
           provider: 'openai',
           url,
-          body: JSON.stringify({ model: config.model, prompt: 'test', n: 1 }),
+          body: JSON.stringify({ model: config.model, prompt: 'test', size: '1x1', n: 1 }),
         });
         _qwenEndpointCache.set(config.id, { url });
         return { success: true };
@@ -493,7 +527,9 @@ export async function testImageConnection(config: ImageProviderConfig): Promise<
     return { success: true };
   } catch (e: unknown) {
     const msg = errMsg(e);
-    if (msg.includes('(400)') || msg.includes('(422)')) return { success: true };
+    if ((msg.includes('(400)') || msg.includes('(422)')) && !/url error/i.test(msg)) {
+      return { success: true };
+    }
     return { success: false, error: msg };
   }
 }
@@ -505,6 +541,10 @@ export async function testImageConnection(config: ImageProviderConfig): Promise<
 export async function testImageConnectionWithResolve(
   config: ImageProviderConfig,
 ): Promise<{ success: boolean; resolvedBaseUrl?: string; error?: string }> {
+  if (config.provider === 'qwen') {
+    const result = await testImageConnection(config);
+    return result.success ? { success: true, resolvedBaseUrl: config.baseURL } : result;
+  }
   const candidates = generateBaseUrlCandidates(config.baseURL);
   let lastError: string | undefined;
   for (const url of candidates) {
@@ -574,6 +614,20 @@ export function extractImagePrompts(content: string): ImagePrompt[] | null {
   }
 
   return prompts.length > 0 ? prompts : null;
+}
+
+/** Show the import action whenever the current list differs from the document blocks. */
+export function hasUnimportedDocumentImagePrompts(
+  documentPrompts: ImagePrompt[] | null,
+  currentPrompts: ImagePrompt[],
+): boolean {
+  if (!documentPrompts) return false;
+  if (documentPrompts.length !== currentPrompts.length) return true;
+  return documentPrompts.some((prompt, index) =>
+    prompt.prompt !== currentPrompts[index].prompt
+    || prompt.target !== currentPrompts[index].target
+    || prompt.reason !== currentPrompts[index].reason,
+  );
 }
 
 /**
@@ -720,6 +774,8 @@ const JSON_FORMAT_RULES = `You MUST respond with a valid JSON array (no markdown
 
 Rules:
 - Each prompt MUST be in English (required by image generation APIs).
+- Describe visible details concisely; omit numeric body measurements unless essential to the illustration.
+- Use plain descriptions, not model-specific flags such as --ar or --style.
 - target: paragraph index (0-based) where the image should be inserted after.
 - reason: brief explanation in the same language as the article.
 - Output ONLY the JSON array, nothing else.`;

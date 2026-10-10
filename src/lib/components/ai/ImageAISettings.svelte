@@ -22,6 +22,7 @@
 
   let imgFormProvider = $state<ImageProvider>('openai');
   let imgFormApiKey = $state('');
+  let imgFormHasSavedKey = $state(false);
   let imgFormBaseUrl = $state('https://api.openai.com/v1');
   let imgFormModel = $state('dall-e-3');
   let imgFormRatio = $state<ImageAspectRatio>('16:9');
@@ -56,27 +57,40 @@
   }
 
   function startEditImage(config: ImageProviderConfig) {
+    if (imgTestTimer) clearTimeout(imgTestTimer);
     editingImageId = config.id;
     addingImage = false;
     imgFormProvider = config.provider;
-    imgFormApiKey = config.apiKey;
+    imgFormApiKey = '';
+    imgFormHasSavedKey = Boolean(config.apiKey && config.apiKey !== '***');
+    if (!imgFormHasSavedKey) {
+      invoke<string | null>('keychain_get', { key: `image-key:${config.id}` })
+        .then(key => {
+          if (editingImageId === config.id && key) imgFormHasSavedKey = true;
+        })
+        .catch(() => {});
+    }
     imgFormBaseUrl = config.baseURL;
     imgFormModel = config.model;
     imgFormRatio = config.defaultRatio;
     imgFormSizeLevel = config.defaultSizeLevel;
     imgFormTestStatus = 'idle';
+    imgFormTestError = '';
   }
 
   function startAddImage() {
+    if (imgTestTimer) clearTimeout(imgTestTimer);
     addingImage = true;
     editingImageId = null;
     imgFormProvider = 'openai';
     imgFormApiKey = '';
+    imgFormHasSavedKey = false;
     imgFormBaseUrl = 'https://api.openai.com/v1';
     imgFormModel = 'dall-e-3';
     imgFormRatio = '16:9';
     imgFormSizeLevel = 'medium';
     imgFormTestStatus = 'idle';
+    imgFormTestError = '';
   }
 
   function cancelImageForm() {
@@ -92,11 +106,12 @@
   }
 
   function saveImageConfig() {
+    const existing = imageConfigs.find(c => c.id === editingImageId);
     const config: ImageProviderConfig = {
       id: editingImageId || crypto.randomUUID(),
       provider: imgFormProvider,
       baseURL: imgFormBaseUrl,
-      apiKey: imgFormApiKey,
+      apiKey: imgFormApiKey.trim() || existing?.apiKey || (imgFormHasSavedKey ? '***' : ''),
       model: imgFormModel,
       defaultRatio: imgFormRatio,
       defaultSizeLevel: imgFormSizeLevel,
@@ -128,24 +143,33 @@
   }
 
   async function handleImgTest() {
+    if (imgTestTimer) clearTimeout(imgTestTimer);
     imgFormTestStatus = 'testing';
+    imgFormTestError = '';
+    const existing = imageConfigs.find(c => c.id === editingImageId);
     const config: ImageProviderConfig = {
       id: editingImageId || 'test',
       provider: imgFormProvider,
       baseURL: imgFormBaseUrl,
-      apiKey: imgFormApiKey,
+      apiKey: imgFormApiKey.trim() || existing?.apiKey || (imgFormHasSavedKey ? '***' : ''),
       model: imgFormModel,
       defaultRatio: imgFormRatio,
       defaultSizeLevel: imgFormSizeLevel,
     };
-    const result = await testImageConnectionWithResolve(config);
-    if (result.success && result.resolvedBaseUrl !== undefined && result.resolvedBaseUrl !== imgFormBaseUrl) {
-      imgFormBaseUrl = result.resolvedBaseUrl;
+    try {
+      const result = await testImageConnectionWithResolve(config);
+      if (result.success && result.resolvedBaseUrl !== undefined && result.resolvedBaseUrl !== imgFormBaseUrl) {
+        imgFormBaseUrl = result.resolvedBaseUrl;
+      }
+      imgFormTestStatus = result.success ? 'success' : 'failed';
+      imgFormTestError = result.success ? '' : (result.error || $t('ai.config.test_failed'));
+    } catch (error) {
+      imgFormTestStatus = 'failed';
+      imgFormTestError = error instanceof Error ? error.message : String(error);
     }
-    imgFormTestStatus = result.success ? 'success' : 'failed';
-    imgFormTestError = result.success ? '' : (result.error || $t('ai.config.test_failed'));
-    if (imgTestTimer) clearTimeout(imgTestTimer);
-    imgTestTimer = setTimeout(() => { imgFormTestStatus = 'idle'; imgFormTestError = ''; }, 3000);
+    if (imgFormTestStatus === 'success') {
+      imgTestTimer = setTimeout(() => { imgFormTestStatus = 'idle'; }, 3000);
+    }
   }
 </script>
 
@@ -174,7 +198,7 @@
 
         <div class="setting-group">
           <label class="setting-label">{$t('ai.image_config.api_key')}</label>
-          <input type="password" class="setting-input" bind:value={imgFormApiKey} placeholder={$t('ai.image_config.api_key_placeholder')} />
+          <input type="password" class="setting-input" bind:value={imgFormApiKey} placeholder={imgFormHasSavedKey ? '********' : $t('ai.image_config.api_key_placeholder')} />
         </div>
 
         <div class="setting-group">
@@ -220,20 +244,20 @@
             class:success={imgFormTestStatus === 'success'}
             class:failed={imgFormTestStatus === 'failed'}
             onclick={handleImgTest}
-            disabled={imgFormTestStatus === 'testing' || !imgFormApiKey}>
+            disabled={imgFormTestStatus === 'testing' || (!imgFormApiKey.trim() && !imgFormHasSavedKey)}>
             {#if imgFormTestStatus === 'testing'}{$t('ai.config.testing')}
             {:else if imgFormTestStatus === 'success'}{$t('ai.config.connected')}
             {:else if imgFormTestStatus === 'failed'}{$t('ai.config.failed')}
             {:else}{$t('ai.config.test_connection')}{/if}
           </button>
-          {#if imgFormTestError && imgFormTestStatus === 'failed'}
-            <p class="test-error">{imgFormTestError}</p>
-          {/if}
           <div class="form-actions-right">
             <button class="btn-sm" onclick={cancelImageForm}>{$t('common.cancel')}</button>
-            <button class="btn-sm primary" onclick={saveImageConfig}>{$t('common.save')}</button>
+            <button class="btn-sm primary" onclick={saveImageConfig} disabled={!imgFormApiKey.trim() && !imgFormHasSavedKey}>{$t('common.save')}</button>
           </div>
         </div>
+        {#if imgFormTestError && imgFormTestStatus === 'failed'}
+          <p class="test-error">{imgFormTestError}</p>
+        {/if}
       </div>
     {:else}
       <div class="config-item">
@@ -298,20 +322,20 @@
           class:success={imgFormTestStatus === 'success'}
           class:failed={imgFormTestStatus === 'failed'}
           onclick={handleImgTest}
-          disabled={imgFormTestStatus === 'testing' || !imgFormApiKey}>
+          disabled={imgFormTestStatus === 'testing' || !imgFormApiKey.trim()}>
           {#if imgFormTestStatus === 'testing'}{$t('ai.config.testing')}
           {:else if imgFormTestStatus === 'success'}{$t('ai.config.connected')}
           {:else if imgFormTestStatus === 'failed'}{$t('ai.config.failed')}
           {:else}{$t('ai.config.test_connection')}{/if}
         </button>
-        {#if imgFormTestError && imgFormTestStatus === 'failed'}
-          <p class="test-error">{imgFormTestError}</p>
-        {/if}
         <div class="form-actions-right">
           <button class="btn-sm" onclick={cancelImageForm}>{$t('common.cancel')}</button>
-          <button class="btn-sm primary" onclick={saveImageConfig}>{$t('common.save')}</button>
+          <button class="btn-sm primary" onclick={saveImageConfig} disabled={!imgFormApiKey.trim()}>{$t('common.save')}</button>
         </div>
       </div>
+      {#if imgFormTestError && imgFormTestStatus === 'failed'}
+        <p class="test-error">{imgFormTestError}</p>
+      {/if}
     </div>
   {/if}
 
@@ -421,12 +445,14 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
     gap: 0.5rem;
     margin-top: 0.25rem;
   }
 
   .form-actions-right {
     display: flex;
+    margin-left: auto;
     gap: 0.25rem;
   }
 
@@ -545,6 +571,9 @@
   }
 
   .test-btn {
+    flex: none;
+    width: 9.5rem;
+    box-sizing: border-box;
     padding: 0.3rem 0.6rem;
     border: 1px solid var(--border-color);
     background: var(--bg-primary);
@@ -552,7 +581,18 @@
     border-radius: 4px;
     cursor: pointer;
     font-size: var(--font-size-xs);
+    text-align: center;
+    white-space: nowrap;
     transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), opacity var(--transition-fast);
+  }
+
+  .test-btn:focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  .test-btn:focus-visible {
+    outline: 2px solid var(--accent-color);
+    outline-offset: 2px;
   }
 
   .test-btn:hover:not(:disabled) {

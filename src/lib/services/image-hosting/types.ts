@@ -145,6 +145,30 @@ export interface ImageHostTarget {
   picoraImportedAt?: number;
 }
 
+/** Whether the default target has enough settings to attempt an upload. */
+export function isImageHostTargetConfigured(target: ImageHostTarget | null): boolean {
+  if (!target) return false;
+  switch (target.provider) {
+    case 'picora':
+      return !!(target.picoraApiUrl && (target.picoraApiKey || target.picoraAuthRef || target.picoraKeyMigratedV069));
+    case 'smms':
+    case 'imgur':
+      return !!target.apiToken;
+    case 'github':
+      return !!(target.githubRepoUrl && target.githubToken);
+    case 'gitlab':
+      return !!(target.gitlabRepoUrl && target.gitlabToken);
+    case 'git-custom':
+      return !!(target.gitCustomRepoUrl && target.gitCustomToken);
+    case 'custom':
+      return !!target.customEndpoint;
+    case 'qiniu':
+      return !!(target.ossAccessKey && target.ossSecretKey && target.ossBucket && target.ossRegion && target.ossCdnDomain);
+    default:
+      return !!(target.ossAccessKey && target.ossSecretKey && target.ossBucket && target.ossRegion);
+  }
+}
+
 /**
  * Reference to a Picora authentication credential. v0.69.0 Phase 2 ships
  * with `oauth` only; future kinds (e.g. `api-key`) can be added when needed.

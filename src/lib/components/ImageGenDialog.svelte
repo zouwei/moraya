@@ -28,10 +28,14 @@
   import { aiStore } from '$lib/services/ai';
   import { settingsStore } from '$lib/stores/settings-store';
   import { editorStore } from '$lib/stores/editor-store';
+  import { fetchImageAsBlob, uploadImage, isImageHostTargetConfigured, type ImageHostTarget } from '$lib/services/image-hosting';
+  import { targetToConfigAsync } from '$lib/services/picora/credentials';
+  import { saveGeneratedImage } from '$lib/services/ai/generated-image-storage';
   import {
     generateImagePrompts,
     generateImage,
     extractImagePrompts,
+    hasUnimportedDocumentImagePrompts,
     MODE_STYLES,
     STYLE_PROMPT_SUFFIXES,
     type ImagePrompt,
@@ -46,11 +50,13 @@
     onClose,
     onInsert,
     onOpenSettings,
+    onOpenImageHostSettings,
     documentContent = '',
   }: {
     onClose: () => void;
     onInsert: (images: { url: string; target: number }[], mode: InsertMode) => void;
     onOpenSettings?: () => void;
+    onOpenImageHostSettings?: () => void;
     documentContent?: string;
   } = $props();
 
@@ -100,8 +106,12 @@
   let countOptions = $derived(Array.from({ length: 10 }, (_, i) => ({ value: i + 1, label: String(i + 1) })));
 
   // Step 2 state
-  let generatedImages = $state<(ImageGenerationResult & { promptIdx: number; selected: boolean; loading: boolean; error?: string })[]>([]);
+  let generatedImages = $state<(ImageGenerationResult & { promptIdx: number; selected: boolean; loading: boolean; error?: string; submittedPrompt?: string; insertUrl?: string; sourceBlob?: Blob; loadingStage?: 'uploading' | 'saving' })[]>([]);
   let isGeneratingImages = $state(false);
+  let uploadToImageHost = $state(false);
+  let imageHostTarget = $state<ImageHostTarget | null>(null);
+  let hasConfiguredImageHost = $derived(isImageHostTargetConfigured(imageHostTarget));
+  const previewBlobUrls = new Set<string>();
 
   // Step 3 state
   let insertMode = $state<InsertMode>('paragraph');
@@ -114,6 +124,7 @@
   settingsStore.subscribe(state => {
     const activeImg = state.imageProviderConfigs.find(c => c.id === state.activeImageConfigId) || null;
     imageConfig = activeImg;
+    imageHostTarget = state.imageHostTargets.find(t => t.id === state.defaultImageHostId) || null;
     if (activeImg) {
       // Prefer user's last-used values; fall back to provider defaults on first open.
       imgRatio = (_lastSettings.imgRatio as ImageAspectRatio) ?? activeImg.defaultRatio;
@@ -121,14 +132,14 @@
     }
   });
 
+  $effect(() => {
+    if (!hasConfiguredImageHost && uploadToImageHost) uploadToImageHost = false;
+  });
+
   // Detect pre-defined image prompts in the document (reactive on content changes)
   function getEffectiveDocumentContent(): string {
-    // `documentContent` is passed from +page after an explicit getCurrentContent() sync.
-    // In visual mode, editorStore.content can lag behind; keep the longer non-empty
-    // candidate to avoid false "content too short" checks.
-    const fromProp = (documentContent ?? '').trim();
-    const fromStore = (editorStore.getState().content ?? '').trim();
-    return fromProp.length >= fromStore.length ? fromProp : fromStore;
+    // The page syncs this prop from the live editor immediately before opening.
+    return documentContent ?? '';
   }
 
   let preDefinedPrompts = $derived(
@@ -137,10 +148,11 @@
       return content ? extractImagePrompts(content) : null;
     })()
   );
+  let showPredefinedImport = $derived(hasUnimportedDocumentImagePrompts(preDefinedPrompts, prompts));
 
   function usePredefinedPrompts() {
     if (!preDefinedPrompts) return;
-    prompts = preDefinedPrompts;
+    prompts = preDefinedPrompts.map(p => ({ ...p }));
     imageCount = preDefinedPrompts.length;
     hasGenerated = true;
     savePromptsToCache();
@@ -179,9 +191,50 @@
   }
 
   function goToStep2() {
-    if (prompts.length === 0) return;
+    if (prompts.length === 0 || (uploadToImageHost && !hasConfiguredImageHost)) return;
     step = 2;
     startImageGeneration();
+  }
+
+  function isInputRejected(error: string | undefined): boolean {
+    return !!error && /Green net check rejected text \(input\)/i.test(error);
+  }
+
+  async function prepareGeneratedImage(idx: number, result: ImageGenerationResult, finalPrompt: string, existingBlob?: Blob) {
+    let blob = existingBlob;
+    if (!blob) {
+      try {
+        blob = await fetchImageAsBlob(result.url);
+      } catch (e) {
+        const detail = e instanceof Error ? e.message : String(e);
+        throw new Error(`${tr('image_gen.generated_image_fetch_failed')}: ${detail}`);
+      }
+    }
+    generatedImages[idx] = {
+      ...generatedImages[idx],
+      sourceBlob: blob,
+      loadingStage: uploadToImageHost ? 'uploading' : 'saving',
+    };
+    generatedImages = [...generatedImages];
+
+    if (uploadToImageHost) {
+      if (!imageHostTarget) throw new Error(tr('context_menu.upload_no_config'));
+      let uploadedUrl: string;
+      try {
+        const config = await targetToConfigAsync(imageHostTarget);
+        uploadedUrl = (await uploadImage(blob, config)).url;
+      } catch (e) {
+        const detail = e instanceof Error ? e.message : String(e);
+        throw new Error(`${tr('image_gen.image_host_upload_failed')}: ${detail}`);
+      }
+      if (!uploadedUrl?.trim()) throw new Error(tr('image_gen.image_host_upload_failed'));
+      return { ...result, url: uploadedUrl, insertUrl: uploadedUrl, submittedPrompt: finalPrompt, sourceBlob: undefined, loadingStage: undefined };
+    }
+
+    const insertUrl = await saveGeneratedImage(blob, editorStore.getState().currentFilePath || null);
+    const previewUrl = URL.createObjectURL(blob);
+    previewBlobUrls.add(previewUrl);
+    return { ...result, url: previewUrl, insertUrl, submittedPrompt: finalPrompt, sourceBlob: undefined, loadingStage: undefined };
   }
 
   // Step 2: Generate images
@@ -202,13 +255,13 @@
 
     // Generate images sequentially to avoid API rate limiting
     for (let i = 0; i < prompts.length; i++) {
+      const finalPrompt = styleSuffix ? `${prompts[i].prompt}, ${styleSuffix}` : prompts[i].prompt;
       try {
-        const finalPrompt = styleSuffix ? `${prompts[i].prompt}, ${styleSuffix}` : prompts[i].prompt;
         const result = await generateImage(imageConfig!, finalPrompt, imgResolvedSize);
+        const prepared = await prepareGeneratedImage(i, result, finalPrompt);
         generatedImages[i] = {
           ...generatedImages[i],
-          url: result.url,
-          revisedPrompt: result.revisedPrompt,
+          ...prepared,
           loading: false,
         };
       } catch (e) {
@@ -216,6 +269,7 @@
         console.error('[ImageGen] Image generation failed for prompt', i, errMsg, e);
         generatedImages[i] = {
           ...generatedImages[i],
+          submittedPrompt: finalPrompt,
           loading: false,
           error: errMsg || 'Generation failed',
         };
@@ -228,17 +282,21 @@
 
   async function regenerateImage(idx: number) {
     if (!imageConfig?.apiKey) return;
-    generatedImages[idx] = { ...generatedImages[idx], loading: true, error: undefined };
+    const previous = generatedImages[idx];
+    const styleSuffix = imageStyle !== 'auto' ? STYLE_PROMPT_SUFFIXES[imageStyle] : undefined;
+    const finalPrompt = previous.submittedPrompt
+      ?? (styleSuffix ? `${prompts[idx].prompt}, ${styleSuffix}` : prompts[idx].prompt);
+    generatedImages[idx] = { ...generatedImages[idx], submittedPrompt: finalPrompt, loading: true, error: undefined };
     generatedImages = [...generatedImages];
 
     try {
-      const styleSuffix = imageStyle !== 'auto' ? STYLE_PROMPT_SUFFIXES[imageStyle] : undefined;
-      const finalPrompt = styleSuffix ? `${prompts[idx].prompt}, ${styleSuffix}` : prompts[idx].prompt;
-      const result = await generateImage(imageConfig, finalPrompt, imgResolvedSize);
+      const result = previous.sourceBlob
+        ? { url: previous.url, revisedPrompt: previous.revisedPrompt }
+        : await generateImage(imageConfig, finalPrompt, imgResolvedSize);
+      const prepared = await prepareGeneratedImage(idx, result, finalPrompt, previous.sourceBlob);
       generatedImages[idx] = {
         ...generatedImages[idx],
-        url: result.url,
-        revisedPrompt: result.revisedPrompt,
+        ...prepared,
         loading: false,
       };
     } catch (e) {
@@ -259,7 +317,7 @@
   }
 
   function goToStep3() {
-    const hasSelected = generatedImages.some(img => img.selected && img.url);
+    const hasSelected = generatedImages.some(img => img.selected && !img.error && !img.loading && img.insertUrl);
     if (!hasSelected) return;
     step = 3;
   }
@@ -267,9 +325,9 @@
   // Step 3: Insert
   function handleInsert() {
     const selected = generatedImages
-      .filter(img => img.selected && img.url)
+      .filter(img => img.selected && !img.error && !img.loading && img.insertUrl)
       .map(img => ({
-        url: img.url,
+        url: img.insertUrl ?? img.url,
         target: prompts[img.promptIdx]?.target ?? 0,
       }));
 
@@ -291,7 +349,7 @@
   }
 
   function savePromptsToCache() {
-    if (!hasGenerated || prompts.length === 0) return;
+    if (!hasGenerated) return;
     const key = getDocCacheKey();
     if (!key) return;
     _promptCache.set(key, {
@@ -306,23 +364,26 @@
   {
     const docKey = getDocCacheKey();
     const cached = docKey ? _promptCache.get(docKey) : null;
-    if (cached && cached.prompts.length > 0) {
-      prompts = cached.prompts.map(p => ({ ...p }));
+    if (cached) {
       imageMode = cached.mode as ImageGenMode;
       imageStyle = cached.style as ImageStyle;
+      prompts = cached.prompts.map(p => ({ ...p }));
       imageCount = cached.count;
       hasGenerated = true;
     }
   }
 
   // Save cache on dialog close (captures textarea edits)
-  onDestroy(savePromptsToCache);
+  onDestroy(() => {
+    savePromptsToCache();
+    for (const url of previewBlobUrls) URL.revokeObjectURL(url);
+  });
 
   let isTextAIReady = $derived(!!(textAIConfig && textAIConfig.apiKey));
   let isImageAIReady = $derived(!!(imageConfig && imageConfig.apiKey));
   let isBothReady = $derived(isTextAIReady && isImageAIReady);
 
-  const selectedCount = $derived(generatedImages.filter(img => img.selected && img.url).length);
+  const selectedCount = $derived(generatedImages.filter(img => img.selected && !img.error && !img.loading && img.insertUrl).length);
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -349,7 +410,7 @@
       {#if step === 1}
         <!-- Step 1: Prompts -->
         <div class="step-content">
-          {#if preDefinedPrompts && preDefinedPrompts.length > 0 && !hasGenerated}
+          {#if preDefinedPrompts && showPredefinedImport}
             <div class="predefined-banner">
               <span>{tr('image_gen.pre_defined_detected').replace('{count}', String(preDefinedPrompts.length))}</span>
               <button class="use-predefined-btn" onclick={usePredefinedPrompts}>
@@ -446,18 +507,45 @@
                 {#if img.loading}
                   <div class="image-placeholder" style="aspect-ratio:{imgCssAspectRatio}">
                     <span class="spinner"></span>
+                    {#if img.loadingStage === 'uploading'}<span>{tr('image_gen.uploading_to_host')}</span>{/if}
                   </div>
                 {:else if img.error}
                   <div class="image-placeholder error" style="aspect-ratio:{imgCssAspectRatio}">
-                    <span>{img.error}</span>
+                    {#if isInputRejected(img.error)}
+                      <div class="rejection-message">
+                        <strong>{tr('image_gen.input_rejected_title')}</strong>
+                        <span>{tr('image_gen.input_rejected_hint')}</span>
+                      </div>
+                    {:else}
+                      <span>{img.error}</span>
+                    {/if}
                   </div>
+                  {#if isInputRejected(img.error)}
+                    <div class="rejected-prompt">
+                      <label for={`retry-prompt-${i}`}>{tr('image_gen.retry_prompt_label')}</label>
+                      <textarea
+                        id={`retry-prompt-${i}`}
+                        class="prompt-text"
+                        rows="4"
+                        value={img.submittedPrompt ?? prompts[img.promptIdx]?.prompt ?? ''}
+                        oninput={(event) => {
+                          generatedImages[i].submittedPrompt = event.currentTarget.value;
+                          generatedImages = [...generatedImages];
+                        }}
+                      ></textarea>
+                      <details class="error-details">
+                        <summary>{tr('image_gen.error_details')}</summary>
+                        <p>{img.error}</p>
+                      </details>
+                    </div>
+                  {/if}
                 {:else}
                   <!-- svelte-ignore a11y_click_events_have_key_events -->
                   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
                   <img src={img.url} alt="Generated" style="aspect-ratio:{imgCssAspectRatio}" onclick={() => toggleImageSelection(i)} />
                 {/if}
                 <div class="image-actions">
-                  <button class="btn-icon" onclick={() => regenerateImage(i)} title="Regenerate">↻</button>
+                  <button class="btn-icon" onclick={() => regenerateImage(i)} title={img.sourceBlob ? tr('seo.retry') : tr('seo.regenerate')} disabled={img.loading || !(img.submittedPrompt ?? prompts[img.promptIdx]?.prompt)?.trim()}>↻</button>
                   <button
                     class="btn-icon"
                     class:checked={img.selected}
@@ -498,7 +586,7 @@
 
           <!-- Preview selected images -->
           <div class="preview-grid">
-            {#each generatedImages.filter(img => img.selected && img.url) as img}
+            {#each generatedImages.filter(img => img.selected && !img.error && img.insertUrl) as img}
               <img src={img.url} alt="Preview" class="preview-thumb" />
             {/each}
           </div>
@@ -514,8 +602,17 @@
       <div class="footer-spacer"></div>
       {#if step === 1}
         {#if hasGenerated}
+          <label class="auto-upload-option" class:disabled={!hasConfiguredImageHost} title={!hasConfiguredImageHost ? tr('context_menu.upload_no_config') : undefined}>
+            <input type="checkbox" bind:checked={uploadToImageHost} disabled={!hasConfiguredImageHost} />
+            {tr('image_gen.upload_to_host_after_generation')}
+          </label>
+          {#if !hasConfiguredImageHost && onOpenImageHostSettings}
+            <button class="image-host-settings-link" onclick={onOpenImageHostSettings}>
+              {tr('image_gen.configure_image_host')}
+            </button>
+          {/if}
           <button class="btn btn-secondary" onclick={handleGeneratePrompts} disabled={isGeneratingPrompts || !isBothReady}>↻ {tr('seo.regenerate')}</button>
-          <button class="btn btn-primary" onclick={goToStep2} disabled={prompts.length === 0 || isGeneratingPrompts}>
+          <button class="btn btn-primary" onclick={goToStep2} disabled={prompts.length === 0 || isGeneratingPrompts || (uploadToImageHost && !hasConfiguredImageHost)}>
             {tr('image_gen.next')}
           </button>
         {:else}
@@ -827,6 +924,7 @@
   .image-placeholder {
     width: 100%;
     display: flex;
+    gap: 0.5rem;
     align-items: center;
     justify-content: center;
     background: var(--bg-secondary);
@@ -838,6 +936,51 @@
 
   .image-placeholder.error {
     color: #dc3545;
+    min-height: 9rem;
+    overflow-wrap: anywhere;
+    overflow: auto;
+  }
+
+  .rejection-message {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    line-height: 1.5;
+  }
+
+  .rejection-message strong {
+    font-size: var(--font-size-sm);
+  }
+
+  .rejected-prompt {
+    padding: 0.4rem 0.5rem;
+  }
+
+  .rejected-prompt label {
+    display: block;
+    margin-bottom: 0.25rem;
+    color: var(--text-secondary);
+    font-size: var(--font-size-xs);
+  }
+
+  .rejected-prompt .prompt-text {
+    box-sizing: border-box;
+    resize: vertical;
+  }
+
+  .error-details {
+    margin-top: 0.35rem;
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+  }
+
+  .error-details summary {
+    cursor: pointer;
+  }
+
+  .error-details p {
+    margin: 0.25rem 0 0;
+    overflow-wrap: anywhere;
   }
 
   .image-actions {
@@ -864,6 +1007,11 @@
 
   .btn-icon:hover {
     background: var(--bg-hover);
+  }
+
+  .btn-icon:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .btn-icon.checked {
@@ -924,6 +1072,37 @@
 
   .footer-spacer {
     flex: 1;
+  }
+
+  .auto-upload-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--text-secondary);
+    font-size: var(--font-size-xs);
+    cursor: pointer;
+  }
+
+  .auto-upload-option input {
+    accent-color: var(--accent-color);
+  }
+
+  .auto-upload-option.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .image-host-settings-link {
+    border: none;
+    background: transparent;
+    color: var(--accent-color);
+    font-size: var(--font-size-xs);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .image-host-settings-link:hover {
+    text-decoration: underline;
   }
 
   .btn {

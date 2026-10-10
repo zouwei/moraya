@@ -42,6 +42,7 @@
   import Sidebar from '$lib/components/Sidebar.svelte';
   import Toast from '$lib/components/Toast.svelte';
   import type { SEOData } from '$lib/services/ai/types';
+  import { insertGeneratedImagesIntoMarkdown } from '$lib/services/ai/image-insertion';
   import type { PublishResult } from '$lib/services/publish/types';
   import type { UnifiedMediaItem } from '$lib/services/cloud-resource/types';
   import { getMediaDetail, picoraApiBaseFromUploadUrl } from '$lib/services/cloud-resource';
@@ -269,7 +270,7 @@ ${tr('welcome.tip')}
     handleFileSelect(path);
   }
   let showSettings = $state(false);
-  let settingsInitialTab = $state<'general' | 'ai' | 'voice'>('general');
+  let settingsInitialTab = $state<'general' | 'ai' | 'voice' | 'image'>('general');
   let showAIPanel = $state(false);
   let showReviewPanel = $state(false);
   // v0.32.0: history panel + DiffView state
@@ -3156,114 +3157,8 @@ ${tr('welcome.tip')}
   }
 
   function handleImageGenInsert(images: { url: string; target: number }[], mode: 'paragraph' | 'end' | 'replace' | 'clipboard') {
-    // Ensure content is up-to-date before image operations
-    getCurrentContent();
-    if (mode === 'end') {
-      // Insert all images at end
-      const imgMarkdown = images.map(img => `![](${img.url})`).join('\n\n');
-      content = content.trimEnd() + '\n\n' + imgMarkdown + '\n';
-      syncVisualEditor(content);
-    } else if (mode === 'paragraph') {
-      // Insert each image after its target paragraph
-      const lines = content.split('\n');
-
-      // Count total paragraphs in the current article so we can validate /
-      // redistribute targets. Stale caches, bad AI output, or plain-text
-      // prompt blocks can all produce duplicate target=0 values → safety net.
-      let paraTotal = 0;
-      for (let i = 0; i < lines.length; i++) {
-        if (lines[i].trim() && (i + 1 >= lines.length || !lines[i + 1]?.trim())) paraTotal++;
-      }
-
-      const targets = images.map(img => Math.max(0, Math.min(img.target, Math.max(0, paraTotal - 1))));
-      const uniqueTargets = new Set(targets);
-      const shouldRedistribute = paraTotal >= 2 && uniqueTargets.size < images.length;
-      if (shouldRedistribute) {
-        // Spread evenly across all paragraphs when images cluster on the
-        // same target paragraph (common when prompt generation used truncated
-        // content or all targets defaulted to 0).
-        const segment = paraTotal / images.length;
-        for (let i = 0; i < images.length; i++) {
-          targets[i] = Math.min(Math.round(segment * i + segment / 2), paraTotal - 1);
-        }
-      }
-
-      let paragraphIdx = 0;
-      const insertions: Map<number, string[]> = new Map();
-      for (let i = 0; i < images.length; i++) {
-        const t = targets[i];
-        const existing = insertions.get(t) || [];
-        existing.push(`![](${images[i].url})`);
-        insertions.set(t, existing);
-      }
-
-      // Pre-compute fenced code block regions to avoid inserting images inside them
-      const inCodeBlockAt: boolean[] = new Array(lines.length).fill(false);
-      let inBlock = false;
-      for (let i = 0; i < lines.length; i++) {
-        if (/^\s{0,3}(`{3,}|~{3,})/.test(lines[i])) {
-          inCodeBlockAt[i] = true;
-          inBlock = !inBlock;
-        } else {
-          inCodeBlockAt[i] = inBlock;
-        }
-      }
-
-      const result: string[] = [];
-      let deferredImages: string[] = [];
-
-      for (let i = 0; i < lines.length; i++) {
-        result.push(lines[i]);
-        // Count non-empty lines as paragraphs
-        if (lines[i].trim() && (i + 1 >= lines.length || !lines[i + 1]?.trim())) {
-          const imgs = insertions.get(paragraphIdx);
-          if (inCodeBlockAt[i]) {
-            // Inside code block: defer insertion to after the block
-            if (imgs) deferredImages.push(...imgs);
-          } else {
-            // Normal paragraph: flush deferred images first, then this paragraph's images
-            if (deferredImages.length > 0) {
-              result.push('');
-              result.push(...deferredImages);
-              deferredImages = [];
-            }
-            if (imgs) {
-              result.push('');
-              result.push(...imgs);
-            }
-          }
-          paragraphIdx++;
-        }
-      }
-      // Flush any remaining deferred images at the end
-      if (deferredImages.length > 0) {
-        result.push('');
-        result.push(...deferredImages);
-      }
-
-      content = result.join('\n');
-      syncVisualEditor(content);
-    } else if (mode === 'replace') {
-      // Replace existing images in the article with generated images
-      const imgRegex = /!\[[^\]]*\]\([^)]*\)/g;
-      let replaceIdx = 0;
-      let replaced = content.replace(imgRegex, (match) => {
-        if (replaceIdx < images.length) {
-          return `![](${images[replaceIdx++].url})`;
-        }
-        return match; // no more generated images, keep original
-      });
-      // Append remaining images at end
-      if (replaceIdx < images.length) {
-        const remaining = images.slice(replaceIdx).map(img => `![](${img.url})`).join('\n\n');
-        replaced = replaced.trimEnd() + '\n\n' + remaining + '\n';
-      }
-      content = replaced;
-      syncVisualEditor(content);
-    }
-
-    // Remove prompt / image-prompt(s) code blocks after insertion
-    content = content.replace(/\n*```\s*(?:prompt|image-prompts?)\s*\n[\s\S]*?```\n*/g, '\n');
+    if (mode === 'clipboard') return;
+    content = insertGeneratedImagesIntoMarkdown(getCurrentContent(), images, mode);
     syncVisualEditor(content);
 
     imageGenCompleted = true;
@@ -4752,6 +4647,7 @@ ${tr('welcome.tip')}
         onClose={() => { showImageGenDialog = false; imageGenDialogMounted = false; }}
         onInsert={handleImageGenInsert}
         onOpenSettings={() => { showImageGenDialog = false; imageGenDialogMounted = false; settingsInitialTab = 'ai'; showSettings = true; }}
+        onOpenImageHostSettings={() => { showImageGenDialog = false; imageGenDialogMounted = false; settingsInitialTab = 'image'; showSettings = true; }}
         documentContent={content}
       />
     {/await}

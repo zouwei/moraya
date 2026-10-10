@@ -25,6 +25,7 @@
   import { editorLoadingStore } from '../stores/editor-loading-store';
   import { readImageAsBlobUrl } from '../services/file-service';
   import { uploadImage, fetchImageAsBlob, targetToConfig } from '../services/image-hosting';
+  import { replaceDocumentImageUrl } from '$lib/services/image-hosting/document-image-replace';
   import { targetToConfigAsync } from '$lib/services/picora/credentials';
   import { aiStore } from '../services/ai';
   import type { ImageHostConfig, ImageHostTarget } from '../services/image-hosting';
@@ -1573,9 +1574,9 @@
       return fetchImageAsBlob(src);
     }
     // Local path — resolve relative to current document
-    const currentFilePath = editorStore.getState().currentFilePath || '';
+    const currentFilePath = (editorStore.getState().currentFilePath || '').replace(/\\/g, '/');
     const dir = currentFilePath ? currentFilePath.split('/').slice(0, -1).join('/') : '';
-    const absPath = !src.startsWith('/') && dir
+    const absPath = !/^(?:[a-zA-Z]:\/|\/)/.test(src) && dir
       ? `${dir}/${src.replace(/^\.\//, '')}`
       : src;
     const blobUrl = await readImageAsBlobUrl(absPath);
@@ -1659,8 +1660,8 @@
       timestamp: startTs,
     });
 
-    // 3. Upload each unique source, build old→new URL map
-    const urlMap = new Map<string, string>(); // oldSrc → newUrl
+    // 3. Upload and replace each source before reporting success. A later image
+    // failure must not prevent earlier successful uploads from reaching the doc.
     let successCount = 0;
     let firstResult = true;
 
@@ -1668,7 +1669,16 @@
       try {
         const blob = await resolveImageBlob(img.src);
         const result = await uploadImage(blob, config);
-        urlMap.set(img.src, result.url);
+        if (!result.url?.trim()) throw new Error(get(t)('image_gen.image_host_upload_failed'));
+        const { transaction, count } = replaceDocumentImageUrl(view.state, img.src, result.url);
+        if (count === 0) throw new Error('Image source is no longer in the document');
+        view.dispatch(transaction);
+        const full = storedFrontmatter + editor.getMarkdown();
+        lastSyncedMd = full;
+        internalChange = true;
+        content = full;
+        onContentChange?.(full);
+        editorStore.setDirtyContent(true, full);
         successCount++;
 
         // Remove "starting" message on first result
@@ -1697,72 +1707,7 @@
       }
     }
 
-    // 4. Replace all matched URLs in the document in one transaction
-    if (urlMap.size > 0) {
-      const tr = view.state.tr;
-      // Collect replacements first, apply in reverse position order for html_block/html_inline
-      const htmlReplacements: { pos: number; node: import('prosemirror-model').Node; newContent: string }[] = [];
-
-      view.state.doc.descendants((node, pos) => {
-        // Markdown image nodes: setNodeMarkup (no size change)
-        if (node.type.name === 'image') {
-          const oldSrc = node.attrs.src as string;
-          const newUrl = urlMap.get(oldSrc);
-          if (newUrl) {
-            tr.setNodeMarkup(tr.mapping.map(pos), undefined, { ...node.attrs, src: newUrl });
-          }
-        }
-        // html_inline: replace src in the value attribute
-        if (node.type.name === 'html_inline') {
-          const val = node.attrs.value as string;
-          if (/^<img\s/i.test(val)) {
-            let newVal = val;
-            for (const [oldSrc, newUrl] of urlMap) {
-              if (newVal.includes(oldSrc)) {
-                newVal = newVal.split(oldSrc).join(newUrl);
-              }
-            }
-            if (newVal !== val) {
-              htmlReplacements.push({ pos, node, newContent: newVal });
-            }
-          }
-        }
-        // html_block: replace src in text content
-        if (node.type.name === 'html_block') {
-          const html = node.textContent;
-          let newHtml = html;
-          for (const [oldSrc, newUrl] of urlMap) {
-            if (newHtml.includes(oldSrc)) {
-              newHtml = newHtml.split(oldSrc).join(newUrl);
-            }
-          }
-          if (newHtml !== html) {
-            htmlReplacements.push({ pos, node, newContent: newHtml });
-          }
-        }
-      });
-
-      // Apply HTML replacements in reverse order (to preserve positions)
-      htmlReplacements.sort((a, b) => b.pos - a.pos);
-      for (const rep of htmlReplacements) {
-        const mappedPos = tr.mapping.map(rep.pos);
-        if (rep.node.type.name === 'html_inline') {
-          // Atom node: replace with new node that has updated value attr
-          tr.setNodeMarkup(mappedPos, undefined, { ...rep.node.attrs, value: rep.newContent });
-        } else {
-          // html_block: replace text content
-          const from = mappedPos + 1; // inside the node
-          const to = mappedPos + rep.node.nodeSize - 1;
-          tr.replaceWith(from, to, schema.text(rep.newContent));
-        }
-      }
-
-      if (tr.docChanged) {
-        view.dispatch(tr);
-      }
-    }
-
-    // 5. Summary message
+    // 4. Summary message
     aiStore.addMessage({
       role: 'assistant',
       content: get(t)('context_menu.upload_all_complete')

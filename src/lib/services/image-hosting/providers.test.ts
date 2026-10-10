@@ -2,12 +2,37 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import {
   createDefaultImageHostTarget,
+  isImageHostTargetConfigured,
   PICORA_DEFAULT_API_URL,
   PICORA_DEFAULT_IMG_DOMAIN,
 } from './types';
 import { providers } from './providers';
 
 const mockedInvoke = vi.mocked(invoke);
+
+describe('isImageHostTargetConfigured', () => {
+  it('rejects a missing target', () => {
+    expect(isImageHostTargetConfigured(null)).toBe(false);
+  });
+
+  it('rejects an incomplete saved target', () => {
+    expect(isImageHostTargetConfigured(createDefaultImageHostTarget('custom'))).toBe(false);
+  });
+
+  it('accepts a configured custom endpoint', () => {
+    expect(isImageHostTargetConfigured({
+      ...createDefaultImageHostTarget('custom'),
+      customEndpoint: 'https://images.example/upload',
+    })).toBe(true);
+  });
+
+  it('accepts a Picora key stored in the keychain', () => {
+    expect(isImageHostTargetConfigured({
+      ...createDefaultImageHostTarget('picora'),
+      picoraKeyMigratedV069: true,
+    })).toBe(true);
+  });
+});
 
 describe('createDefaultImageHostTarget(picora)', () => {
   it('seeds Picora defaults', () => {

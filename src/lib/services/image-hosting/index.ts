@@ -6,6 +6,7 @@ export {
   targetToConfig,
   isObjectStorageProvider,
   isGitProvider,
+  isImageHostTargetConfigured,
   PICORA_DEFAULT_API_URL,
   PICORA_DEFAULT_IMG_DOMAIN,
   PICORA_DEFAULT_API_BASE,
@@ -44,7 +45,7 @@ export async function blobUrlToBlob(blobUrl: string): Promise<Blob> {
 
 /**
  * Fetch any image URL and return it as a Blob.
- * Uses tauriFetch for remote URLs (bypasses CORS) and browser fetch for blob: URLs.
+ * Uses tauriFetch for remote URLs (bypasses CORS) and browser fetch for local data/blob URLs.
  *
  * If the server returns a generic/missing Content-Type (e.g. `application/octet-stream`,
  * common for OSS-signed URLs), infer the image MIME from the URL extension so that
@@ -52,8 +53,9 @@ export async function blobUrlToBlob(blobUrl: string): Promise<Blob> {
  */
 export async function fetchImageAsBlob(src: string): Promise<Blob> {
   let blob: Blob;
-  if (src.startsWith('blob:')) {
+  if (src.startsWith('blob:') || src.startsWith('data:')) {
     const res = await fetch(src);
+    if (!res.ok) throw new Error(`Failed to fetch image: ${res.status}`);
     blob = await res.blob();
   } else {
     const res = await tauriFetch(src, { method: 'GET' });
