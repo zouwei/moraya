@@ -179,6 +179,8 @@
 
   async function saveEdit() {
     if (!editing) return;
+    const targetId = editing.id;
+    const keyChanged = !!editing.picoraApiKey;
     // v0.69.0: push entered API key into OS keychain and clear the inline
     // field before persisting to disk.
     if (editing.picoraApiKey) {
@@ -192,6 +194,11 @@
     }
     const updated = targets.map(t => t.id === editing!.id ? editing! : t);
     settingsStore.update({ imageHostTargets: JSON.parse(JSON.stringify(updated)) });
+    if (keyChanged) {
+      // New key: drop the stale plan + failed-sync state so KB sync re-enables.
+      const { onPicoraCredentialChanged } = await import('$lib/services/kb-sync/manual-sync');
+      await onPicoraCredentialChanged(targetId);
+    }
     editing = null;
   }
 

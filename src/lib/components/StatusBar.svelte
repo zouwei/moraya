@@ -8,6 +8,7 @@
   import GitSyncStatus from './GitSyncStatus.svelte';
   import { filesStore } from '$lib/stores/files-store';
   import { kbSyncStore } from '$lib/services/kb-sync/sync-service';
+  import { syncKbNow } from '$lib/services/kb-sync/manual-sync';
   import type { KbSyncState } from '$lib/services/kb-sync/types';
   import { exportProgressStore } from '$lib/stores/export-progress-store';
   import { editorLoadingStore, type LoadingPhase } from '$lib/stores/editor-loading-store';
@@ -85,7 +86,6 @@
   let charCount = $state(0);
   let updateAvailable = $state(false);
   let activeKbSyncState = $state<KbSyncState | null>(null);
-  let showSyncPopover = $state(false);
   let showSidebar = $state(false);
   let showOutline = $state(false);
 
@@ -128,6 +128,18 @@
       activeKbSyncState = null;
     }
   });
+
+  // Same action as the sidebar KB-switcher sync button: open the conflict
+  // panel when there are conflicts, otherwise sync the active KB now.
+  function handleKbSyncClick() {
+    if (activeKbSyncState?.status === 'conflict' && onShowConflicts) {
+      onShowConflicts();
+      return;
+    }
+    const { activeKnowledgeBaseId, knowledgeBases } = filesStore.getState();
+    const kb = knowledgeBases.find(k => k.id === activeKnowledgeBaseId);
+    if (kb) void syncKbNow(kb);
+  }
 
   let exportProgress: {
     phase: string;
@@ -352,38 +364,21 @@
       <GitSyncStatus onSync={onGitSync} />
     {/if}
     {#if activeKbSyncState !== null}
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <span
+      <button
         class="kb-sync-icon"
         class:sync-idle={activeKbSyncState.status === 'idle'}
         class:sync-syncing={activeKbSyncState.status === 'syncing'}
         class:sync-conflict={activeKbSyncState.status === 'conflict'}
         class:sync-error={activeKbSyncState.status === 'error'}
-        onclick={() => {
-          if (activeKbSyncState?.status === 'conflict' && onShowConflicts) {
-            onShowConflicts();
-          } else {
-            showSyncPopover = !showSyncPopover;
-          }
-        }}
+        onclick={handleKbSyncClick}
+        disabled={activeKbSyncState.status === 'syncing'}
         title={activeKbSyncState.status === 'error' && activeKbSyncState.lastError
           ? activeKbSyncState.lastError
-          : $t('kb_sync.statusbar.tooltip')}
+          : $t('kb_sync.sync_now')}
+        type="button"
       >
         <svg width="12" height="12" viewBox="8 6 16 20" fill="none" style="vertical-align:-1px;display:inline-block" aria-hidden="true"><path d="M9.5 7.5v17" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><circle cx="16" cy="14" r="6.5" stroke="currentColor" stroke-width="3"/><circle cx="16" cy="14" r="2.4" fill="currentColor"/></svg>{#if activeKbSyncState.status === 'conflict'} ⚠{activeKbSyncState.conflictCount}{:else if activeKbSyncState.status === 'error'} ✗{#if activeKbSyncState.lastError} {activeKbSyncState.lastError.length > 35 ? activeKbSyncState.lastError.slice(0, 35) + '…' : activeKbSyncState.lastError}{/if}{:else if activeKbSyncState.status === 'idle'} ✓{/if}
-      </span>
-      {#if showSyncPopover && activeKbSyncState.status === 'error' && activeKbSyncState.lastError}
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <div class="kb-sync-popover" onclick={() => { showSyncPopover = false; }}>
-          <div class="kb-sync-popover-inner" onclick={(e) => e.stopPropagation()}>
-            <span class="kb-sync-popover-label">{$t('kb_sync.statusbar.error_label')}</span>
-            <span class="kb-sync-popover-msg">{activeKbSyncState.lastError}</span>
-            <button class="kb-sync-popover-close" onclick={() => { showSyncPopover = false; }}>&times;</button>
-          </div>
-        </div>
-      {/if}
+      </button>
     {/if}
     {#if onToggleVersionHistory}
       <button
@@ -848,6 +843,10 @@
 
   .kb-sync-icon {
     cursor: pointer;
+    border: none;
+    background: transparent;
+    font: inherit;
+    color: var(--color-success, #38a169);
     padding: 0.1rem 0.3rem;
     border-radius: 3px;
     font-size: var(--font-size-xs);
@@ -855,7 +854,8 @@
     white-space: nowrap;
   }
 
-  .kb-sync-icon:hover { background: var(--bg-hover); }
+  .kb-sync-icon:hover:not(:disabled) { background: var(--bg-hover); }
+  .kb-sync-icon:disabled { cursor: default; }
   .kb-sync-icon.sync-idle { color: var(--color-success, #38a169); }
   .kb-sync-icon.sync-syncing {
     color: var(--accent-color);
@@ -892,50 +892,4 @@
     pointer-events: auto; /* keep the disabled-state tooltip */
   }
 
-  .kb-sync-popover {
-    position: fixed;
-    inset: 0;
-    z-index: 500;
-  }
-
-  .kb-sync-popover-inner {
-    position: absolute;
-    bottom: calc(var(--statusbar-height) + 4px);
-    left: 1rem;
-    max-width: 360px;
-    background: var(--bg-primary);
-    border: 1px solid var(--color-error, #e53e3e);
-    border-radius: 6px;
-    padding: 0.5rem 0.75rem;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.18);
-    display: flex;
-    align-items: flex-start;
-    gap: 0.5rem;
-    font-size: var(--font-size-xs);
-  }
-
-  .kb-sync-popover-label {
-    color: var(--color-error, #e53e3e);
-    font-weight: 600;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-
-  .kb-sync-popover-msg {
-    color: var(--text-primary);
-    word-break: break-all;
-    flex: 1;
-  }
-
-  .kb-sync-popover-close {
-    flex-shrink: 0;
-    border: none;
-    background: transparent;
-    color: var(--text-muted);
-    cursor: pointer;
-    font-size: 1rem;
-    line-height: 1;
-    padding: 0 0.1rem;
-  }
-  .kb-sync-popover-close:hover { color: var(--text-primary); }
 </style>
