@@ -27,7 +27,7 @@ import {
   resolveAllLocales,
   type SupportedLocale,
 } from '@moraya/core/i18n'
-import { derived } from 'svelte/store'
+import { derived, writable } from 'svelte/store'
 
 // Eager-load all 12 bundles at module load — restores the PC-era assumption
 // that every locale's strings are sync-available (the prior implementation
@@ -148,12 +148,20 @@ const IMAGE_GEN_UPLOAD_MESSAGES: Record<SupportedLocale, Record<string, string>>
   'ru': { 'image_gen.upload_to_host_after_generation': 'Загрузить на хостинг после генерации', 'image_gen.uploading_to_host': 'Загрузка на хостинг…', 'image_gen.image_host_upload_failed': 'Не удалось загрузить изображение', 'image_gen.generated_image_fetch_failed': 'Не удалось скачать созданное изображение', 'image_gen.configure_image_host': 'Настроить хостинг' },
 }
 
+// Bumped after every core `setLocale` resolves. Core only notifies `locale`
+// subscribers when the locale *value* changes, and its store already starts at
+// 'en' — so an English user's initial `setLocale('en')` loads the bundle
+// without notifying anyone, leaving every `$t(...)` rendered before that stuck
+// on the raw key (e.g. `statusbar.visual_mode`). Re-deriving on this revision
+// fixes that.
+const messagesRevision = writable(0)
+
 /**
  * Svelte derived store. `$t('foo')` in templates re-evaluates whenever the
  * locale store updates, so component re-renders are automatic. App-local
  * overrides resolve first, then core.
  */
-export const t = derived(coreLocale, ($loc) => {
+export const t = derived([coreLocale, messagesRevision], ([$loc]) => {
   return (...args: Parameters<typeof coreT>): string => {
     const [key, params] = args
     const override = IMAGE_GEN_UPLOAD_MESSAGES[$loc]?.[key]
@@ -180,7 +188,7 @@ export const locale = coreLocale
  * above finishes, and re-resolves are cache hits.
  */
 export function setLocale(loc: SupportedLocale): void {
-  void coreSetLocale(loc)
+  void coreSetLocale(loc).then(() => messagesRevision.update((n) => n + 1))
 }
 
 export { detectSystemLocale, isRTL, resolveForLocale, resolveAllLocales }
