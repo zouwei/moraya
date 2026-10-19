@@ -88,6 +88,8 @@
 
   async function saveTarget() {
     if (!editingTarget) return;
+    const targetId = editingTarget.id;
+    const picoraKeyChanged = editingTarget.provider === 'picora' && !!editingTarget.picoraApiKey;
     // v0.69.0: for Picora targets, push the entered key into the OS keychain
     // and clear the inline field before it's persisted to disk.
     if (editingTarget.provider === 'picora' && editingTarget.picoraApiKey) {
@@ -112,6 +114,11 @@
       patch.defaultImageHostId = editingTarget.id;
     }
     settingsStore.update(patch);
+    if (picoraKeyChanged) {
+      // New key: drop the stale plan + failed-sync state so KB sync re-enables.
+      const { onPicoraCredentialChanged } = await import('$lib/services/kb-sync/manual-sync');
+      await onPicoraCredentialChanged(targetId);
+    }
     editingTarget = null;
   }
 

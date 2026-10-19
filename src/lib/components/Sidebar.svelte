@@ -14,7 +14,8 @@
   import KbMemoryAssetDialog from './KbMemoryAssetDialog.svelte';
   import LockIndicator from './LockIndicator.svelte';
   import type { Lock } from '$lib/services/review/types';
-  import { kbSyncStore, runSync } from '$lib/services/kb-sync/sync-service';
+  import { kbSyncStore } from '$lib/services/kb-sync/sync-service';
+  import { syncKbNow } from '$lib/services/kb-sync/manual-sync';
   import type { KbSyncState } from '$lib/services/kb-sync/types';
   import { renameVersionsDir } from '$lib/services/version-history';
 
@@ -140,55 +141,9 @@
   }
 
   /** Trigger a manual sync of the currently-active KB. */
-  async function triggerSyncActiveKb() {
+  function triggerSyncActiveKb() {
     const kb = knowledgeBases.find(k => k.id === activeKBId);
-    if (!kb?.picoraBinding) return;
-    const settings = settingsStore.getState();
-    const target = settings.imageHostTargets.find(t => t.id === kb.picoraBinding!.picoraTargetId);
-    if (!target) {
-      // Picora account was deleted after binding — surface the error.
-      const errMsg = $t('kb_sync.error.target_missing');
-      filesStore.updateKbSyncReport(kb.id, {
-        lastSyncAt: new Date().toISOString(),
-        lastSyncReport: null,
-        lastSyncError: errMsg,
-      });
-      kbSyncStore.setState(kb.id, { status: 'error', lastError: errMsg });
-      return;
-    }
-    try {
-      const report = await runSync(kb.picoraBinding, kb, target, false);
-      const numConflicts = typeof report.conflicts === 'number'
-        ? report.conflicts
-        : (report.conflicts as unknown as { length: number }).length;
-      filesStore.updateKbSyncReport(kb.id, {
-        lastSyncAt: new Date().toISOString(),
-        lastSyncReport: {
-          uploaded: report.uploaded,
-          downloaded: report.downloaded,
-          deletedRemote: report.deletedRemote,
-          deletedLocal: report.deletedLocal,
-          skipped: report.skipped,
-          conflicts: numConflicts,
-        },
-        lastSyncError: null,
-      });
-      if (report.deletedLocal > 0 && onNotify) {
-        onNotify(
-          get(t)('kb_sync.trash.toast_deleted', { count: String(report.deletedLocal) }),
-          'success',
-        );
-      }
-    } catch (e) {
-      const errMsg = typeof e === 'string' ? e : (e instanceof Error ? e.message : 'Sync failed');
-      console.error('[KbSync] Sync failed for KB', kb.id, ':', errMsg);
-      kbSyncStore.setState(kb.id, { status: 'error', lastError: errMsg });
-      filesStore.updateKbSyncReport(kb.id, {
-        lastSyncAt: new Date().toISOString(),
-        lastSyncReport: null,
-        lastSyncError: errMsg,
-      });
-    }
+    if (kb) void syncKbNow(kb, onNotify);
   }
 
   $effect(() => {
