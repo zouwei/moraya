@@ -3,11 +3,11 @@
   "nomnoml": "1.7.0",
   "echarts": "6.1.0",
   "vega-embed": "7.3.0",
-  "abcjs": "6.7.1",
+  "abcjs": "6.7.2",
   "jsmind": "0.9.1",
   "@pintora/standalone": "0.8.1",
   "chart.js": "4.5.1",
-  "cytoscape": "3.34.3",
+  "cytoscape": "3.34.4",
   "@viz-js/viz": "3.31.0",
   "@morcad/moraya": "0.2.8"
 }
