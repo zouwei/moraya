@@ -31,6 +31,12 @@ vi.mock('$lib/services/picora/entitlement', () => ({
   isKbSyncEntitled: vi.fn((plan: string | null | undefined) => !!plan && plan !== 'none'),
 }));
 
+// Local version history backs the "remote is our own prior version" fast-
+// forward; default to no history, individual tests override.
+vi.mock('$lib/services/version-history', () => ({
+  listVersions: vi.fn().mockResolvedValue([]),
+}));
+
 // The gate resolves its user-facing reason via the i18n store; stub it so the
 // dynamic import doesn't drag the locale JSON loader into the test env.
 vi.mock('$lib/i18n', async () => {
@@ -42,8 +48,10 @@ import { invoke } from '@tauri-apps/api/core';
 import { buildLocalManifest, loadLastManifest, saveLastManifest, moveToTrash } from './manifest';
 import { fetchManifest, syncBatch, fetchRaw } from './picora-kb-client';
 import { getPicoraPlan } from '$lib/services/picora/entitlement';
+import { listVersions } from '$lib/services/version-history';
 import { kbSyncStore, runSync, dryRunSync, clearAllIntervals, isMemoryNamespacePath } from './sync-service';
-import type { KbBinding, LocalManifestEntry, ManifestEntry, ConflictEntry } from './types';
+import type { KbBinding, LocalManifestEntry, ManifestEntry, ConflictEntry, SyncBatchResult, RemoteManifest } from './types';
+import type { VersionEntry } from '$lib/services/version-history';
 import type { KnowledgeBase } from '$lib/stores/files-store';
 import type { ImageHostTarget } from '$lib/services/image-hosting/types';
 
@@ -98,6 +106,24 @@ function remoteEntry(hash: string, size = 100): ManifestEntry {
     sizeBytes: size,
     updatedAt: new Date().toISOString(),
   };
+}
+
+const SERVER_TS = '2026-10-20T01:02:03.000Z';
+
+/** Server batch response with each path applied as an upsert. */
+function applied(paths: string[], sourceHash: string | null = null): SyncBatchResult {
+  return {
+    applied: paths.map(relativePath => ({
+      op: 'upsert' as const, relativePath, id: 'doc-id-0000000000000', updatedAt: SERVER_TS, sourceHash,
+    })),
+    conflicts: [],
+    skipped: [],
+  };
+}
+
+async function sha256(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────
@@ -170,7 +196,7 @@ describe('runSync — success path', () => {
     vi.mocked(loadLastManifest).mockResolvedValue(lastManifest);
     vi.mocked(fetchManifest).mockResolvedValue(remoteEntries);
     vi.mocked(invoke).mockResolvedValue('# Hello');
-    vi.mocked(syncBatch).mockResolvedValue({ applied: ['note.md'], conflicts: [] });
+    vi.mocked(syncBatch).mockResolvedValue(applied(['note.md']));
 
     const report = await runSync(makeBinding(), makeKb(), makeTarget(), false);
 
@@ -241,7 +267,7 @@ describe('runSync — success path', () => {
     vi.mocked(buildLocalManifest).mockResolvedValue(localManifest);
     vi.mocked(loadLastManifest).mockResolvedValue(lastManifest);
     vi.mocked(fetchManifest).mockResolvedValue(remoteEntries);
-    vi.mocked(syncBatch).mockResolvedValue({ applied: [], conflicts: [] });
+    vi.mocked(syncBatch).mockResolvedValue(applied([]));
 
     vi.mocked(invoke).mockResolvedValue('# local'); // read_file
     vi.mocked(fetchRaw).mockResolvedValue('# remote');
@@ -271,7 +297,7 @@ describe('runSync — success path', () => {
     vi.mocked(fetchManifest).mockResolvedValue(remoteEntries);
     vi.mocked(invoke).mockResolvedValue('# local content'); // read_file
     vi.mocked(fetchRaw).mockResolvedValue('# remote content');
-    vi.mocked(syncBatch).mockResolvedValue({ applied: ['c.md'], conflicts: [] });
+    vi.mocked(syncBatch).mockResolvedValue(applied(['c.md']));
 
     const binding = makeBinding({
       strategy: { ...makeBinding().strategy, conflictPolicy: 'prefer-local' },
@@ -330,6 +356,141 @@ describe('runSync — success path', () => {
   });
 });
 
+describe('runSync — incremental updates (no false conflicts)', () => {
+  const T1 = '2026-10-19T10:00:00.000Z';
+
+  it('records the server updatedAt/sourceHash (not client time) after an upload', async () => {
+    vi.mocked(buildLocalManifest).mockResolvedValue(new Map([['note.md', localEntry('aaa')]]));
+    vi.mocked(loadLastManifest).mockResolvedValue(new Map());
+    vi.mocked(fetchManifest).mockResolvedValue([]);
+    vi.mocked(invoke).mockResolvedValue('# Hello');
+    vi.mocked(syncBatch).mockResolvedValue(applied(['note.md'], 'f'.repeat(64)));
+
+    await runSync(makeBinding(), makeKb(), makeTarget(), false);
+
+    const saved = vi.mocked(saveLastManifest).mock.calls[0][1] as RemoteManifest;
+    expect(saved.get('note.md')).toMatchObject({ updatedAt: SERVER_TS, sourceHash: 'f'.repeat(64) });
+  });
+
+  it('a local edit after a completed sync uploads with the observed remote version as base', async () => {
+    // Last sync agreed on v1 (T1); the remote still holds v1; local edited to v2.
+    vi.mocked(loadLastManifest).mockResolvedValue(new Map([
+      ['note.md', { relativePath: 'note.md', sourceHash: 'h1', sizeBytes: 10, updatedAt: T1 }],
+    ]));
+    vi.mocked(fetchManifest).mockResolvedValue([
+      { relativePath: 'note.md', sourceHash: 'h1', sizeBytes: 10, updatedAt: T1 },
+    ]);
+    vi.mocked(buildLocalManifest).mockResolvedValue(new Map([['note.md', localEntry('h2')]]));
+    vi.mocked(invoke).mockResolvedValue('# v2');
+    vi.mocked(syncBatch).mockResolvedValue(applied(['note.md']));
+
+    const report = await runSync(makeBinding(), makeKb(), makeTarget(), false);
+
+    expect(report.uploaded).toBe(1);
+    expect(report.conflicts).toHaveLength(0);
+    expect(kbSyncStore.getState('kb-1').status).toBe('idle');
+    expect(syncBatch).toHaveBeenCalledWith(expect.any(String), expect.any(String), 'remote-kb-1', [
+      expect.objectContaining({ op: 'upsert', relativePath: 'note.md', baseUpdatedAt: T1, sourceHash: await sha256('# v2') }),
+    ]);
+  });
+
+  it('sends the hash of the content actually uploaded, not the scan-time hash', async () => {
+    vi.mocked(buildLocalManifest).mockResolvedValue(new Map([['note.md', localEntry('stale-scan-hash')]]));
+    vi.mocked(loadLastManifest).mockResolvedValue(new Map());
+    vi.mocked(fetchManifest).mockResolvedValue([]);
+    vi.mocked(invoke).mockResolvedValue('# saved again');
+    vi.mocked(syncBatch).mockResolvedValue(applied(['note.md']));
+
+    await runSync(makeBinding(), makeKb(), makeTarget(), false);
+
+    const op = vi.mocked(syncBatch).mock.calls[0][3][0];
+    expect(op.sourceHash).toBe(await sha256('# saved again'));
+    expect(op).not.toHaveProperty('baseUpdatedAt'); // brand-new file: create semantics
+  });
+
+  it('remote deletes carry the observed remote version as base', async () => {
+    vi.mocked(loadLastManifest).mockResolvedValue(new Map([
+      ['old.md', { relativePath: 'old.md', sourceHash: 'h1', sizeBytes: 10, updatedAt: T1 }],
+    ]));
+    vi.mocked(fetchManifest).mockResolvedValue([
+      { relativePath: 'old.md', sourceHash: 'h1', sizeBytes: 10, updatedAt: T1 },
+    ]);
+    vi.mocked(buildLocalManifest).mockResolvedValue(new Map());
+    vi.mocked(syncBatch).mockResolvedValue({
+      applied: [{ op: 'delete', relativePath: 'old.md', id: null, updatedAt: null, sourceHash: null }],
+      conflicts: [],
+      skipped: [],
+    });
+
+    const report = await runSync(makeBinding(), makeKb(), makeTarget(), false);
+
+    expect(report.deletedRemote).toBe(1);
+    expect(syncBatch).toHaveBeenCalledWith(expect.any(String), expect.any(String), 'remote-kb-1', [
+      { op: 'delete', relativePath: 'old.md', baseUpdatedAt: T1 },
+    ]);
+  });
+
+  it('self-heals a stale last-synced manifest when the remote is a version this device had', async () => {
+    // Older builds never recorded uploads: last still says h0 although this
+    // device already uploaded h1, then edited on to h2.
+    vi.mocked(loadLastManifest).mockResolvedValue(new Map([
+      ['note.md', { relativePath: 'note.md', sourceHash: 'h0', sizeBytes: 10, updatedAt: '2026-10-01T00:00:00.000Z' }],
+    ]));
+    vi.mocked(fetchManifest).mockResolvedValue([
+      { relativePath: 'note.md', sourceHash: 'h1', sizeBytes: 10, updatedAt: T1 },
+    ]);
+    vi.mocked(buildLocalManifest).mockResolvedValue(new Map([['note.md', localEntry('h2')]]));
+    vi.mocked(listVersions).mockResolvedValueOnce([{ sourceHash: 'h2' }, { sourceHash: 'h1' }] as VersionEntry[]);
+    vi.mocked(invoke).mockResolvedValue('# v2');
+    vi.mocked(fetchRaw).mockResolvedValue('# v1');
+    vi.mocked(syncBatch).mockResolvedValue(applied(['note.md']));
+
+    const report = await runSync(makeBinding(), makeKb(), makeTarget(), false);
+
+    expect(report.conflicts).toHaveLength(0);
+    expect(report.uploaded).toBe(1);
+    expect(syncBatch).toHaveBeenCalledWith(expect.any(String), expect.any(String), 'remote-kb-1', [
+      expect.objectContaining({ op: 'upsert', relativePath: 'note.md', content: '# v2', baseUpdatedAt: T1 }),
+    ]);
+    const saved = vi.mocked(saveLastManifest).mock.calls[0][1] as RemoteManifest;
+    expect(saved.get('note.md')?.updatedAt).toBe(SERVER_TS);
+  });
+
+  it('surfaces an upload the server refused (remote moved on) as a conflict', async () => {
+    vi.mocked(loadLastManifest).mockResolvedValue(new Map([
+      ['note.md', { relativePath: 'note.md', sourceHash: 'h1', sizeBytes: 10, updatedAt: T1 }],
+    ]));
+    vi.mocked(fetchManifest).mockResolvedValue([
+      { relativePath: 'note.md', sourceHash: 'h1', sizeBytes: 10, updatedAt: T1 },
+    ]);
+    vi.mocked(buildLocalManifest).mockResolvedValue(new Map([['note.md', localEntry('h2')]]));
+    vi.mocked(invoke).mockResolvedValue('# local v2');
+    vi.mocked(fetchRaw).mockResolvedValue('# written elsewhere');
+    vi.mocked(syncBatch).mockResolvedValue({
+      applied: [],
+      conflicts: [{
+        op: 'upsert', relativePath: 'note.md', reason: 'REMOTE_NEWER',
+        remote: { sourceHash: 'h3', sizeBytes: 19, updatedAt: '2026-10-19T11:00:00.000Z', deletedAt: null },
+      }],
+      skipped: [],
+    });
+
+    const report = await runSync(makeBinding(), makeKb(), makeTarget(), false);
+
+    expect(report.uploaded).toBe(0);
+    expect(report.conflicts).toHaveLength(1);
+    const state = kbSyncStore.getState('kb-1');
+    expect(state.status).toBe('conflict');
+    expect(state.pendingConflicts[0]).toMatchObject({
+      relativePath: 'note.md', remoteHash: 'h3', remoteUpdatedAt: '2026-10-19T11:00:00.000Z',
+      localContent: '# local v2', remoteContent: '# written elsewhere',
+    });
+    // Baseline is not advanced for a refused upload.
+    const saved = vi.mocked(saveLastManifest).mock.calls[0][1] as RemoteManifest;
+    expect(saved.get('note.md')?.sourceHash).toBe('h1');
+  });
+});
+
 describe('runSync — cloud-sync entitlement gate', () => {
   it('blocks sync with no active plan: no network, error state carries the reason', async () => {
     vi.mocked(getPicoraPlan).mockResolvedValueOnce('none');
@@ -363,7 +524,7 @@ describe('runSync — cloud-sync entitlement gate', () => {
     vi.mocked(loadLastManifest).mockResolvedValue(new Map());
     vi.mocked(fetchManifest).mockResolvedValue([]);
     vi.mocked(invoke).mockResolvedValue('# Hello');
-    vi.mocked(syncBatch).mockResolvedValue({ applied: ['note.md'], conflicts: [] });
+    vi.mocked(syncBatch).mockResolvedValue(applied(['note.md']));
 
     const report = await runSync(makeBinding(), makeKb(), makeTarget(), false);
 

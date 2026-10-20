@@ -44,14 +44,22 @@ export async function fetchManifest(
   return invoke<ManifestEntryWithDocId[]>('picora_kb_manifest', { apiBase, apiKey, kbId });
 }
 
-/** Batch upsert/delete docs in a KB. Returns applied paths + conflict entries. */
+/**
+ * Batch upsert/delete docs in a KB. Returns the server's applied / conflicts /
+ * skipped buckets (each item carries the server-side snapshot).
+ */
 export async function syncBatch(
   apiBase: string,
   apiKey: string,
   kbId: string,
   ops: SyncOp[],
 ): Promise<SyncBatchResult> {
-  return invoke<SyncBatchResult>('picora_kb_sync_batch', { apiBase, apiKey, kbId, ops });
+  const res = await invoke<Partial<SyncBatchResult> | null>('picora_kb_sync_batch', { apiBase, apiKey, kbId, ops });
+  return {
+    applied: res?.applied ?? [],
+    conflicts: res?.conflicts ?? [],
+    skipped: res?.skipped ?? [],
+  };
 }
 
 /** Fetch raw content of a single doc by relativePath. */
