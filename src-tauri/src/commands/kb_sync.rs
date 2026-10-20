@@ -21,7 +21,7 @@ use super::util::current_epoch_ms;
 // build_error / api_url helpers this file used to carry live there). The local
 // `validate_relative_path` + fs-scan/trash commands below are Moraya-desktop
 // specific and stay here.
-use picora_sdk::{Kb, ManifestEntry, PicoraClient, SyncBatchResult, SyncOp};
+use picora_sdk::{Kb, ManifestEntry, PicoraClient, SyncOp};
 
 const MAX_RELATIVE_PATH_LEN: usize = 1024;
 
@@ -118,19 +118,35 @@ pub async fn picora_kb_manifest(
     kb_client(&api_base, &api_key)?.kb_manifest(&kb_id).await.map_err(|e| e.to_string())
 }
 
-/// Batch sync operations (upsert + delete) against a KB. Relative-path
-/// validation happens inside the crate before the request leaves.
+/// Batch sync operations (upsert + delete) against a KB.
+///
+/// Returns the server's `data` object verbatim — `applied` / `conflicts` /
+/// `skipped`, each a list of objects carrying the server-side `updatedAt` /
+/// `sourceHash` snapshot. Deliberately NOT the SDK's typed `kb_sync_batch`:
+/// its `SyncBatchResult` (picora-sdk rust-v0.1.0) models `applied` as
+/// `Vec<String>` and conflicts in a legacy shape, so both deserialize to empty
+/// and the frontend never learned which uploads landed — its last-synced
+/// manifest went stale and the next incremental edit was misreported as a
+/// conflict.
 #[command]
 pub async fn picora_kb_sync_batch(
     api_base: String,
     api_key: String,
     kb_id: String,
     ops: Vec<SyncOp>,
-) -> Result<SyncBatchResult, String> {
-    kb_client(&api_base, &api_key)?
-        .kb_sync_batch(&kb_id, &ops)
+) -> Result<serde_json::Value, String> {
+    for op in &ops {
+        picora_sdk::validate_relative_path(&op.relative_path).map_err(|e| e.to_string())?;
+    }
+    let client = kb_client(&api_base, &api_key)?;
+    let body = serde_json::json!({ "ops": ops });
+    let req = client.post(&format!("/v1/kbs/{kb_id}/sync")).json(&body);
+    let v: serde_json::Value = client
+        .http()
+        .send_json(req, "sync-batch")
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    Ok(picora_sdk::http::unwrap_data(&v).clone())
 }
 
 /// Fetch raw content of a single doc by relativePath.

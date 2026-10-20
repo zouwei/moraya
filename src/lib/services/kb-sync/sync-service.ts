@@ -20,6 +20,8 @@ import type {
   ManifestEntry,
   KbSyncState,
   DiffResult,
+  SyncAppliedItem,
+  SyncConflictItem,
 } from './types';
 import type { ImageHostTarget } from '$lib/services/image-hosting/types';
 import type { KnowledgeBase } from '$lib/stores/files-store';
@@ -38,6 +40,21 @@ async function sha256Hex(content: string): Promise<string> {
 
 function utf8Len(s: string): number {
   return new TextEncoder().encode(s).length;
+}
+
+/**
+ * Whether `hash` matches a snapshot in this document's local version history,
+ * i.e. the remote content is a state this device itself already had. Best-
+ * effort: false when version history is off or unreadable.
+ */
+async function isOwnPriorVersion(kbPath: string, relativePath: string, hash: string): Promise<boolean> {
+  try {
+    const { listVersions } = await import('$lib/services/version-history');
+    const versions = await listVersions(`${kbPath}/${relativePath}`);
+    return versions.some(v => v.sourceHash === hash);
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -211,57 +228,90 @@ export async function runSync(
     };
 
     // Running manifest of the last-agreed state; updated as each op succeeds.
+    // Every entry written here must carry the SERVER's updatedAt/sourceHash
+    // (from the batch response or the remote manifest) — the next sync both
+    // diffs against it and sends its updatedAt as the optimistic-concurrency
+    // base, so a client-side guess turns plain incremental edits into conflicts.
     const newLastManifest: RemoteManifest = new Map(lastManifest);
     const PREVIEW_LIMIT = 2000;
 
+    const recordApplied = (relativePath: string, item: SyncAppliedItem, content: string, hash: string) => {
+      newLastManifest.set(relativePath, {
+        relativePath,
+        sourceHash: item.sourceHash ?? hash,
+        sizeBytes: utf8Len(content),
+        updatedAt: item.updatedAt ?? remoteManifest.get(relativePath)?.updatedAt ?? new Date().toISOString(),
+      });
+    };
+
+    /** Upsert one file; returns the server's applied item, or null if refused. */
+    const uploadOne = async (relativePath: string, content: string, baseUpdatedAt: string | undefined) => {
+      const hash = await sha256Hex(content);
+      const res = await syncBatch(apiBase, apiKey, picoraKbId, [
+        { op: 'upsert', relativePath, content, sourceHash: hash, ...(baseUpdatedAt ? { baseUpdatedAt } : {}) },
+      ]);
+      const item = res.applied.find(a => a.relativePath === relativePath);
+      if (!item) return null;
+      await saveBaseContent(localKbId, relativePath, content);
+      recordApplied(relativePath, item, content, hash);
+      return item;
+    };
+
     // ── Uploads + remote deletes (batch) ──
-    const uploadContents = new Map<string, string>();
+    // baseUpdatedAt = the remote version observed in THIS sync's manifest: the
+    // diff only chose "upload"/"delete-remote" after checking that version, so
+    // it is the precise concurrency base (and covers first syncs, where there
+    // is no lastManifest entry yet).
+    const uploadContents = new Map<string, { content: string; hash: string }>();
     const uploadOps = await Promise.all(
       diff.uploadPaths.map(async (relativePath) => {
         const content = await invoke<string>('read_file', {
           path: `${kb.path}/${relativePath}`,
         });
-        uploadContents.set(relativePath, content);
-        const entry = localManifest.get(relativePath)!;
-        const lastEntry = lastManifest.get(relativePath);
+        // Hash what is actually sent — the file may have been saved again
+        // since the manifest scan, and a stale hash is rejected server-side.
+        const hash = await sha256Hex(content);
+        uploadContents.set(relativePath, { content, hash });
+        const baseUpdatedAt = remoteManifest.get(relativePath)?.updatedAt;
         return {
           op: 'upsert' as const,
           relativePath,
           content,
-          sourceHash: entry.sourceHash,
-          baseUpdatedAt: lastEntry?.updatedAt,
+          sourceHash: hash,
+          ...(baseUpdatedAt ? { baseUpdatedAt } : {}),
         };
       })
     );
 
-    const deleteRemoteOps = diff.deleteRemotePaths.map(relativePath => ({
-      op: 'delete' as const,
-      relativePath,
-    }));
+    const deleteRemoteOps = diff.deleteRemotePaths.map(relativePath => {
+      const baseUpdatedAt = remoteManifest.get(relativePath)?.updatedAt;
+      return {
+        op: 'delete' as const,
+        relativePath,
+        ...(baseUpdatedAt ? { baseUpdatedAt } : {}),
+      };
+    });
 
     const allOps = [...uploadOps, ...deleteRemoteOps];
-    let batchConflicts: ConflictEntry[] = [];
+    let batchConflicts: SyncConflictItem[] = [];
 
     if (allOps.length > 0) {
       const batchResult = await syncBatch(apiBase, apiKey, picoraKbId, allOps);
-      const applied = new Set(batchResult.applied);
+      const applied = new Map(batchResult.applied.map(a => [a.relativePath, a]));
+      const skipped = new Set(batchResult.skipped.map(a => a.relativePath));
       batchConflicts = batchResult.conflicts;
 
       for (const relativePath of diff.uploadPaths) {
-        if (!applied.has(relativePath)) continue;
+        const item = applied.get(relativePath);
+        const sent = uploadContents.get(relativePath);
+        if (!item || !sent) continue;
         report.uploaded++;
-        const local = localManifest.get(relativePath);
-        const content = uploadContents.get(relativePath);
-        if (content !== undefined) await saveBaseContent(localKbId, relativePath, content);
-        if (local) {
-          newLastManifest.set(relativePath, {
-            relativePath, sourceHash: local.sourceHash, sizeBytes: local.sizeBytes,
-            updatedAt: new Date().toISOString(),
-          });
-        }
+        await saveBaseContent(localKbId, relativePath, sent.content);
+        recordApplied(relativePath, item, sent.content, sent.hash);
       }
       for (const relativePath of diff.deleteRemotePaths) {
-        if (!applied.has(relativePath)) continue;
+        // A skipped delete means the doc was already gone — equally settled.
+        if (!applied.has(relativePath) && !skipped.has(relativePath)) continue;
         report.deletedRemote++;
         newLastManifest.delete(relativePath);
         await deleteBaseContent(localKbId, relativePath);
@@ -286,66 +336,120 @@ export async function runSync(
       report.deletedLocal++;
     }
 
-    // ── Conflicts: 3-way auto-merge → conflictPolicy → leave pending ──
-    const pendingConflicts: ConflictEntry[] = [];
+    // ── Conflicts ──
+    // Locally-detected conflicts and upserts the server refused go through ONE
+    // pipeline: same content → aligned; remote is a version this device itself
+    // had → fast-forward; clean 3-way merge; conflictPolicy; else prompt.
+    // A refused delete is left alone — the next sync re-diffs it.
+    type RemoteMeta = { sourceHash: string; sizeBytes: number; updatedAt: string } | null;
+    const conflictQueue = new Map<string, RemoteMeta>();
     for (const relativePath of diff.conflictPaths) {
+      conflictQueue.set(relativePath, remoteManifest.get(relativePath) ?? null);
+    }
+    for (const c of batchConflicts) {
+      if (c.op !== 'upsert' || conflictQueue.has(c.relativePath)) continue;
+      const r = c.remote;
+      conflictQueue.set(
+        c.relativePath,
+        r && !r.deletedAt && r.sourceHash && r.updatedAt
+          ? { sourceHash: r.sourceHash, sizeBytes: r.sizeBytes ?? 0, updatedAt: r.updatedAt }
+          : null,
+      );
+    }
+
+    const pendingConflicts: ConflictEntry[] = [];
+    for (const [relativePath, remoteMeta] of conflictQueue) {
       const localMeta = localManifest.get(relativePath);
-      const remoteMeta = remoteManifest.get(relativePath);
+      // Absent locally = deleted here while the remote changed (diff conflict).
+      const localExists = localMeta !== undefined;
       let localContent = '';
       let remoteContent = '';
-      try { localContent = (await invoke<string>('read_file', { path: `${kb.path}/${relativePath}` })) ?? ''; } catch { /* best-effort */ }
-      try { remoteContent = (await fetchRaw(apiBase, apiKey, picoraKbId, relativePath)) ?? ''; } catch { /* best-effort */ }
-      const baseContent = await loadBaseContent(localKbId, relativePath);
+      if (localExists) {
+        try { localContent = (await invoke<string>('read_file', { path: `${kb.path}/${relativePath}` })) ?? ''; } catch { /* best-effort */ }
+      }
+      if (remoteMeta) {
+        try { remoteContent = (await fetchRaw(apiBase, apiKey, picoraKbId, relativePath)) ?? ''; } catch { /* best-effort */ }
+      }
+      const localHash = await sha256Hex(localContent);
+      const baseUpdatedAt = remoteMeta?.updatedAt;
 
-      // 1) Clean 3-way auto-merge (non-overlapping edits) → write + upload, no prompt.
-      if (baseContent !== null) {
-        const merged = threeWayMergeLines(localContent, baseContent, remoteContent);
-        if (!merged.hasConflict && merged.mergedText !== null) {
-          const text = merged.mergedText;
-          const hash = await sha256Hex(text);
-          await invoke('write_file', { path: `${kb.path}/${relativePath}`, content: text });
-          await syncBatch(apiBase, apiKey, picoraKbId, [
-            { op: 'upsert', relativePath, content: text, sourceHash: hash, baseUpdatedAt: remoteMeta?.updatedAt },
-          ]);
-          await saveBaseContent(localKbId, relativePath, text);
-          newLastManifest.set(relativePath, { relativePath, sourceHash: hash, sizeBytes: utf8Len(text), updatedAt: new Date().toISOString() });
+      // 0) Already identical — just record the agreed state.
+      if (localExists && remoteMeta && localHash === remoteMeta.sourceHash) {
+        await saveBaseContent(localKbId, relativePath, localContent);
+        newLastManifest.set(relativePath, { relativePath, ...remoteMeta });
+        continue;
+      }
+
+      // 1) Remote holds a state this device already had (found in the local
+      //    version history) → local simply moved on from it: fast-forward.
+      //    Also self-heals last-synced manifests left stale by older builds.
+      if (localExists && remoteMeta && await isOwnPriorVersion(kb.path, relativePath, remoteMeta.sourceHash)) {
+        if (await uploadOne(relativePath, localContent, baseUpdatedAt)) {
           report.uploaded++;
           continue;
         }
       }
 
-      // 2) Auto-resolve per conflictPolicy (skip prompting).
-      if (strategy.conflictPolicy === 'prefer-local') {
-        const hash = localMeta?.sourceHash ?? await sha256Hex(localContent);
-        await syncBatch(apiBase, apiKey, picoraKbId, [
-          { op: 'upsert', relativePath, content: localContent, sourceHash: hash, baseUpdatedAt: remoteMeta?.updatedAt },
-        ]);
-        await saveBaseContent(localKbId, relativePath, localContent);
-        newLastManifest.set(relativePath, { relativePath, sourceHash: hash, sizeBytes: localMeta?.sizeBytes ?? utf8Len(localContent), updatedAt: new Date().toISOString() });
-        report.uploaded++;
-        continue;
+      const baseContent = await loadBaseContent(localKbId, relativePath);
+
+      // 2) Clean 3-way auto-merge (non-overlapping edits) → write + upload, no prompt.
+      if (localExists && remoteMeta && baseContent !== null) {
+        const merged = threeWayMergeLines(localContent, baseContent, remoteContent);
+        if (!merged.hasConflict && merged.mergedText !== null) {
+          const text = merged.mergedText;
+          if (await uploadOne(relativePath, text, baseUpdatedAt)) {
+            await invoke('write_file', { path: `${kb.path}/${relativePath}`, content: text });
+            report.uploaded++;
+            continue;
+          }
+        }
       }
-      if (strategy.conflictPolicy === 'prefer-remote') {
+
+      // 3) Auto-resolve per conflictPolicy (skip prompting).
+      if (strategy.conflictPolicy === 'prefer-local') {
+        if (localExists) {
+          if (await uploadOne(relativePath, localContent, baseUpdatedAt)) {
+            report.uploaded++;
+            continue;
+          }
+        } else {
+          const res = await syncBatch(apiBase, apiKey, picoraKbId, [
+            { op: 'delete', relativePath, ...(baseUpdatedAt ? { baseUpdatedAt } : {}) },
+          ]);
+          if (res.applied.length > 0 || res.skipped.length > 0) {
+            newLastManifest.delete(relativePath);
+            await deleteBaseContent(localKbId, relativePath);
+            report.deletedRemote++;
+            continue;
+          }
+        }
+      }
+      if (strategy.conflictPolicy === 'prefer-remote' && remoteMeta) {
         await invoke('write_file', { path: `${kb.path}/${relativePath}`, content: remoteContent });
         await saveBaseContent(localKbId, relativePath, remoteContent);
-        const entry: ManifestEntry = remoteMeta ?? {
-          relativePath, sourceHash: await sha256Hex(remoteContent), sizeBytes: utf8Len(remoteContent), updatedAt: new Date().toISOString(),
-        };
-        newLastManifest.set(relativePath, entry);
+        newLastManifest.set(relativePath, { relativePath, ...remoteMeta });
         report.downloaded++;
         continue;
       }
+      if (strategy.conflictPolicy === 'prefer-remote' && localExists) {
+        // Remote deleted it → follow the remote (recoverable from trash).
+        await moveToTrash(kb.path, localKbId, relativePath);
+        newLastManifest.delete(relativePath);
+        await deleteBaseContent(localKbId, relativePath);
+        report.deletedLocal++;
+        continue;
+      }
 
-      // 3) prompt → surface with full content + base for the line-level UI.
+      // 4) prompt → surface with full content + base for the line-level UI.
       pendingConflicts.push({
         relativePath,
         localUpdatedAt: localMeta ? new Date(localMeta.mtime).toISOString() : '',
         remoteUpdatedAt: remoteMeta?.updatedAt ?? '',
-        localSizeBytes: localMeta?.sizeBytes ?? 0,
+        localSizeBytes: localMeta?.sizeBytes ?? utf8Len(localContent),
         remoteSizeBytes: remoteMeta?.sizeBytes ?? 0,
         localPreview: localContent.slice(0, PREVIEW_LIMIT),
         remotePreview: remoteContent.slice(0, PREVIEW_LIMIT),
-        localHash: localMeta?.sourceHash ?? '',
+        localHash: localExists ? localHash : '',
         remoteHash: remoteMeta?.sourceHash ?? '',
         localContent,
         remoteContent,
@@ -353,37 +457,18 @@ export async function runSync(
       });
     }
 
-    // Server-detected conflicts arrive without content — enrich for the UI.
-    const enrichedBatchConflicts: ConflictEntry[] = [];
-    for (const c of batchConflicts) {
-      let localContent = '';
-      let remoteContent = '';
-      try { localContent = (await invoke<string>('read_file', { path: `${kb.path}/${c.relativePath}` })) ?? ''; } catch { /* best-effort */ }
-      try { remoteContent = (await fetchRaw(apiBase, apiKey, picoraKbId, c.relativePath)) ?? ''; } catch { /* best-effort */ }
-      const baseContent = await loadBaseContent(localKbId, c.relativePath);
-      enrichedBatchConflicts.push({
-        ...c,
-        localContent,
-        remoteContent,
-        baseContent,
-        localPreview: localContent.slice(0, PREVIEW_LIMIT),
-        remotePreview: remoteContent.slice(0, PREVIEW_LIMIT),
-      });
-    }
-
-    const allConflicts = [...pendingConflicts, ...enrichedBatchConflicts];
-    report.conflicts = allConflicts.length;
+    report.conflicts = pendingConflicts.length;
 
     await saveLastManifest(localKbId, newLastManifest);
 
     kbSyncStore.setState(localKbId, {
-      status: allConflicts.length > 0 ? 'conflict' : 'idle',
-      conflictCount: allConflicts.length,
-      pendingConflicts: allConflicts,
+      status: pendingConflicts.length > 0 ? 'conflict' : 'idle',
+      conflictCount: pendingConflicts.length,
+      pendingConflicts: pendingConflicts,
     });
 
     onComplete?.(report);
-    return { ...report, conflicts: allConflicts };
+    return { ...report, conflicts: pendingConflicts };
   } catch (err) {
     const errMsg = typeof err === 'string' ? err : (err instanceof Error ? err.message : 'Sync failed');
     kbSyncStore.setState(localKbId, { status: 'error', lastError: errMsg });
@@ -404,7 +489,10 @@ export async function dryRunSync(
  * Apply a user-resolved merged content for a single conflicting file: write it
  * locally, upload to Picora, and record the merged content as the new base +
  * manifest entry so the next sync sees it aligned (no re-conflict). Used by the
- * line-level conflict resolution panel.
+ * line-level conflict resolution panel. `remoteUpdatedAt` is the remote version
+ * the user resolved against (the conflict's `remoteUpdatedAt`); if the server
+ * has moved past it, the upload is refused and this throws so the panel can
+ * ask for a fresh sync instead of silently dropping the resolution.
  */
 export async function applyResolvedContent(
   binding: KbBinding,
@@ -412,6 +500,7 @@ export async function applyResolvedContent(
   target: ImageHostTarget,
   relativePath: string,
   mergedText: string,
+  remoteUpdatedAt?: string,
 ): Promise<void> {
   const { localKbId, picoraKbId } = binding;
   const apiBase = picoraApiBase(target.picoraApiUrl);
@@ -428,14 +517,22 @@ export async function applyResolvedContent(
   const { getPicoraPlan, isKbSyncEntitled } = await import('$lib/services/picora/entitlement');
   if (!isKbSyncEntitled(await getPicoraPlan(target))) return;
 
-  await syncBatch(apiBase, apiKey, picoraKbId, [
-    { op: 'upsert', relativePath, content: mergedText, sourceHash: hash },
+  const res = await syncBatch(apiBase, apiKey, picoraKbId, [
+    { op: 'upsert', relativePath, content: mergedText, sourceHash: hash, ...(remoteUpdatedAt ? { baseUpdatedAt: remoteUpdatedAt } : {}) },
   ]);
+  const item = res.applied.find(a => a.relativePath === relativePath);
+  if (!item) {
+    const { t } = await import('$lib/i18n');
+    throw new Error(get(t)('kb_sync.conflict.remote_changed'));
+  }
   await saveBaseContent(localKbId, relativePath, mergedText);
 
   const manifest = await loadLastManifest(localKbId);
   manifest.set(relativePath, {
-    relativePath, sourceHash: hash, sizeBytes: utf8Len(mergedText), updatedAt: new Date().toISOString(),
+    relativePath,
+    sourceHash: item.sourceHash ?? hash,
+    sizeBytes: utf8Len(mergedText),
+    updatedAt: item.updatedAt ?? new Date().toISOString(),
   });
   await saveLastManifest(localKbId, manifest);
 }
