@@ -83,7 +83,7 @@
       const target = settingsStore.getState().imageHostTargets.find(tg => tg.id === binding.picoraTargetId);
       if (!target) throw new Error('Picora target not found');
       const merged = assembleMerged(mergeResult, picks.get(current.relativePath) ?? new Map(), 'local');
-      await applyResolvedContent(binding, kb, target, current.relativePath, merged);
+      await applyResolvedContent(binding, kb, target, current.relativePath, merged, current.remoteUpdatedAt || undefined);
       removeCurrentFromStore();
     } catch (e) {
       error = typeof e === 'string' ? e : (e instanceof Error ? e.message : 'Failed to apply');
