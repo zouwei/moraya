@@ -101,9 +101,47 @@ export interface SyncOp {
   baseUpdatedAt?: string;
 }
 
+/**
+ * One op the server applied (or skipped as a no-op). `updatedAt` / `sourceHash`
+ * are the server's authoritative values — the last-synced manifest must record
+ * these, not client-side guesses, or the next incremental upload is judged
+ * against a base the server never had.
+ */
+export interface SyncAppliedItem {
+  op: 'upsert' | 'delete' | 'move';
+  relativePath: string;
+  fromPath?: string;
+  id: string | null;
+  updatedAt: string | null;
+  sourceHash: string | null;
+}
+
+export type SyncConflictReason =
+  | 'REMOTE_NEWER'
+  | 'REMOTE_DELETED'
+  | 'BASE_MISSING'
+  | 'LOCAL_HASH_MISMATCH'
+  | 'MOVE_SOURCE_MISSING'
+  | 'MOVE_TARGET_EXISTS';
+
+/** An op the server refused, with its current snapshot of the document. */
+export interface SyncConflictItem {
+  op: 'upsert' | 'delete' | 'move';
+  relativePath: string;
+  reason: SyncConflictReason;
+  remote: {
+    sourceHash: string | null;
+    sizeBytes: number | null;
+    updatedAt: string | null;
+    deletedAt: string | null;
+  } | null;
+}
+
+/** `POST /v1/kbs/:id/sync` response (`data` object). */
 export interface SyncBatchResult {
-  applied: string[];
-  conflicts: ConflictEntry[];
+  applied: SyncAppliedItem[];
+  conflicts: SyncConflictItem[];
+  skipped: SyncAppliedItem[];
 }
 
 // Sync state per KB (for UI reactivity)
