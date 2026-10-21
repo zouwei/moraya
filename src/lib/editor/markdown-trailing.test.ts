@@ -20,6 +20,15 @@ describe('trailingBlankParagraphCount', () => {
     expect(trailingBlankParagraphCount('Hello\n\n\n\n')).toBe(3);
   });
 
+  it('counts whitespace-only trailing lines (Shift+Enter hard breaks) as blank', () => {
+    // "text" + 3 × Shift+Enter in source mode → "text  \n  \n  \n"
+    expect(trailingBlankParagraphCount('text  \n  \n  \n')).toBe(2);
+    expect(trailingBlankParagraphCount('text\n  \n\t\n')).toBe(2);
+    // Trailing spaces on the last text line alone are not a blank line.
+    expect(trailingBlankParagraphCount('text  ')).toBe(0);
+    expect(trailingBlankParagraphCount('text  \n')).toBe(0);
+  });
+
   it('caps pathological input', () => {
     expect(trailingBlankParagraphCount('x' + '\n'.repeat(10000))).toBe(TRAILING_BLANK_CAP);
   });

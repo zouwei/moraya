@@ -16,9 +16,13 @@ export const TRAILING_BLANK_CAP = 50
  * serializer's mapping: `N = max(0, trailingNewlines - 1)`. A lone final newline
  * (common in externally-authored files) maps to 0, so no spurious paragraph is
  * added.
+ *
+ * Whitespace-only lines count as blank: Shift+Enter writes a hard break as
+ * "  \n", so blank lines made that way end the source with "  " lines. The
+ * parser drops trailing hard breaks too, so they would otherwise vanish.
  */
 export function trailingBlankParagraphCount(markdown: string): number {
-  const m = /\n+$/.exec(markdown)
-  const trailingNewlines = m ? m[0].length : 0
+  const m = /(?:\n[ \t]*)+$/.exec(markdown)
+  const trailingNewlines = m ? m[0].split('\n').length - 1 : 0
   return Math.min(Math.max(0, trailingNewlines - 1), TRAILING_BLANK_CAP)
 }
