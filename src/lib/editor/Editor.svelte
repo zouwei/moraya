@@ -89,6 +89,7 @@
     outlineWidth = 260,
     readOnly = false,
     skipDestroyFlush = false,
+    showBlockButtons = true,
     onEditorReady,
     onContentChange,
     onNotify,
@@ -122,6 +123,9 @@
      *  doc back through the `content` binding, which would otherwise overwrite
      *  the incoming document's content during unmount. */
     skipDestroyFlush?: boolean;
+    /** Show the per-block "+" insert / drag handles in the left gutter.
+     *  Off in split mode: the pane is narrow and the handles crowd the divider. */
+    showBlockButtons?: boolean;
     onEditorReady?: (editor: MorayaEditor) => void;
     onContentChange?: (content: string) => void;
     onNotify?: (text: string, type: 'success' | 'error') => void;
@@ -4064,7 +4068,7 @@
   </div>
 </div>
 
-{#if showDragHandle && blockButtonsInView && !isDraggingBlock && viewChrome.editingAffordances}
+{#if showBlockButtons && showDragHandle && blockButtonsInView && !isDraggingBlock && viewChrome.editingAffordances}
   <button
     class="block-insert-handle"
     style="top: {dragHandleTop}px; left: {insertHandleLeft}px"
