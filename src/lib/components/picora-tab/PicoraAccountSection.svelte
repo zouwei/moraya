@@ -2,6 +2,7 @@
   import { onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { t } from '$lib/i18n';
+  import { PICORA_KEY_MASK, hasStoredPicoraApiKey } from '$lib/services/picora/credentials';
   import { settingsStore } from '$lib/stores/settings-store';
   import { filesStore } from '$lib/stores/files-store';
   import { normalizePlanKey, getFallbackPlanLimits, type PlanLimits } from '$lib/services/picora';
@@ -168,9 +169,19 @@
   // ── Edit ─────────────────────────────────────────────────────────────
 
   let editing = $state<ImageHostTarget | null>(null);
+  /** Whether a key is really stored for the account being edited (null = checking / n.a.). */
+  let editingKeyStored = $state<boolean | null>(null);
 
   function startEdit(target: ImageHostTarget) {
     editing = JSON.parse(JSON.stringify(target));
+    editingKeyStored = null;
+    if (target.picoraAuthRef?.kind === 'oauth' || target.picoraApiKey) return;
+    void hasStoredPicoraApiKey(target).then(stored => {
+      if (editing?.id !== target.id) return;
+      editingKeyStored = stored;
+      // Fill a masked placeholder so a saved key is visibly present.
+      if (stored && !editing.picoraApiKey) editing = { ...editing, picoraApiKey: PICORA_KEY_MASK };
+    });
   }
 
   function cancelEdit() {
@@ -179,6 +190,8 @@
 
   async function saveEdit() {
     if (!editing) return;
+    // Untouched mask = keep the stored key; it must never be saved as a key.
+    if (editing.picoraApiKey === PICORA_KEY_MASK) editing = { ...editing, picoraApiKey: '' };
     const targetId = editing.id;
     const keyChanged = !!editing.picoraApiKey;
     // v0.69.0: push entered API key into OS keychain and clear the inline
@@ -447,7 +460,10 @@
         <label for="picora-edit-key">{tr('image_host.picora_api_key')}</label>
         <input id="picora-edit-key" type="password"
           bind:value={editing.picoraApiKey}
-          placeholder={editing.picoraKeyMigratedV069 ? tr('image_host.picora_api_key_keychain') : ''} />
+          onfocus={(e) => { if (editing?.picoraApiKey === PICORA_KEY_MASK) e.currentTarget.select(); }}
+          placeholder={editingKeyStored === false
+            ? tr('image_host.picora_api_key_placeholder')
+            : editing.picoraKeyMigratedV069 ? tr('image_host.picora_api_key_keychain') : ''} />
       </div>
       <div class="modal-actions">
         <button class="btn-cancel" onclick={cancelEdit}>{tr('common.cancel')}</button>

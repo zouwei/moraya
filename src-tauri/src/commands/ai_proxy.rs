@@ -25,9 +25,20 @@ fn dev_secrets_path() -> Option<std::path::PathBuf> {
 //
 // Windows / Linux: the `keyring` crate works without ACL issues on updates.
 
+// Reads distinguish "nothing stored yet" (`Ok(None)`, fresh install) from
+// "the store exists but could not be read" (`Err`: keychain locked after
+// sleep, `security` timing out right after boot, a denied prompt …). The two
+// must never be conflated: all secrets live in ONE serialized entry, so
+// treating a failed read as empty and then persisting the next write would
+// overwrite — i.e. destroy — every other stored secret.
+
+/// macOS `security` exit status for errSecItemNotFound.
 #[cfg(target_os = "macos")]
-fn read_os_secrets() -> String {
-    std::process::Command::new("security")
+const SECURITY_ITEM_NOT_FOUND: i32 = 44;
+
+#[cfg(target_os = "macos")]
+fn read_os_secrets() -> Result<Option<String>, String> {
+    let output = std::process::Command::new("security")
         .args([
             "find-generic-password",
             "-s", SERVICE_NAME,
@@ -35,22 +46,42 @@ fn read_os_secrets() -> String {
             "-w",
         ])
         .output()
-        .ok()
-        .and_then(|o| {
-            if o.status.success() {
-                String::from_utf8(o.stdout)
-                    .ok()
-                    .map(|s| s.trim_end().to_string())
-            } else {
-                None
-            }
-        })
-        .unwrap_or_default()
+        .map_err(|_| "Failed to access keychain".to_string())?;
+
+    if output.status.success() {
+        return String::from_utf8(output.stdout)
+            .map(|s| Some(s.trim_end().to_string()))
+            .map_err(|_| "Keychain returned invalid data".to_string());
+    }
+    if output.status.code() == Some(SECURITY_ITEM_NOT_FOUND) {
+        return Ok(None);
+    }
+    Err("Keychain is unavailable".to_string())
 }
 
 #[cfg(target_os = "macos")]
 fn write_os_secrets(json: &str) -> Result<(), String> {
-    // Delete existing entry first (works regardless of old ACL)
+    // Update in place first (-U): no window in which the entry is missing.
+    // Every read/write goes through the `security` binary and the entry is
+    // created with -A (allow all applications), so this does not prompt.
+    let updated = std::process::Command::new("security")
+        .args([
+            "add-generic-password",
+            "-U",
+            "-s", SERVICE_NAME,
+            "-a", SECRETS_KEY,
+            "-w", json,
+            "-A",
+        ])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if updated {
+        return Ok(());
+    }
+
+    // Fallback for entries carrying a legacy per-binary ACL (created by the
+    // `keyring` crate): delete, then re-add with -A.
     let _ = std::process::Command::new("security")
         .args([
             "delete-generic-password",
@@ -59,7 +90,6 @@ fn write_os_secrets(json: &str) -> Result<(), String> {
         ])
         .output();
 
-    // Add new entry with -A (allow all applications — avoids per-binary ACL)
     let output = std::process::Command::new("security")
         .args([
             "add-generic-password",
@@ -79,11 +109,14 @@ fn write_os_secrets(json: &str) -> Result<(), String> {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn read_os_secrets() -> String {
-    keyring::Entry::new(SERVICE_NAME, SECRETS_KEY)
-        .ok()
-        .and_then(|e| e.get_password().ok())
-        .unwrap_or_default()
+fn read_os_secrets() -> Result<Option<String>, String> {
+    let entry = keyring::Entry::new(SERVICE_NAME, SECRETS_KEY)
+        .map_err(|_| "Failed to access keychain".to_string())?;
+    match entry.get_password() {
+        Ok(json) => Ok(Some(json)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(_) => Err("Keychain is unavailable".to_string()),
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -95,6 +128,40 @@ fn write_os_secrets(json: &str) -> Result<(), String> {
         .map_err(|_| "Failed to store in keychain".to_string())
 }
 
+fn read_dev_secrets() -> Result<Option<String>, String> {
+    let Some(path) = dev_secrets_path() else { return Ok(None) };
+    match std::fs::read_to_string(path) {
+        Ok(json) => Ok(Some(json)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(_) => Err("Failed to read dev secrets file".to_string()),
+    }
+}
+
+/// Decode the stored secrets blob. `security -w` prints the password as hex
+/// when it is not plain printable ASCII, so fall back to hex-decoding before
+/// giving up. `None` = unreadable — never to be mistaken for "no secrets".
+fn parse_secrets(raw: &str) -> Option<HashMap<String, String>> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Some(HashMap::new());
+    }
+    if let Ok(map) = serde_json::from_str(raw) {
+        return Some(map);
+    }
+    let bytes = hex::decode(raw).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
+/// After a failed load, wait this long before touching the keychain again so
+/// a locked keychain isn't hammered (or re-prompted) on every request.
+const SECRETS_RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_secs(15);
+
+#[derive(Default)]
+struct SecretsLoadState {
+    loaded: bool,
+    last_failed_attempt: Option<std::time::Instant>,
+}
+
 /// Shared state for aborting in-flight streaming requests and caching API keys.
 ///
 /// - **Release builds**: secrets stored in OS keychain (`moraya-secrets`).
@@ -104,9 +171,13 @@ pub struct AIProxyState {
     abort_flags: Mutex<HashMap<String, Arc<AtomicBool>>>,
     /// In-memory mirror of secrets.
     pub(crate) key_cache: Mutex<HashMap<String, String>>,
-    /// Guards the one-time keychain load. tokio::sync::Mutex ensures concurrent
-    /// callers properly wait for the first load to complete instead of racing.
-    secrets_loaded: tokio::sync::Mutex<bool>,
+    /// Guards the keychain load. tokio::sync::Mutex ensures concurrent callers
+    /// wait for an in-flight load instead of racing it.
+    secrets_load: tokio::sync::Mutex<SecretsLoadState>,
+    /// Serializes persists: each snapshots the cache and rewrites the single
+    /// entry, so two overlapping writes could otherwise land out of order and
+    /// drop a just-saved secret.
+    persist_lock: tokio::sync::Mutex<()>,
 }
 
 impl AIProxyState {
@@ -114,52 +185,71 @@ impl AIProxyState {
         Self {
             abort_flags: Mutex::new(HashMap::new()),
             key_cache: Mutex::new(HashMap::new()),
-            secrets_loaded: tokio::sync::Mutex::new(false),
+            secrets_load: tokio::sync::Mutex::new(SecretsLoadState::default()),
+            persist_lock: tokio::sync::Mutex::new(()),
         }
     }
 
-    /// Load all secrets on first access. Subsequent calls are no-ops.
-    /// Uses tokio::sync::Mutex so concurrent callers block until the first
-    /// load is fully complete — no race where a second caller reads an empty
-    /// cache while the first is still loading.
+    /// Load all secrets on first successful access; later calls are no-ops.
+    /// A failed load is NOT marked loaded — it is retried (rate-limited) and,
+    /// until it succeeds, `persist_secrets` refuses to write.
     /// The OS keychain read runs in a blocking thread so it never stalls
     /// the Tauri async runtime (macOS `security` CLI / Windows keyring can
     /// block for hundreds of milliseconds on cold start or when the keychain
     /// daemon is initializing after a system reboot).
     pub(crate) async fn ensure_secrets_loaded(&self) {
-        let mut loaded = self.secrets_loaded.lock().await;
-        if *loaded {
+        let mut state = self.secrets_load.lock().await;
+        if state.loaded {
             return;
         }
-
-        let json = if cfg!(debug_assertions) {
-            // Dev mode: read from local file (no keychain prompts)
-            dev_secrets_path()
-                .and_then(|p| std::fs::read_to_string(p).ok())
-                .unwrap_or_default()
-        } else {
-            tokio::task::spawn_blocking(read_os_secrets)
-                .await
-                .unwrap_or_default()
-        };
-
-        if !json.is_empty() {
-            if let Ok(map) = serde_json::from_str::<HashMap<String, String>>(&json) {
-                if let Ok(mut cache) = self.key_cache.lock() {
-                    for (k, v) in map {
-                        cache.insert(k, v);
-                    }
-                }
+        if let Some(at) = state.last_failed_attempt {
+            if at.elapsed() < SECRETS_RETRY_INTERVAL {
+                return;
             }
         }
 
-        *loaded = true;
+        let raw = if cfg!(debug_assertions) {
+            // Dev mode: read from local file (no keychain prompts)
+            read_dev_secrets()
+        } else {
+            tokio::task::spawn_blocking(read_os_secrets)
+                .await
+                .unwrap_or_else(|_| Err("Keychain task failed".to_string()))
+        };
+
+        let map = match raw {
+            Ok(None) => Some(HashMap::new()),
+            Ok(Some(json)) => parse_secrets(&json),
+            Err(_) => None,
+        };
+        let Some(map) = map else {
+            eprintln!("[secrets] keychain read failed; secrets stay read-only until it succeeds");
+            state.last_failed_attempt = Some(std::time::Instant::now());
+            return;
+        };
+
+        if let Ok(mut cache) = self.key_cache.lock() {
+            // Values set in memory while the store was unreadable are newer.
+            for (k, v) in map {
+                cache.entry(k).or_insert(v);
+            }
+        }
+        state.loaded = true;
+        state.last_failed_attempt = None;
     }
 
-    /// Persist the entire key cache.
+    /// Persist the entire key cache. Refuses while the stored secrets have
+    /// not been loaded — writing then would replace them with a partial map.
     /// The OS keychain write runs in a blocking thread for the same reason
     /// as `ensure_secrets_loaded`.
     pub(crate) async fn persist_secrets(&self) -> Result<(), String> {
+        if !self.secrets_load.lock().await.loaded {
+            return Err(
+                "Keychain is unavailable — secrets were not saved. Unlock the keychain and try again."
+                    .to_string(),
+            );
+        }
+        let _guard = self.persist_lock.lock().await;
         let json = {
             let cache = self
                 .key_cache
@@ -682,5 +772,36 @@ fn extract_sse_error(line: &str) -> Option<String> {
         (Some(m), Some(c)) => Some(format!("API error ({}): {}", c, m)),
         (Some(m), None) => Some(format!("API error: {}", m)),
         _ => Some(format!("API error: {}", error)),
+    }
+}
+
+#[cfg(test)]
+mod secrets_parse_tests {
+    use super::parse_secrets;
+
+    #[test]
+    fn parses_plain_json() {
+        let map = parse_secrets(r#"{"picora-api-key:t1":"sk_1"}"#).unwrap();
+        assert_eq!(map.get("picora-api-key:t1").map(String::as_str), Some("sk_1"));
+    }
+
+    #[test]
+    fn parses_hex_output_from_security_cli() {
+        // `security -w` hex-encodes passwords that are not plain ASCII.
+        let json = r#"{"git-username:c1":"张三","picora-api-key:t1":"sk_1"}"#;
+        let map = parse_secrets(&hex::encode(json)).unwrap();
+        assert_eq!(map.get("git-username:c1").map(String::as_str), Some("张三"));
+        assert_eq!(map.len(), 2);
+    }
+
+    #[test]
+    fn unreadable_blob_is_not_treated_as_empty() {
+        assert!(parse_secrets("not-json-not-hex").is_none());
+        assert!(parse_secrets("{\"truncated\":").is_none());
+    }
+
+    #[test]
+    fn empty_blob_is_empty_map() {
+        assert!(parse_secrets("").unwrap().is_empty());
     }
 }
