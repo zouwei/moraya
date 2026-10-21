@@ -91,6 +91,26 @@ export async function getPicoraApiKeyOrEmpty(target: ImageHostTarget): Promise<s
 }
 
 /**
+ * Shown in an API-key input when a key is already stored. Never a real key:
+ * saving the field unchanged must leave the stored key alone.
+ */
+export const PICORA_KEY_MASK = '************';
+
+/**
+ * Whether an API key is actually stored for this target (inline or in the
+ * Keychain) — the `picoraKeyMigratedV069` flag alone does not prove the
+ * Keychain entry still exists.
+ */
+export async function hasStoredPicoraApiKey(target: ImageHostTarget): Promise<boolean> {
+  if (target.picoraApiKey) return true;
+  try {
+    return !!(await invoke<string | null>('keychain_get', { key: picoraKeychainKey(target.id) }));
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Write or delete a key for a target. Empty string deletes the keychain
  * entry. Updates the in-memory cache to match.
  */
