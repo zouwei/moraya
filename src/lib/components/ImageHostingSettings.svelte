@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import { t } from '$lib/i18n';
+  import { PICORA_KEY_MASK, hasStoredPicoraApiKey } from '$lib/services/picora/credentials';
   import { settingsStore } from '$lib/stores/settings-store';
   import type { ImageHostTarget, ImageHostProvider, GitHubCdnMode } from '$lib/services/image-hosting';
   import { createDefaultImageHostTarget, targetToConfig, uploadImage, isObjectStorageProvider } from '$lib/services/image-hosting';
@@ -73,8 +74,19 @@
     showAddMenu = false;
   }
 
+  /** Whether a Picora key is really stored for the target being edited (null = checking / n.a.). */
+  let editingKeyStored = $state<boolean | null>(null);
+
   function editTarget(target: ImageHostTarget) {
     editingTarget = JSON.parse(JSON.stringify(target));
+    editingKeyStored = null;
+    if (target.provider !== 'picora' || target.picoraAuthRef?.kind === 'oauth' || target.picoraApiKey) return;
+    void hasStoredPicoraApiKey(target).then(stored => {
+      if (editingTarget?.id !== target.id) return;
+      editingKeyStored = stored;
+      // Fill a masked placeholder so a saved key is visibly present.
+      if (stored && !editingTarget.picoraApiKey) editingTarget = { ...editingTarget, picoraApiKey: PICORA_KEY_MASK };
+    });
   }
 
   function deleteTarget(id: string) {
@@ -88,6 +100,8 @@
 
   async function saveTarget() {
     if (!editingTarget) return;
+    // Untouched mask = keep the stored key; it must never be saved as a key.
+    if (editingTarget.picoraApiKey === PICORA_KEY_MASK) editingTarget = { ...editingTarget, picoraApiKey: '' };
     const targetId = editingTarget.id;
     const picoraKeyChanged = editingTarget.provider === 'picora' && !!editingTarget.picoraApiKey;
     // v0.69.0: for Picora targets, push the entered key into the OS keychain
@@ -421,7 +435,8 @@
           <label class="setting-label" for="imghost-picora-key">{tr('image_host.picora_api_key')}</label>
           <input id="imghost-picora-key" type="password" class="setting-input"
             bind:value={editingTarget.picoraApiKey}
-            placeholder={editingTarget.picoraKeyMigratedV069
+            onfocus={(e) => { if (editingTarget?.picoraApiKey === PICORA_KEY_MASK) e.currentTarget.select(); }}
+            placeholder={editingKeyStored !== false && editingTarget.picoraKeyMigratedV069
               ? tr('image_host.picora_api_key_keychain')
               : tr('image_host.picora_api_key_placeholder')} />
         </div>
