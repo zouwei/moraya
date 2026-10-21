@@ -61,27 +61,11 @@ fn read_os_secrets() -> Result<Option<String>, String> {
 
 #[cfg(target_os = "macos")]
 fn write_os_secrets(json: &str) -> Result<(), String> {
-    // Update in place first (-U): no window in which the entry is missing.
-    // Every read/write goes through the `security` binary and the entry is
-    // created with -A (allow all applications), so this does not prompt.
-    let updated = std::process::Command::new("security")
-        .args([
-            "add-generic-password",
-            "-U",
-            "-s", SERVICE_NAME,
-            "-a", SECRETS_KEY,
-            "-w", json,
-            "-A",
-        ])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-    if updated {
-        return Ok(());
-    }
-
-    // Fallback for entries carrying a legacy per-binary ACL (created by the
-    // `keyring` crate): delete, then re-add with -A.
+    // Delete, then re-add with -A (allow all applications). Never update in
+    // place with `add-generic-password -U … -A`: on an existing item `-A` is
+    // an ACL change, and macOS demands the login-keychain password for every
+    // ACL change ("security wants to change access permissions …") — i.e. a
+    // password prompt on every secret write. Delete + add never prompts.
     let _ = std::process::Command::new("security")
         .args([
             "delete-generic-password",
@@ -90,22 +74,24 @@ fn write_os_secrets(json: &str) -> Result<(), String> {
         ])
         .output();
 
-    let output = std::process::Command::new("security")
-        .args([
-            "add-generic-password",
-            "-s", SERVICE_NAME,
-            "-a", SECRETS_KEY,
-            "-w", json,
-            "-A",
-        ])
-        .output()
-        .map_err(|_| "Failed to access keychain".to_string())?;
-
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err("Failed to store in keychain".to_string())
+    // The entry is now absent, so retry a failed add once rather than leave
+    // the secrets unpersisted.
+    for _ in 0..2 {
+        let output = std::process::Command::new("security")
+            .args([
+                "add-generic-password",
+                "-s", SERVICE_NAME,
+                "-a", SECRETS_KEY,
+                "-w", json,
+                "-A",
+            ])
+            .output()
+            .map_err(|_| "Failed to access keychain".to_string())?;
+        if output.status.success() {
+            return Ok(());
+        }
     }
+    Err("Failed to store in keychain".to_string())
 }
 
 #[cfg(not(target_os = "macos"))]
