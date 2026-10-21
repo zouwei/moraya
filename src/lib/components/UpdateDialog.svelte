@@ -2,6 +2,7 @@
   import { t } from '$lib/i18n';
   import { isMacOS } from '$lib/utils/platform';
   import { openUrl } from '@tauri-apps/plugin-opener';
+  import { renderChatMarkdown } from '$lib/services/ai/chat-render';
   import {
     updateStore,
     checkForUpdate,
@@ -30,6 +31,19 @@
     downloadProgress = state.downloadProgress;
     error = state.error;
   });
+
+  // Release notes are GitHub-release markdown. Render with the shared,
+  // XSS-hardened chat renderer (raw HTML off, JS URLs denied).
+  let notesHtml = $derived(updateInfo?.releaseNotes ? renderChatMarkdown(updateInfo.releaseNotes) : '');
+
+  /** Links in the notes open in the browser, never inside the app webview. */
+  function handleNotesClick(e: MouseEvent) {
+    const anchor = (e.target as HTMLElement).closest('a');
+    if (!anchor) return;
+    e.preventDefault();
+    const href = anchor.getAttribute('href');
+    if (href && /^https?:\/\//i.test(href)) openUrl(href);
+  }
 
   // Auto-check when dialog opens if idle
   $effect(() => {
@@ -118,7 +132,9 @@
         {#if updateInfo.releaseNotes}
           <div class="release-notes">
             <div class="notes-label">{tr('update.release_notes')}</div>
-            <div class="notes-content">{updateInfo.releaseNotes.slice(0, 500)}{updateInfo.releaseNotes.length > 500 ? '...' : ''}</div>
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div class="notes-content" onclick={handleNotesClick}>{@html notesHtml}</div>
           </div>
         {/if}
 
@@ -364,9 +380,36 @@
     background: var(--bg-secondary);
     padding: 0.75rem;
     border-radius: 6px;
-    white-space: pre-wrap;
     word-break: break-word;
   }
+
+  /* Rendered markdown (headings / lists / code) sized for a compact panel. */
+  .notes-content > :global(:first-child) { margin-top: 0; }
+  .notes-content > :global(:last-child) { margin-bottom: 0; }
+  .notes-content :global(h1),
+  .notes-content :global(h2),
+  .notes-content :global(h3),
+  .notes-content :global(h4) {
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0.75rem 0 0.35rem;
+  }
+  .notes-content :global(p) { margin: 0.35rem 0; }
+  .notes-content :global(ul),
+  .notes-content :global(ol) { margin: 0.25rem 0; padding-left: 1.25rem; }
+  .notes-content :global(li) { margin: 0.15rem 0; }
+  .notes-content :global(strong) { color: var(--text-primary); font-weight: 600; }
+  .notes-content :global(code) {
+    font-family: var(--font-mono, 'SF Mono', Menlo, monospace);
+    font-size: 0.95em;
+    padding: 0.05rem 0.3rem;
+    border-radius: 3px;
+    background: var(--bg-hover);
+  }
+  .notes-content :global(pre) { overflow-x: auto; }
+  .notes-content :global(a) { color: var(--accent-color); text-decoration: none; }
+  .notes-content :global(a:hover) { text-decoration: underline; }
 
   .progress-container {
     display: flex;

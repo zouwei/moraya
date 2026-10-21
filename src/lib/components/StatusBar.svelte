@@ -429,11 +429,15 @@
       </div>
     {/if}
     {#if updateAvailable && onShowUpdateDialog}
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <span class="update-indicator" onclick={onShowUpdateDialog} title={$t('update.new_version_available')}>
-        &#x2B06;&#xFE0F;
-      </span>
+      <button
+        class="update-indicator"
+        onclick={onShowUpdateDialog}
+        title={$t('update.new_version_available')}
+        aria-label={$t('update.new_version_available')}
+        type="button"
+      >
+        <svg width="14" height="14" viewBox="0 0 1024 1024" fill="currentColor" aria-hidden="true"><path d="M877.056 398.848l-320-320c-12.288-12.288-28.672-18.944-45.056-18.944s-32.768 6.144-45.568 18.944l-320 320.512C105.984 439.808 134.656 508.416 192 508.416h128v127.488a64 64 0 0 0 64 64h256a64 64 0 0 0 64-64v-127.488h128c56.832 0 85.504-69.12 45.056-109.568zM704 444.416h-64.512L640 508.928v127.488h-256v-192H192l320-320 320 320h-128z m-32.768 319.488H350.72c-17.408 0-31.744 14.336-31.744 31.744s14.336 31.744 31.744 31.744h320.512c17.408 0 31.744-14.336 31.744-31.744s-14.336-31.744-31.744-31.744z m0 126.976H350.72c-17.408 0-31.744 14.336-31.744 31.744s14.336 31.744 31.744 31.744h320.512c17.408 0 31.744-14.336 31.744-31.744s-14.336-31.744-31.744-31.744z"/></svg>
+      </button>
     {/if}
     {#if onToggleAI}
       <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -748,17 +752,23 @@
   }
 
   .update-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
     cursor: pointer;
-    font-size: 12px;
-    line-height: 1;
-    padding: 0.1rem 0.2rem;
+    padding: 2px 3px;
+    border: none;
     border-radius: 3px;
-    transition: background var(--transition-fast);
+    background: transparent;
+    color: var(--accent-color);
+    transition: background var(--transition-fast), color var(--transition-fast);
     animation: pulse 2s ease-in-out infinite;
   }
 
   .update-indicator:hover {
     background: var(--bg-hover);
+    color: var(--accent-hover, var(--accent-color));
+    animation: none;
   }
 
   @keyframes pulse {
