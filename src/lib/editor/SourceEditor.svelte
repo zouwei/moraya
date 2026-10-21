@@ -407,7 +407,10 @@
     const frag = document.createDocumentFragment();
     if (beforeText) frag.appendChild(document.createTextNode(beforeText));
     frag.appendChild(marker);
-    frag.appendChild(document.createTextNode(afterText || '\u00A0'));
+    // Zero-width placeholder at end of line: a visible-width one (NBSP) made a
+    // line that just fits wrap in the ghost while the textarea doesn't, so the
+    // caret at line end was measured on a phantom second row (mid-line x).
+    frag.appendChild(document.createTextNode(afterText || '\u200B'));
 
     lineDiv.textContent = '';
     lineDiv.appendChild(frag);
