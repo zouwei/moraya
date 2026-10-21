@@ -21,7 +21,6 @@
 import {
   createEditorPlugins,
   preloadEnhancementPlugins as corePreloadEnhancementPlugins,
-  parseMarkdown,
   serializeMarkdown,
   type MorayaEditorInstance,
 } from '@moraya/core'
@@ -35,6 +34,10 @@ import { morayaRendererRegistry } from './adapters/moraya-renderer-registry'
 import { editorStore } from '../stores/editor-store'
 import { isMacOS } from '../utils/platform'
 import { schema } from './schema'
+// The bridged parser (not core's) — it re-attaches the trailing blank lines
+// that markdown parsing drops. Using core's here lost every blank line a user
+// added at the end in source mode as soon as the visual editor remounted.
+import { parseMarkdown } from './markdown'
 import { createReviewDecorationPlugin } from './plugins/review-decoration'
 import { createMarkdownSourcePastePlugin } from './plugins/markdown-source-paste'
 
@@ -120,7 +123,7 @@ export async function createEditor(options: EditorOptions): Promise<MorayaEditor
   }
 
   const initialDoc = options.defaultValue
-    ? parseMarkdown(options.defaultValue, schema as Schema)
+    ? parseMarkdown(options.defaultValue)
     : (schema as Schema).topNodeType.createAndFill()!
 
   const state = EditorState.create({ schema: schema as Schema, doc: initialDoc, plugins })
@@ -152,7 +155,7 @@ export async function createEditor(options: EditorOptions): Promise<MorayaEditor
       return serializeMarkdown(view.state.doc)
     },
     setContent(md: string) {
-      const newDoc = parseMarkdown(md, schema as Schema)
+      const newDoc = parseMarkdown(md)
       const tr = view.state.tr.replaceWith(0, view.state.doc.content.size, newDoc.content)
       view.dispatch(tr)
     },
