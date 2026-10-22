@@ -89,7 +89,7 @@
     outlineWidth = 260,
     readOnly = false,
     skipDestroyFlush = false,
-    showBlockButtons = true,
+    splitPane = false,
     onEditorReady,
     onContentChange,
     onNotify,
@@ -123,9 +123,10 @@
      *  doc back through the `content` binding, which would otherwise overwrite
      *  the incoming document's content during unmount. */
     skipDestroyFlush?: boolean;
-    /** Show the per-block "+" insert / drag handles in the left gutter.
-     *  Off in split mode: the pane is narrow and the handles crowd the divider. */
-    showBlockButtons?: boolean;
+    /** Rendered as split mode's visual pane: the column hugs the divider
+     *  (left-aligned, smaller left padding) instead of centring in the narrow
+     *  pane, and the per-block "+" insert / drag handles are hidden. */
+    splitPane?: boolean;
     onEditorReady?: (editor: MorayaEditor) => void;
     onContentChange?: (content: string) => void;
     onNotify?: (text: string, type: 'success' | 'error') => void;
@@ -165,6 +166,8 @@
    * prose to make tables fit.
    */
   let wideExtra = $state(0);
+  /** Whether the current mouse press began inside the editable text. */
+  let pressStartedInText = false;
 
   /**
    * Lane reserved between the outline's headings and the prose column for the
@@ -188,7 +191,9 @@
   $effect(() => {
     const w = wrapperWidth;
     const column = contentMaxWidth;
-    if (!wrapperEl || w <= 0) {
+    // The split pane's column is left-aligned, so there is no symmetric
+    // slack for wide blocks to bleed into.
+    if (!wrapperEl || w <= 0 || splitPane) {
       wideExtra = 0;
       return;
     }
@@ -4007,12 +4012,20 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="editor-wrapper" class:ready={isReady} class:has-outline={showOutline} class:view-reading={creationView === 'reading'} class:view-writing={creationView === 'writing'} bind:this={wrapperEl} bind:clientHeight={wrapperHeight} bind:clientWidth={wrapperWidth} oncontextmenu={(e) => {
+<div class="editor-wrapper" class:ready={isReady} class:split-pane={splitPane} class:has-outline={showOutline} class:view-reading={creationView === 'reading'} class:view-writing={creationView === 'writing'} bind:this={wrapperEl} bind:clientHeight={wrapperHeight} bind:clientWidth={wrapperWidth} oncontextmenu={(e) => {
   // Right-click in empty area below content (outside .ProseMirror) — show editor context menu.
   // Clicks inside .ProseMirror are handled by handleContextMenu (registered on proseMirrorEl)
   // which calls stopPropagation(), so this handler only fires for the empty space.
   handleContextMenu(e);
+}} onmousedown={(e) => {
+  pressStartedInText = !!(e.target as HTMLElement).closest('.ProseMirror');
 }} onclick={(e) => {
+  // A drag-selection that starts in the text and is released in the gutter
+  // fires `click` on the gutter (the common ancestor). Treating that as an
+  // empty-area click collapsed the caret and threw the selection away.
+  const fromTextDrag = pressStartedInText;
+  pressStartedInText = false;
+  if (fromTextDrag) return;
   // Click on empty area or empty ProseMirror content → focus editor.
   // Skip if the click originated inside the outline panel: handleOutlineSelect
   // has already scrolled to the target heading, and forcing editor focus here
@@ -4068,7 +4081,7 @@
   </div>
 </div>
 
-{#if showBlockButtons && showDragHandle && blockButtonsInView && !isDraggingBlock && viewChrome.editingAffordances}
+{#if !splitPane && showDragHandle && blockButtonsInView && !isDraggingBlock && viewChrome.editingAffordances}
   <button
     class="block-insert-handle"
     style="top: {dragHandleTop}px; left: {insertHandleLeft}px"
@@ -4248,6 +4261,15 @@
 
   .editor-wrapper.ready {
     visibility: visible;
+  }
+
+  /* Split mode's visual pane: text starts right next to the divider. */
+  .editor-wrapper.split-pane {
+    padding-inline-start: 1.25rem;
+  }
+
+  .split-pane .editor-content-area {
+    margin-inline-start: 0;
   }
 
   /* Visible failure state for createEditor() exceptions / timeouts.

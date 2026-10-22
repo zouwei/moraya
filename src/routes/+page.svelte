@@ -4395,7 +4395,7 @@ ${tr('welcome.tip')}
             <SourceEditor bind:this={splitSourceRef} bind:content readOnly={editorReadOnly} onContentChange={handleContentChange} hideScrollbar />
           </div>
           <div class="split-visual" bind:this={splitVisualEl}>
-            <Editor bind:this={splitVisualRef} bind:content showBlockButtons={false} readOnly={editorReadOnly} skipDestroyFlush={activeTypstTab !== null} onEditorReady={handleEditorReady} onContentChange={handleContentChange} onNotify={showToast} onWorkflowSEO={handleWorkflowSEO} onWorkflowImageGen={handleWorkflowImageGen} onWorkflowPublish={handleWorkflowPublish} onCursorLineChange={(line) => splitSourceRef?.setHighlightLine(line)} onForceShowAIPanel={() => { showAIPanel = true; }} />
+            <Editor bind:this={splitVisualRef} bind:content splitPane readOnly={editorReadOnly} skipDestroyFlush={activeTypstTab !== null} onEditorReady={handleEditorReady} onContentChange={handleContentChange} onNotify={showToast} onWorkflowSEO={handleWorkflowSEO} onWorkflowImageGen={handleWorkflowImageGen} onWorkflowPublish={handleWorkflowPublish} onCursorLineChange={(line) => splitSourceRef?.setHighlightLine(line)} onForceShowAIPanel={() => { showAIPanel = true; }} />
           </div>
         </div>
       {/if}
