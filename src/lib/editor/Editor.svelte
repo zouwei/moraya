@@ -3002,7 +3002,9 @@
     // with a single empty paragraph in one fast transaction.
     // The visual caret for the empty paragraph is handled by CSS (editor.css).
     const handleEditorKeydown = (e: KeyboardEvent) => {
-      if (e.isComposing) return;
+      // keyCode 229 = processed by the IME. WebKit fires compositionend before
+      // the keydown that ends a composition, so that key has isComposing false.
+      if (e.isComposing || e.keyCode === 229) return;
 
       if ((e.key === 'Backspace' || e.key === 'Delete') && editor) {
         try {
