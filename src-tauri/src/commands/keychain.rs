@@ -23,19 +23,27 @@ pub async fn keychain_set(
     state.persist_secrets().await
 }
 
-/// Retrieve a secret from the in-memory cache (loaded from keychain on first access).
+/// Retrieve a secret from the in-memory cache (loaded from keychain on first
+/// access; re-read on a miss).
 #[tauri::command]
 pub async fn keychain_get(
     state: tauri::State<'_, AIProxyState>,
     key: String,
 ) -> Result<Option<String>, String> {
     state.ensure_secrets_loaded().await;
-
-    if let Ok(cache) = state.key_cache.lock() {
-        return Ok(cache.get(&key).cloned());
+    // Unreadable store ≠ missing key: report it, so callers don't go on to
+    // use an empty credential (→ a misleading "Unauthorized").
+    if !state.secrets_available().await {
+        return Err("Keychain is unavailable".to_string());
     }
 
-    Ok(None)
+    let cached = state.key_cache.lock().ok().and_then(|c| c.get(&key).cloned());
+    if cached.is_some() {
+        return Ok(cached);
+    }
+    // Miss: another Moraya process may have saved it since we loaded.
+    state.refresh_secrets().await;
+    Ok(state.key_cache.lock().ok().and_then(|c| c.get(&key).cloned()))
 }
 
 /// Delete a secret. Removes from in-memory cache and persists.

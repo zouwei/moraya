@@ -39,8 +39,10 @@
   }
 
   async function credsFor(target: ImageHostTarget): Promise<{ apiBase: string; apiKey: string }> {
-    const { getPicoraApiKeyOrEmpty } = await import('$lib/services/picora/credentials');
-    return { apiBase: apiBaseFor(target), apiKey: await getPicoraApiKeyOrEmpty(target) };
+    // Throws ("not configured" / "Keychain is unavailable") rather than
+    // sending an empty key, which surfaced as a misleading "Unauthorized".
+    const { getPicoraApiKey } = await import('$lib/services/picora/credentials');
+    return { apiBase: apiBaseFor(target), apiKey: await getPicoraApiKey(target) };
   }
 
   async function load(target: ImageHostTarget) {

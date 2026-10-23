@@ -138,6 +138,20 @@ fn parse_secrets(raw: &str) -> Option<HashMap<String, String>> {
     serde_json::from_slice(&bytes).ok()
 }
 
+/// Read and decode the whole stored secrets map (dev file or OS keychain).
+/// Blocking. `Ok(empty)` when nothing is stored yet; `Err` when the store
+/// exists but could not be read or decoded.
+fn read_stored_secrets() -> Result<HashMap<String, String>, String> {
+    let raw = if cfg!(debug_assertions) { read_dev_secrets() } else { read_os_secrets() }?;
+    match raw {
+        None => Ok(HashMap::new()),
+        Some(json) => parse_secrets(&json).ok_or_else(|| "Stored secrets are unreadable".to_string()),
+    }
+}
+
+/// Minimum gap between re-reads of the store on a cache miss.
+const SECRETS_REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// After a failed load, wait this long before touching the keychain again so
 /// a locked keychain isn't hammered (or re-prompted) on every request.
 const SECRETS_RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_secs(15);
@@ -164,6 +178,12 @@ pub struct AIProxyState {
     /// entry, so two overlapping writes could otherwise land out of order and
     /// drop a just-saved secret.
     persist_lock: tokio::sync::Mutex<()>,
+    /// The stored map as this process last read or wrote it. Diffing the cache
+    /// against it isolates THIS process's own changes, so a persist can apply
+    /// just those on top of a fresh read — never clobbering secrets another
+    /// Moraya process saved in the meantime (all secrets share one entry).
+    secrets_base: Mutex<HashMap<String, String>>,
+    last_refresh: Mutex<Option<std::time::Instant>>,
 }
 
 impl AIProxyState {
@@ -173,7 +193,15 @@ impl AIProxyState {
             key_cache: Mutex::new(HashMap::new()),
             secrets_load: tokio::sync::Mutex::new(SecretsLoadState::default()),
             persist_lock: tokio::sync::Mutex::new(()),
+            secrets_base: Mutex::new(HashMap::new()),
+            last_refresh: Mutex::new(None),
         }
+    }
+
+    /// Whether the stored secrets have been loaded successfully. Until then a
+    /// missing key means "store unreadable", not "never saved".
+    pub(crate) async fn secrets_available(&self) -> bool {
+        self.secrets_load.lock().await.loaded
     }
 
     /// Load all secrets on first successful access; later calls are no-ops.
@@ -194,26 +222,19 @@ impl AIProxyState {
             }
         }
 
-        let raw = if cfg!(debug_assertions) {
-            // Dev mode: read from local file (no keychain prompts)
-            read_dev_secrets()
-        } else {
-            tokio::task::spawn_blocking(read_os_secrets)
-                .await
-                .unwrap_or_else(|_| Err("Keychain task failed".to_string()))
-        };
-
-        let map = match raw {
-            Ok(None) => Some(HashMap::new()),
-            Ok(Some(json)) => parse_secrets(&json),
-            Err(_) => None,
-        };
-        let Some(map) = map else {
+        // Dev mode reads a local file (no keychain prompts) — see read_stored_secrets.
+        let read = tokio::task::spawn_blocking(read_stored_secrets)
+            .await
+            .unwrap_or_else(|_| Err("Keychain task failed".to_string()));
+        let Ok(map) = read else {
             eprintln!("[secrets] keychain read failed; secrets stay read-only until it succeeds");
             state.last_failed_attempt = Some(std::time::Instant::now());
             return;
         };
 
+        if let Ok(mut base) = self.secrets_base.lock() {
+            *base = map.clone();
+        }
         if let Ok(mut cache) = self.key_cache.lock() {
             // Values set in memory while the store was unreadable are newer.
             for (k, v) in map {
@@ -224,26 +245,33 @@ impl AIProxyState {
         state.last_failed_attempt = None;
     }
 
-    /// Persist the entire key cache. Refuses while the stored secrets have
-    /// not been loaded — writing then would replace them with a partial map.
-    /// The OS keychain write runs in a blocking thread for the same reason
-    /// as `ensure_secrets_loaded`.
+    /// Persist this process's secret changes. Read-merge-write: re-reads the
+    /// stored map and applies only the keys this process added, changed or
+    /// removed since it last read/wrote the store (cache vs `secrets_base`),
+    /// so secrets saved by another Moraya process survive. Refuses while the
+    /// store is unreadable — writing then would replace it with a partial map.
+    /// Keychain I/O runs in a blocking thread for the same reason as
+    /// `ensure_secrets_loaded`.
     pub(crate) async fn persist_secrets(&self) -> Result<(), String> {
+        const UNAVAILABLE: &str =
+            "Keychain is unavailable — secrets were not saved. Unlock the keychain and try again.";
         if !self.secrets_load.lock().await.loaded {
-            return Err(
-                "Keychain is unavailable — secrets were not saved. Unlock the keychain and try again."
-                    .to_string(),
-            );
+            return Err(UNAVAILABLE.to_string());
         }
         let _guard = self.persist_lock.lock().await;
-        let json = {
-            let cache = self
-                .key_cache
-                .lock()
-                .map_err(|_| "Lock error".to_string())?;
-            serde_json::to_string(&*cache)
-                .map_err(|_| "Failed to serialize secrets".to_string())?
+
+        let fresh = tokio::task::spawn_blocking(read_stored_secrets)
+            .await
+            .unwrap_or_else(|_| Err("Keychain task failed".to_string()))
+            .map_err(|_| UNAVAILABLE.to_string())?;
+
+        let merged = {
+            let cache = self.key_cache.lock().map_err(|_| "Lock error".to_string())?;
+            let base = self.secrets_base.lock().map_err(|_| "Lock error".to_string())?;
+            merge_local_changes(fresh, &base, &cache)
         };
+        let json = serde_json::to_string(&merged)
+            .map_err(|_| "Failed to serialize secrets".to_string())?;
 
         if cfg!(debug_assertions) {
             // Dev mode: write to local file
@@ -259,8 +287,63 @@ impl AIProxyState {
                 .await
                 .unwrap_or_else(|_| Err("Keychain task failed".to_string()))?;
         }
+
+        // The store now holds `merged`: adopt it as both cache and base, which
+        // also picks up whatever other processes had written.
+        if let Ok(mut cache) = self.key_cache.lock() {
+            *cache = merged.clone();
+        }
+        if let Ok(mut base) = self.secrets_base.lock() {
+            *base = merged;
+        }
         Ok(())
     }
+
+    /// Pull in secrets other processes wrote since we last read the store,
+    /// without disturbing this process's own unsaved changes. Rate-limited;
+    /// used on a cache miss (e.g. a key saved from another Moraya instance).
+    pub(crate) async fn refresh_secrets(&self) {
+        if !self.secrets_load.lock().await.loaded {
+            return;
+        }
+        if let Ok(mut last) = self.last_refresh.lock() {
+            if last.is_some_and(|at| at.elapsed() < SECRETS_REFRESH_INTERVAL) {
+                return;
+            }
+            *last = Some(std::time::Instant::now());
+        }
+        let _guard = self.persist_lock.lock().await;
+        let Ok(Ok(fresh)) = tokio::task::spawn_blocking(read_stored_secrets).await else {
+            return;
+        };
+        let (Ok(mut cache), Ok(mut base)) = (self.key_cache.lock(), self.secrets_base.lock()) else {
+            return;
+        };
+        *cache = merge_local_changes(fresh.clone(), &base, &cache);
+        *base = fresh;
+    }
+}
+
+/// Three-way merge: start from the freshly read store and re-apply the keys
+/// this process changed relative to `base` (added/updated → its value,
+/// removed → removed). Keys it did not touch take the store's current value.
+fn merge_local_changes(
+    fresh: HashMap<String, String>,
+    base: &HashMap<String, String>,
+    cache: &HashMap<String, String>,
+) -> HashMap<String, String> {
+    let mut merged = fresh;
+    for (k, v) in cache {
+        if base.get(k) != Some(v) {
+            merged.insert(k.clone(), v.clone());
+        }
+    }
+    for k in base.keys() {
+        if !cache.contains_key(k) {
+            merged.remove(k);
+        }
+    }
+    merged
 }
 
 impl Default for AIProxyState {
@@ -758,6 +841,44 @@ fn extract_sse_error(line: &str) -> Option<String> {
         (Some(m), Some(c)) => Some(format!("API error ({}): {}", c, m)),
         (Some(m), None) => Some(format!("API error: {}", m)),
         _ => Some(format!("API error: {}", error)),
+    }
+}
+
+#[cfg(test)]
+mod secrets_merge_tests {
+    use super::merge_local_changes;
+    use std::collections::HashMap;
+
+    fn m(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    }
+
+    #[test]
+    fn keeps_a_key_another_process_saved() {
+        // We loaded {ai}; another process then saved the Picora key; we now
+        // update the AI key. The Picora key must survive our write.
+        let base = m(&[("ai-key:c1", "old")]);
+        let cache = m(&[("ai-key:c1", "new")]);
+        let fresh = m(&[("ai-key:c1", "old"), ("picora-api-key:t1", "sk_1")]);
+        let merged = merge_local_changes(fresh, &base, &cache);
+        assert_eq!(merged, m(&[("ai-key:c1", "new"), ("picora-api-key:t1", "sk_1")]));
+    }
+
+    #[test]
+    fn applies_local_deletes_only() {
+        let base = m(&[("a", "1"), ("b", "2")]);
+        let cache = m(&[("a", "1")]); // we deleted b
+        let fresh = m(&[("a", "1"), ("b", "2"), ("c", "3")]);
+        assert_eq!(merge_local_changes(fresh, &base, &cache), m(&[("a", "1"), ("c", "3")]));
+    }
+
+    #[test]
+    fn untouched_keys_take_the_stored_value() {
+        // Another process re-saved the Picora key; we did not touch it.
+        let base = m(&[("picora-api-key:t1", "sk_old")]);
+        let cache = base.clone();
+        let fresh = m(&[("picora-api-key:t1", "sk_new")]);
+        assert_eq!(merge_local_changes(fresh, &base, &cache), m(&[("picora-api-key:t1", "sk_new")]));
     }
 }
 
