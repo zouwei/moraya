@@ -220,6 +220,19 @@
     }
   }
 
+  /**
+   * Insert `text` at the caret, editing the textarea in place. Never reassign
+   * `content` for this: rewriting the whole value moves the native caret to the
+   * end, so the document scrolled to its bottom on every typed quote. In-place
+   * insertion keeps the scroll position, joins the native undo stack and fires
+   * `input` (→ bind:value + handleInput, so the edit is marked dirty).
+   */
+  function insertAtCaret(textarea: HTMLTextAreaElement, text: string) {
+    if (document.execCommand('insertText', false, text)) return;
+    textarea.setRangeText(text, textarea.selectionStart, textarea.selectionEnd, 'end');
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
   /** Normalize smart/curly quotes to straight quotes. */
   function straightenQuotes(text: string): string {
     return text
@@ -271,14 +284,7 @@
     const normalized = straightenQuotes(data);
     if (normalized !== data) {
       event.preventDefault();
-      const textarea = event.target as HTMLTextAreaElement;
-      const start = textarea.selectionStart;
-      const end = textarea.selectionEnd;
-      content = content.substring(0, start) + normalized + content.substring(end);
-      requestAnimationFrame(() => {
-        const newPos = start + normalized.length;
-        textarea.selectionStart = textarea.selectionEnd = newPos;
-      });
+      insertAtCaret(event.target as HTMLTextAreaElement, normalized);
     }
   }
 
@@ -291,15 +297,7 @@
     const normalized = straightenQuotes(text);
     if (normalized === text) return; // No smart quotes — let default paste proceed
     event.preventDefault();
-    const textarea = event.target as HTMLTextAreaElement;
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    content = content.substring(0, start) + normalized + content.substring(end);
-    requestAnimationFrame(() => {
-      const newPos = start + normalized.length;
-      textarea.selectionStart = textarea.selectionEnd = newPos;
-    });
-    handleInput();
+    insertAtCaret(event.target as HTMLTextAreaElement, normalized);
   }
 
   /** Set highlight line from external source (e.g. visual editor in split mode).
@@ -446,25 +444,13 @@
     // Shift+Enter: insert hard break (two spaces + newline)
     if (event.shiftKey && event.key === 'Enter') {
       event.preventDefault();
-      const start = textarea.selectionStart;
-      const end = textarea.selectionEnd;
-      const hardbreak = '  \n';
-      content = content.substring(0, start) + hardbreak + content.substring(end);
-      requestAnimationFrame(() => {
-        textarea.selectionStart = textarea.selectionEnd = start + hardbreak.length;
-      });
+      insertAtCaret(textarea, '  \n');
       return;
     }
 
     if (event.key === 'Tab') {
       event.preventDefault();
-      const start = textarea.selectionStart;
-      const end = textarea.selectionEnd;
-      const spaces = ' '.repeat(tabSize);
-      content = content.substring(0, start) + spaces + content.substring(end);
-      requestAnimationFrame(() => {
-        textarea.selectionStart = textarea.selectionEnd = start + tabSize;
-      });
+      insertAtCaret(textarea, ' '.repeat(tabSize));
     }
   }
 
