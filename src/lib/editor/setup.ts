@@ -24,7 +24,7 @@ import {
   serializeMarkdown,
   type MorayaEditorInstance,
 } from '@moraya/core'
-import { EditorState } from 'prosemirror-state'
+import { EditorState, TextSelection } from 'prosemirror-state'
 import { EditorView, type NodeViewConstructor } from 'prosemirror-view'
 import type { Schema } from 'prosemirror-model'
 
@@ -112,7 +112,7 @@ export async function createEditor(options: EditorOptions): Promise<MorayaEditor
     const coreFactory = tier1.codeBlockView as NodeViewConstructor
     nodeViews.code_block = (...args: Parameters<NodeViewConstructor>) => {
       const nodeView = coreFactory(...args)
-      const pre = (nodeView.dom as HTMLElement).querySelector('.code-block-pre')
+      const pre = (nodeView.dom as HTMLElement).querySelector<HTMLElement>('.code-block-pre')
       const originalStopEvent = nodeView.stopEvent?.bind(nodeView)
       // Core 0.19.5 stops clicks on <pre> padding and blank lines; those
       // clicks must reach ProseMirror to place the code block caret.
@@ -120,6 +120,31 @@ export async function createEditor(options: EditorOptions): Promise<MorayaEditor
         if (event.target instanceof Node && pre?.contains(event.target)) return false
         return originalStopEvent?.(event) ?? false
       }
+      pre?.addEventListener('click', (event) => {
+        const [, view, getPos] = args
+        if (!view.state.selection.empty) return
+        const pos = getPos()
+        if (pos === undefined) return
+        const block = view.state.doc.nodeAt(pos)
+        if (block?.type.name !== 'code_block') return
+
+        const lines = block.textContent.split('\n')
+        const style = getComputedStyle(pre)
+        const lineHeight = Number.parseFloat(style.lineHeight)
+        if (!Number.isFinite(lineHeight) || lineHeight <= 0) return
+        const y = event.clientY - pre.getBoundingClientRect().top
+          - (Number.parseFloat(style.paddingTop) || 0) + pre.scrollTop
+        const line = Math.max(0, Math.min(lines.length - 1, Math.floor(y / lineHeight)))
+        if (lines[line] !== '') return
+
+        let offset = 0
+        for (let i = 0; i < line; i++) offset += lines[i].length + 1
+        event.stopPropagation()
+        view.dispatch(view.state.tr.setSelection(
+          TextSelection.create(view.state.doc, pos + 1 + offset),
+        ).scrollIntoView())
+        view.focus()
+      })
       return nodeView
     }
   }

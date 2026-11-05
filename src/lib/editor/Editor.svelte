@@ -269,7 +269,38 @@
     }
 
     try {
-      const coords = view.coordsAtPos(sel.from);
+      let coords: ReturnType<typeof view.coordsAtPos> | undefined;
+      if (sel.$from.parent.type.name === 'code_block') {
+        const source = sel.$from.parent.textContent;
+        const offset = sel.$from.parentOffset;
+        const lineStart = source.lastIndexOf('\n', offset - 1) + 1;
+        const nextBreak = source.indexOf('\n', offset);
+        const lineEnd = nextBreak < 0 ? source.length : nextBreak;
+        if (source.slice(lineStart, lineEnd) === '') {
+          const blockDom = view.nodeDOM(sel.$from.before());
+          const pre = blockDom instanceof HTMLElement
+            ? blockDom.querySelector<HTMLElement>('.code-block-pre')
+            : null;
+          if (pre) {
+            const style = getComputedStyle(pre);
+            const lineHeight = Number.parseFloat(style.lineHeight);
+            if (Number.isFinite(lineHeight) && lineHeight > 0) {
+              const line = source.slice(0, offset).split('\n').length - 1;
+              const rect = pre.getBoundingClientRect();
+              const top = rect.top + (Number.parseFloat(style.paddingTop) || 0)
+                + line * lineHeight - pre.scrollTop;
+              const left = rect.left + (Number.parseFloat(style.paddingLeft) || 0) - pre.scrollLeft;
+              coords = {
+                left,
+                right: left,
+                top,
+                bottom: top + lineHeight,
+              };
+            }
+          }
+        }
+      }
+      coords ??= view.coordsAtPos(sel.from);
       const rootRect = editorEl.getBoundingClientRect();
       const nativeH = coords.bottom - coords.top;
       const targetH = 25; // Match source mode line-height

@@ -29,4 +29,33 @@ describe('desktop code block events', () => {
       root.remove();
     }
   });
+
+  it('places a click on pre whitespace at the clicked blank code line', async () => {
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+    const editor = await createEditor({
+      root,
+      defaultValue: '```text\nfirst\n\n\nlast\n```',
+    });
+
+    try {
+      const pre = root.querySelector('.code-block-pre') as HTMLElement;
+      pre.style.lineHeight = '24px';
+      vi.spyOn(pre, 'getBoundingClientRect').mockReturnValue({
+        top: 100, bottom: 220, left: 0, right: 600, width: 600, height: 120,
+      } as DOMRect);
+
+      pre.dispatchEvent(new MouseEvent('click', {
+        bubbles: true,
+        clientX: 400,
+        clientY: 100 + 2 * 24 + 12,
+      }));
+
+      expect(editor.view.state.selection.$from.parent.type.name).toBe('code_block');
+      expect(editor.view.state.selection.$from.parentOffset).toBe(7);
+    } finally {
+      editor.destroy();
+      root.remove();
+    }
+  });
 });
