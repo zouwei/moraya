@@ -108,3 +108,52 @@ test('the reported Chinese code block accepts clicks on every line', async ({ pa
     expect(await page.locator('.code-block-code').evaluate((element) => element.textContent)).toBe(expected.join('\n'))
   }
 })
+
+test('clicks across consecutive blank code lines target the clicked row', async ({ page }) => {
+  const lines = ['first', '', '', '', 'last']
+  for (const line of [1, 2, 3]) {
+    for (const xOffset of [80, 250, 450]) {
+      await bootCodeBlock(page, lines)
+      expect(await clickCodeLine(page, line, xOffset)).toBe('code-block-pre')
+      const caretCenter = await page.locator('.visual-custom-caret').evaluate((element) => {
+        const rect = element.getBoundingClientRect()
+        return rect.top + rect.height / 2
+      })
+      const targetCenter = await page.locator('.code-block-code').evaluate((code, lineIndex) => {
+        const range = document.createRange()
+        range.setStart(code.firstChild!, 0)
+        range.setEnd(code.firstChild!, 1)
+        const rect = range.getBoundingClientRect()
+        const lineHeight = parseFloat(getComputedStyle(code.closest('pre')!).lineHeight)
+        return rect.top + rect.height / 2 + lineIndex * lineHeight
+      }, line)
+      expect(Math.abs(caretCenter - targetCenter),
+        `caret on blank line ${line}, horizontal offset ${xOffset}`).toBeLessThan(8)
+      await page.keyboard.type('X')
+      const expected = [...lines]
+      expected[line] = 'X'
+      expect(await page.locator('.code-block-code').evaluate((code) => code.textContent),
+        `blank line ${line}, horizontal offset ${xOffset}`).toBe(expected.join('\n'))
+    }
+  }
+})
+
+test('trailing blank code lines created with Enter remain clickable across the row', async ({ page }) => {
+  for (const line of [1, 2, 3]) {
+    await page.goto('/')
+    await page.waitForSelector('.ProseMirror', { timeout: 20_000 })
+    await page.locator('.ProseMirror').click()
+    await page.keyboard.type('```')
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('first')
+    for (let i = 0; i < 3; i++) await page.keyboard.press('Enter')
+    expect(await page.locator('.code-block-code').evaluate((code) => code.textContent)).toBe('first\n\n\n')
+
+    expect(await clickCodeLine(page, line, 250)).toBe('code-block-pre')
+    await page.keyboard.type('X')
+    const expected = ['first', '', '', '']
+    expected[line] = 'X'
+    expect(await page.locator('.code-block-code').evaluate((code) => code.textContent),
+      `trailing blank line ${line}`).toBe(expected.join('\n'))
+  }
+})
