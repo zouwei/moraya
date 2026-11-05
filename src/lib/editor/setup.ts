@@ -25,7 +25,7 @@ import {
   type MorayaEditorInstance,
 } from '@moraya/core'
 import { EditorState } from 'prosemirror-state'
-import { EditorView } from 'prosemirror-view'
+import { EditorView, type NodeViewConstructor } from 'prosemirror-view'
 import type { Schema } from 'prosemirror-model'
 
 import { tauriMediaResolver } from './adapters/tauri-media-resolver'
@@ -109,7 +109,19 @@ export async function createEditor(options: EditorOptions): Promise<MorayaEditor
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const nodeViews: Record<string, any> = {}
   if (tier1.codeBlockView) {
-    nodeViews.code_block = tier1.codeBlockView
+    const coreFactory = tier1.codeBlockView as NodeViewConstructor
+    nodeViews.code_block = (...args: Parameters<NodeViewConstructor>) => {
+      const nodeView = coreFactory(...args)
+      const pre = (nodeView.dom as HTMLElement).querySelector('.code-block-pre')
+      const originalStopEvent = nodeView.stopEvent?.bind(nodeView)
+      // Core 0.19.5 stops clicks on <pre> padding and blank lines; those
+      // clicks must reach ProseMirror to place the code block caret.
+      nodeView.stopEvent = (event) => {
+        if (event.target instanceof Node && pre?.contains(event.target)) return false
+        return originalStopEvent?.(event) ?? false
+      }
+      return nodeView
+    }
   }
   // Typora-style in-place math editing (core v0.6.0): click a formula → LaTeX
   // source opens in the document flow (block: source line above live preview;
