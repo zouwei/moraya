@@ -2,12 +2,12 @@
   "wavedrom": "3.8.0",
   "nomnoml": "1.7.0",
   "echarts": "6.1.0",
-  "vega-embed": "7.3.0",
-  "abcjs": "6.7.2",
+  "vega-embed": "7.4.0",
+  "abcjs": "6.7.3",
   "jsmind": "0.9.1",
   "@pintora/standalone": "0.8.1",
-  "chart.js": "4.6.1",
-  "cytoscape": "3.34.4",
+  "chart.js": "4.6.2",
+  "cytoscape": "3.35.0",
   "@viz-js/viz": "3.31.0",
   "@morcad/moraya": "0.2.8"
 }
